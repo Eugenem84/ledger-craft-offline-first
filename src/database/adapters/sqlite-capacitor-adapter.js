@@ -1,5 +1,5 @@
 import { CapacitorSQLite } from '@capacitor-community/sqlite'
-import StorageAdapter from './storage-adapter'
+import StorageAdapter from './storage-adapter.js'
 
 export default {
   ...StorageAdapter,

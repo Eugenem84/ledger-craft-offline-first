@@ -1,11 +1,7 @@
-<script setup>
-
-</script>
+<script setup></script>
 
 <template>
-  $END$
+  store
 </template>
 
-<style scoped>
-
-</style>
+<style scoped></style>

@@ -1,0 +1,18 @@
+[
+  {
+    "id": 101,
+    "name": "Игорь",
+    "phone": "123",
+    "specialization_id": 1,
+    "created_at": 1700000000,
+    "updated_at": 1700000000
+  },
+  {
+    "id": 102,
+    "name": "Марина",
+    "phone": "456",
+    "specialization_id": 1,
+    "created_at": 1700000100,
+    "updated_at": 1700000100
+  }
+]

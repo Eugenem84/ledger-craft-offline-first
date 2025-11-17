@@ -1,7 +1,7 @@
 <script setup></script>
 
 <template>
-  Analitic
+  Analytic
 </template>
 
 <style scoped></style>
