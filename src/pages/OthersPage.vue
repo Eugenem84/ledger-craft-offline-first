@@ -1,5 +1,7 @@
 <script setup></script>
 
-<template></template>
+<template>
+  index
+</template>
 
 <style scoped></style>
