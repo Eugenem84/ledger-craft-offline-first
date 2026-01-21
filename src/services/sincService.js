@@ -21,7 +21,13 @@ class SyncService {
   }
 
   async sync() {
-    if (this.syncing) return;
+    console.log('[Sync] start');
+
+    if (this.syncing) {
+      console.log('[Sync] already syncing');
+      return;
+    }
+
     this.syncing = true;
 
     try {
@@ -31,6 +37,7 @@ class SyncService {
       console.error('[SyncService] Ошибка синхронизации:', e);
     } finally {
       this.syncing = false;
+      console.log('[Sync] end');
     }
   }
 
@@ -57,12 +64,24 @@ class SyncService {
     for (const table of Object.keys(this.repos)) {
       const repo = this.repos[table];
 
-      const updates = await api.fetchUpdates({
+      console.log(`[Sync] fetching updates for table "${table}" since ${lastSyncedAt}`);
+
+      const response = await api.fetchUpdates({
         table,
         since: lastSyncedAt
       });
 
-      for (const record of updates) {
+      const records = Array.isArray(response)
+        ? response
+        : Array.isArray(response?.records)
+          ? response.records
+          : [];
+
+      console.log(`[Sync] received ${records.length} updates for table "${table}"`);
+      console.log(`[Sync] updates for table "${table}":`, records);
+
+      for (const record of records) {
+        console.log(`[Sync] applying record to "${table}":`, record);
         await repo.applyServerRecord(record);
       }
     }

@@ -7,8 +7,8 @@ import mockClients from 'src/mocks/clients.json';
 // import mockOrders from 'src/mocks/orders.json';
 // import mockInvoices from 'src/mocks/invoices.json';
 
-const API_URL = 'http://217.114.0.27/api';
-const USE_MOCK = true;
+const API_URL = 'https://dev.medovf2h.beget.tech/api';
+const USE_MOCK = false;
 
 export default {
   async send(operation) {
@@ -22,7 +22,7 @@ export default {
       };
     }
 
-    const res = await axios.post(`${API_URL}/sync-op`, operation);
+    const res = await axios.post(`${API_URL}/sync-updates`, operation);
     return res.data;
   },
 
