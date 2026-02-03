@@ -3,7 +3,7 @@ import {onMounted, ref} from 'vue'
 import {api} from "boot/axios.js";
 import {useQuasar} from "quasar";
 //import DeleteConfirmPage from "pages/DeleteConfirmPage.vue";
-//import NewClientDialogPage from "pages/dialogs/NewClientDialogPage.vue";
+import NewClientDialogPage from "pages/dialogs/NewClientDialogPage.vue";
 //import NewServiceDialogPage from "pages/dialogs/NewServiceDialogPage.vue";
 //import NewServiceCategoryDialogPage from "pages/dialogs/NewServiceCategoryDialogPage.vue";
 //import EditServiceCategoryDialogPage from "pages/dialogs/EditServiceCategoryDialogPage.vue";

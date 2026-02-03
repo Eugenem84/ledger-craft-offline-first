@@ -5,6 +5,7 @@ import metaRepo from 'src/repositories/metaRepo';
 import operationsRepo from 'src/repositories/operationsRepo';
 
 import * as clientsRepo from 'src/repositories/clientsRepo';
+import * as specializationsRepo from 'src/repositories/specializationsRepo';
 // импортируй остальные репозитории по мере добавления
 
 class SyncService {
@@ -14,6 +15,7 @@ class SyncService {
     // тут указываешь репозитории, а не имена таблиц
     this.repos = {
       clients: clientsRepo,
+      specializations: specializationsRepo,
       // orders: ordersRepo,
       // invoices: invoicesRepo,
       // ...

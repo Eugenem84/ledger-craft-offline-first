@@ -12,7 +12,12 @@ export async function getAll() {
 }
 
 export async function save(client) {
+  // Генерируем новый локальный UUID для клиента, если он создается впервые.
+  // Если клиент уже имеет id (например, при редактировании), используется существующий.
   const id = client.id || uuidv4()
+
+  // Готовим параметры для SQL-запроса на вставку.
+  // Важно сохранять порядок полей, как в самом запросе.
   const params = [
     id,
     client.server_id || null,
@@ -21,15 +26,25 @@ export async function save(client) {
     client.phone || ''
   ]
 
-  //console.log('queries.insert:', queries.insert)
-
+  // Выполняем SQL-запрос для сохранения клиента в локальной базе данных.
   await dbAdapter.execute(queries.insert, params)
+
+  // Добавляем операцию 'insert' в очередь для последующей отправки на сервер.
+  // Это позволяет приложению работать в офлайн-режиме.
   await dbAdapter.enqueueOperation({
     type: 'insert',
     table: 'clients',
     payload: { id, ...client }
   })
 
+  // --- Добавлено для отладки ---
+  const queue = await dbAdapter.query('SELECT * FROM operations ORDER BY created_at ASC');
+  console.log('--- Operations Queue After Save ---');
+  console.table(queue);
+  console.log('---------------------------------');
+  // --- Конец отладочного кода ---
+
+  // Возвращаем локальный ID созданного или обновленного клиента.
   return id
 }
 

@@ -1,7 +1,8 @@
 import { boot } from 'quasar/wrappers'
 import SqlJsAdapter from 'src/database/adapters/sqljs-web-adapter.js'
 import migrations from 'src/database/migrations/index.js'
-import sincService from 'src/services/sincService'
+import syncService from 'src/services/syncService.js'
+
 // import SqliteAdapter from 'src/adapters/sqlite-capacitor-adapter'
 //import { useClientsStore } from "stores/useClientsStore.js";
 
@@ -38,7 +39,7 @@ export default boot(async () => {
     }
 
     console.log('sync activated')
-    await sincService.sync()
+    await syncService.sync()
 
     // dbAdapter.execute(`
     //   INSERT OR IGNORE INTO clients (id, name) VALUES

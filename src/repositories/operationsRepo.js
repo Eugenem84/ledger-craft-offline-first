@@ -12,12 +12,23 @@ export default {
     `, [op.id]);
 
     // если сервер вернул server_id/updated_at — обновим локальную запись
-    if (serverRes?.server_id) {
+    // Эта логика важна для "примирения" данных после ответа сервера.
+    if (op.type === 'insert' && serverRes?.id) {
+      // Для операции INSERT сервер возвращает свой ID.
+      // Мы должны обновить локальную запись, чтобы связать временный UUID с постоянным ID сервера.
       await db.execute(`
         UPDATE ${op.table}
         SET server_id = ?, updated_at = ?
         WHERE id = ?
-      `, [serverRes.server_id, serverRes.updated_at, op.payload.id]);
+      `, [serverRes.id, serverRes.updated_at, op.payload.id]);
+    } else if (op.type === 'update' && serverRes?.updated_at) {
+      // Для операции UPDATE сервер может вернуть свежий `updated_at`.
+      // Обновляем его, чтобы избежать будущих конфликтов синхронизации.
+      await db.execute(`
+        UPDATE ${op.table}
+        SET updated_at = ?
+        WHERE id = ?
+      `, [serverRes.updated_at, op.payload.id]);
     }
   }
 };
