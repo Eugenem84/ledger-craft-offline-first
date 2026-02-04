@@ -4,6 +4,7 @@ import axios from 'axios';
 
 // моки
 import mockClients from 'src/mocks/clients.json';
+import mockSpecializations from 'src/mocks/specializations.json';
 // import mockOrders from 'src/mocks/orders.json';
 // import mockInvoices from 'src/mocks/invoices.json';
 
@@ -22,7 +23,7 @@ export default {
       };
     }
 
-    const res = await axios.post(`${API_URL}/sync-updates`, operation);
+    const res = await axios.post(`${API_URL}/sync`, operation);
     return res.data;
   },
 
@@ -35,6 +36,9 @@ export default {
       switch (table) {
         case 'clients':
           return mockClients;
+
+        case 'specializations':
+          return mockSpecializations;
 
         // case 'orders':
         //   return mockOrders;
@@ -51,6 +55,21 @@ export default {
       params: { table, since }
     });
 
-    return res.data;
+    // Получаем "сырые" данные от сервера
+    const serverData = res.data;
+
+    // Если это массив записей, трансформируем его
+    if (Array.isArray(serverData?.records)) {
+      serverData.records = serverData.records.map(record => {
+        // Для таблицы специализаций переименовываем specializationName -> name
+        if (table === 'specializations' && record.specializationName) {
+          record.name = record.specializationName;
+          delete record.specializationName;
+        }
+        return record;
+      });
+    }
+
+    return serverData;
   }
 };

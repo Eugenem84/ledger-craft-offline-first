@@ -26,12 +26,11 @@ export async function save(specialization) {
 
   await dbAdapter.execute(queries.insert, params)
 
-  await dbAdapter.enqueueOperation({
-    type: 'insert',
-    table: 'specializations',
-    payload: { id, ...specialization }
-  })
+  const opId = uuidv4();
+  const opPayload = JSON.stringify({ id, ...specialization });
+  const opParams = [opId, 'insert', 'specializations', opPayload, Date.now()];
 
+  await dbAdapter.enqueueOperation('insert', opParams);
   return id
 }
 
@@ -65,6 +64,14 @@ export async function remove(id) {
 }
 
 /**
+ * Полностью очищает таблицу специализаций в локальной базе.
+ * Используется для отладки и полного сброса.
+ */
+export async function clearAll() {
+  await dbAdapter.execute(`DELETE FROM specializations`);
+}
+
+/**
  * Применяет запись, полученную с сервера, к локальной базе данных.
  * Создает новую запись или обновляет существующую, если серверная версия новее.
  * @param {object} record - Запись специализации с сервера.
@@ -75,19 +82,24 @@ export async function applyServerRecord(record) {
   if (!existing.length) {
     // Новая запись с сервера
     const localId = uuidv4()
+    // Приводим даты к timestamp в миллисекундах
+    const createdAt = record.created_at ? new Date(record.created_at).getTime() : Date.now();
+    const updatedAt = record.updated_at ? new Date(record.updated_at).getTime() : Date.now();
+
     const params = [
       localId,
       record.id, // server_id
       record.name,
-      record.created_at || Math.floor(Date.now() / 1000),
-      record.updated_at || Math.floor(Date.now() / 1000)
+      createdAt,
+      updatedAt
     ]
     await dbAdapter.execute(queries.insertFromServer, params)
   } else {
     // Обновление существующей записи
     const local = existing[0]
-    if (new Date(record.updated_at) > new Date(local.updated_at)) {
-      const updateParams = [record.name, record.updated_at, record.id] // WHERE server_id = ?
+    const serverUpdatedAt = new Date(record.updated_at).getTime();
+    if (serverUpdatedAt > local.updated_at) { // Сравниваем timestamp-ы
+      const updateParams = [record.name, serverUpdatedAt, record.id] // WHERE server_id = ?
       await dbAdapter.execute(queries.updateFromServer, updateParams)
     }
   }

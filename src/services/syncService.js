@@ -1,7 +1,8 @@
 // services/syncService.js
 
+import dbAdapter from 'src/database/adapters/sqljs-web-adapter';
 import api from 'src/services/api';
-import metaRepo from 'src/repositories/metaRepo';
+import * as metaRepo from 'src/repositories/metaRepo';
 import operationsRepo from 'src/repositories/operationsRepo';
 
 import * as clientsRepo from 'src/repositories/clientsRepo';
@@ -73,6 +74,8 @@ class SyncService {
         since: lastSyncedAt
       });
 
+      console.log(`[Sync] raw response for table "${table}":`, response);
+
       const records = Array.isArray(response)
         ? response
         : Array.isArray(response?.records)
@@ -89,6 +92,32 @@ class SyncService {
     }
 
     await metaRepo.setLastSyncedAt(Date.now());
+  }
+
+  /**
+   * Полный сброс локальных данных для отладки.
+   * Очищает все таблицы, управляемые синхронизацией, и сбрасывает время последней синхронизации.
+   */
+  async fullReset() {
+    console.log('[Sync] Full reset started');
+    for (const table of Object.keys(this.repos)) {
+      const repo = this.repos[table];
+      if (typeof repo.clearAll === 'function') {
+        console.log(`[Sync] Clearing table "${table}"`);
+        await repo.clearAll();
+      }
+    }
+    await metaRepo.resetLastSyncedAt();
+    console.log('[Sync] Full reset finished');
+  }
+
+  /**
+   * Полностью удаляет локальную базу данных.
+   * Требует перезагрузки страницы для повторной инициализации.
+   */
+  async deleteLocalDB() {
+    console.log('[SyncService] Deleting local database.');
+    await dbAdapter.deleteDatabase();
   }
 }
 

@@ -26,6 +26,6 @@ export default {
   updateFromServer: `
     UPDATE clients
     SET server_id = ?, specialization_id = ?, name = ?, phone = ?, created_at = ?, updated_at = ?
-    WHERE id = ?
+    WHERE server_id = ?
   `
 };

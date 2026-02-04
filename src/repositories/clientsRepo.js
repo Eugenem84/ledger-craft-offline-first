@@ -30,12 +30,12 @@ export async function save(client) {
   await dbAdapter.execute(queries.insert, params)
 
   // Добавляем операцию 'insert' в очередь для последующей отправки на сервер.
-  // Это позволяет приложению работать в офлайн-режиме.
-  await dbAdapter.enqueueOperation({
-    type: 'insert',
-    table: 'clients',
-    payload: { id, ...client }
-  })
+  const opId = uuidv4();
+  const opPayload = JSON.stringify({ id, ...client });
+  const opParams = [opId, 'insert', 'clients', opPayload, Date.now()];
+
+  // Вызываем обновленный метод адаптера
+  await dbAdapter.enqueueOperation('insert', opParams);
 
   // --- Добавлено для отладки ---
   const queue = await dbAdapter.query('SELECT * FROM operations ORDER BY created_at ASC');

@@ -3,10 +3,8 @@ import StorageAdapter from './storage-adapter.js'
 
 let db = null
 
-export default {
-  ...StorageAdapter,
-
-  async init() {
+const dbAdapter = {
+  init: async function() {
     try {
       const SQL = await initSqlJs({ locateFile: file => `https://sql.js.org/dist/${file}` })
       db = new SQL.Database()
@@ -17,12 +15,12 @@ export default {
     }
   },
 
-  execute(sql, params = []) {
+  execute: function(sql, params = []) {
     if (!db) {
     console.error('[SQLJS] Execute called but DB not initialized!')
     throw new Error('Database not initialized')
   }
-  
+
   if (!sql) {
     console.error('[SQLJS] Execute called with undefined SQL!', params)
     throw new Error('SQL query is undefined')
@@ -38,7 +36,7 @@ export default {
   }
   },
 
-  query(sql, params = []) {
+  query: function(sql, params = []) {
     try {
       const result = db.exec(sql, params)
       if (!result.length) return []
@@ -55,7 +53,7 @@ export default {
     }
   },
 
-  async transaction(cb) {
+  transaction: async function(cb) {
     try {
       await cb()
     } catch (err) {
@@ -64,11 +62,22 @@ export default {
     }
   },
 
-  enqueueOperation(op) {
+  enqueueOperation: function(op) {
     // пока пусть молчит
   },
 
-  dequeueOperations() {
+  dequeueOperations: function() {
     return []
+  },
+
+  /**
+   * Полностью удаляет базу данных из хранилища браузера.
+   */
+  deleteDatabase: async function() {
+    console.log('[SQLJS] Deleting local database from storage.');
+    StorageAdapter.clear(); // Явно вызываем метод из импортированного адаптера
+    db = null; // Сбрасываем текущий инстанс БД в памяти
   }
 }
+
+export default dbAdapter;

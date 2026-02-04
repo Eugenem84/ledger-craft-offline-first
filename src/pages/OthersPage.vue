@@ -1,10 +1,12 @@
 <script setup>
 
 import { computed, onMounted, ref } from 'vue'
+import { useQuasar } from 'quasar'
 import SyncService from '../services/syncService.js'
 import { useSpecializationsStore } from 'src/stores/useSpecializationsStore.js'
 
 const selectedSpecialization = ref(null)
+const $q = useQuasar()
 
 // 1. Получаем экземпляр хранилища
 const specializationsStore = useSpecializationsStore()
@@ -25,6 +27,32 @@ const sync = async () => {
     await specializationsStore.load()
   } catch (error) {
     console.error('Ошибка при синхронизации:', error)
+  }
+}
+
+const fullReset = async () => {
+  try {
+    await SyncService.fullReset()
+    console.log('Полный сброс локальной базы выполнен.')
+    await specializationsStore.load() // Перезагружаем данные в сторе (теперь они будут пустыми)
+  } catch (error) {
+    console.error('Ошибка при полном сбросе:', error)
+  }
+}
+
+const deleteDB = async () => {
+  try {
+    await SyncService.deleteLocalDB()
+    $q.notify({
+      type: 'positive',
+      message: 'Локальная база данных удалена. Перезагрузите страницу.',
+      timeout: 0, // не скрывать автоматически
+      // noinspection JSUnusedGlobalSymbols
+      actions: [{ label: 'Перезагрузить', color: 'white', handler: () => { window.location.reload() } }],
+    })
+  } catch (error) {
+    console.error('Ошибка при удалении БД:', error)
+    $q.notify({ type: 'negative', message: 'Не удалось удалить базу данных.' })
   }
 }
 
@@ -50,6 +78,18 @@ const sync = async () => {
         label="Синхронизировать"
         color="primary"
         @click="sync"
+      />
+
+      <q-btn
+        label="Полный сброс (для отладки)"
+        color="negative"
+        @click="fullReset"
+      />
+
+      <q-btn
+        label="Удалить локальную БД"
+        color="deep-orange"
+        @click="deleteDB"
       />
     </div>
   </q-page>

@@ -16,5 +16,13 @@ export default {
   },
   dequeueOperations() {
     throw new Error('dequeueOperations() not implemented')
+  },
+  /**
+   * Очищает постоянное хранилище (например, localStorage).
+   */
+  clear() {
+    // Используем тот же ключ, что и в sqljs-web-adapter
+    localStorage.removeItem('sqljs_db');
+    console.log('[StorageAdapter] Local storage cleared.');
   }
 }
