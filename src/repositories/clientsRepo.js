@@ -1,6 +1,7 @@
 import { v4 as uuidv4 } from 'uuid'
 import dbAdapter from 'src/database/adapters/sqljs-web-adapter'
 import queries from 'src/database/queries/clients'
+import operationsRepo from 'src/repositories/operationsRepo'
 
 //console.log('queries.insert:', queries.insert)
 console.log('!!! queries object:', queries)
@@ -30,14 +31,25 @@ export async function save(client) {
   await dbAdapter.execute(queries.insert, params)
 
   // Добавляем операцию 'insert' в очередь для последующей отправки на сервер.
+  // В payload для сервера не должно быть локального id.
+  // Но нам нужно знать этот id, чтобы потом обновить запись, когда сервер вернет server_id.
+  // Поэтому мы сохраняем его в payload под ключом `local_id`,
+  // который будет удален перед отправкой на сервер.
+  const payloadForServer = { ...client };
+  delete payloadForServer.id;
   const opId = uuidv4();
-  const opPayload = JSON.stringify({ id, ...client });
+  const opPayload = JSON.stringify({ local_id: id, ...payloadForServer });
   const opParams = [opId, 'insert', 'clients', opPayload, Date.now()];
 
-  // Вызываем обновленный метод адаптера
-  await dbAdapter.enqueueOperation('insert', opParams);
+  // Вызываем метод репозитория операций для добавления в очередь
+  await operationsRepo.enqueue(opParams);
 
   // --- Добавлено для отладки ---
+  const allClients = await dbAdapter.query('SELECT * FROM clients');
+  console.log('--- Clients in DB After Save ---');
+  console.table(allClients);
+  console.log('--------------------------------');
+
   const queue = await dbAdapter.query('SELECT * FROM operations ORDER BY created_at ASC');
   console.log('--- Operations Queue After Save ---');
   console.table(queue);
@@ -49,22 +61,30 @@ export async function save(client) {
 }
 
 export async function update(client) {
-  const params = [client.name, client.phone, client.email, client.id]
-  await dbAdapter.execute(queries.update, params)
-  await dbAdapter.enqueueOperation({
-    type: 'update',
-    table: 'clients',
-    payload: client
-  })
+  // Параметры должны соответствовать запросу в `database/queries/clients.js`
+  const params = [
+    client.server_id || null,
+    client.specialization_id || null,
+    client.name,
+    client.phone || '',
+    client.id // для `WHERE id = ?`
+  ];
+  await dbAdapter.execute(queries.update, params);
+
+  const opId = uuidv4();
+  const opPayload = JSON.stringify(client); // В payload для update отправляем измененный объект
+  const opParams = [opId, 'update', 'clients', opPayload, Date.now()];
+  await operationsRepo.enqueue(opParams);
 }
 
 export async function remove(id) {
-  await dbAdapter.execute(queries.delete, [id])
-  await dbAdapter.enqueueOperation({
-    type: 'delete',
-    table: 'clients',
-    payload: { id }
-  })
+  await dbAdapter.execute(queries.delete, [id]);
+
+  const opId = uuidv4();
+  // Для удаления достаточно передать id в payload
+  const opPayload = JSON.stringify({ id });
+  const opParams = [opId, 'delete', 'clients', opPayload, Date.now()];
+  await operationsRepo.enqueue(opParams);
 }
 
 export async function applyServerRecord(record) {

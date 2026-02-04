@@ -2,6 +2,14 @@
 import db from 'src/database/adapters/sqljs-web-adapter';
 
 export default {
+  /**
+   * Добавляет операцию в очередь на синхронизацию.
+   * @param {Array} params - Параметры для SQL-запроса [id, type, table, payload, created_at]
+   */
+  async enqueue(params) {
+    await db.execute('INSERT INTO operations (id, type, "table", payload, created_at) VALUES (?, ?, ?, ?, ?)', params);
+  },
+
   async dequeue() {
     return db.query(`SELECT * FROM operations ORDER BY created_at ASC`);
   },
@@ -20,7 +28,7 @@ export default {
         UPDATE ${op.table}
         SET server_id = ?, updated_at = ?
         WHERE id = ?
-      `, [serverRes.id, serverRes.updated_at, op.payload.id]);
+      `, [serverRes.id, serverRes.updated_at, op.payload.local_id]);
     } else if (op.type === 'update' && serverRes?.updated_at) {
       // Для операции UPDATE сервер может вернуть свежий `updated_at`.
       // Обновляем его, чтобы избежать будущих конфликтов синхронизации.

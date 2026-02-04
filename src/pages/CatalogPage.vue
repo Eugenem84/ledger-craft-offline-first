@@ -43,8 +43,8 @@ const showServiceDetails = ref(false)
 
 onMounted(async () => {
   console.log('onMounted CatalogPage.vue')
-  await clientsStore.loadClients()
-  console.log('clientsStore.clients: ', clientsStore.clients)
+  await clientsStore.load()
+  //console.log('clientsStore.clients: ', clientsStore.clients)
   //getServiceCategories()
   //getServicesByCategory()
 })
@@ -257,12 +257,6 @@ const openEditServiceCategoryDialog = () => {
   editServiceCategoryDialog.value.open()
 }
 
-const handleClientAdded = (newClientData) => {
-  clients.value.push(newClientData.client)
-  console.log('newClientData', newClientData.client)
-  console.log('clients', clients.value)
-}
-
 const handleServiceAdded = () => {
   getServicesByCategory()
   console.log('services: ', services)
@@ -377,7 +371,7 @@ const handleServiceCategoryEdited = () => {
           <q-list bordered separator >
 
             <q-item-label v-if="!clients">Нет материалов</q-item-label>
-            <q-item v-for="client in clientsStore.clients"
+            <q-item v-for="client in clientsStore.items"
                     :key="client.id"
                     class="w-100 justify-between row"
                     style="width: 100%"
@@ -486,7 +480,7 @@ const handleServiceCategoryEdited = () => {
 
     <DeleteConfirmPage ref="confirmDialog"/>
 
-    <NewClientDialogPage ref="newClientDialog" @client-added="handleClientAdded" />
+    <NewClientDialogPage ref="newClientDialog" />
     <NewServiceDialogPage ref="newServiceDialog" @service-added="handleServiceAdded" :data="selectedServiceCategory" />
     <NewServiceCategoryDialogPage ref="newServiceCategoryDialog" @service_category-added="handleServiceCategoryAdded" />
     <EditServiceCategoryDialogPage ref="editServiceCategoryDialog"

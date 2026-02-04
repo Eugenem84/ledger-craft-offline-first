@@ -6,8 +6,8 @@ export default {
       CREATE TABLE IF NOT EXISTS operations (
         id TEXT PRIMARY KEY,
         type TEXT NOT NULL,
-        table_name TEXT NOT NULL,
-        payload TEXT NOT NULL,
+        "table" TEXT NOT NULL,
+        payload TEXT,
         created_at INTEGER DEFAULT (strftime('%s','now'))
       );
     `);

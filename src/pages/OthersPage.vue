@@ -1,11 +1,10 @@
 <script setup>
 
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted } from 'vue'
 import { useQuasar } from 'quasar'
 import SyncService from '../services/syncService.js'
 import { useSpecializationsStore } from 'src/stores/useSpecializationsStore.js'
 
-const selectedSpecialization = ref(null)
 const $q = useQuasar()
 
 // 1. Получаем экземпляр хранилища
@@ -17,7 +16,13 @@ const specializationOptions = computed(() => specializationsStore.items.map(item
   value: item.id
 })))
 
-// 3. Загружаем данные при монтировании компонента
+// 3. Создаем вычисляемое свойство, связанное с хранилищем, для v-model
+const selectedSpecialization = computed({
+  get: () => specializationsStore.selectedId,
+  set: (id) => specializationsStore.select(id)
+})
+
+// 4. Загружаем данные при монтировании компонента
 onMounted(() => specializationsStore.load())
 
 const sync = async () => {

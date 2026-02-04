@@ -1,16 +1,14 @@
 <script setup>
 import {ref} from 'vue'
-import {api} from "boot/axios.js";
-import {useSpecializationsStore} from "stores/specializations.js";
+import {useSpecializationsStore} from "stores/useSpecializationsStore.js";
+import { useClientsStore } from 'stores/useClientsStore.js'
 
 const specializationStore = useSpecializationsStore()
+const clientsStore = useClientsStore()
 
-const selectedSpecializationId= specializationStore.getSelectedSpecialization.id
 const isOpen = ref(false)
 const name = ref('')
 const phone = ref('')
-
-const emit = defineEmits(['client-added'])
 
 function open(){
   isOpen.value = true
@@ -24,16 +22,26 @@ defineExpose({open})
 
 const addNew = async () => {
   try {
-    const response = await api.post('/add_client', {
+    // Получаем актуальный ID выбранной специализации из стора
+    const selectedSpecializationId = specializationStore.selectedId;
+
+    if (!selectedSpecializationId) {
+      console.error("Специализация не выбрана. Невозможно добавить клиента.");
+      // В будущем здесь можно будет показать уведомление пользователю
+      return;
+    }
+
+    const newClient = {
       name: name.value,
       phone: phone.value,
       specialization_id: selectedSpecializationId
-    })
+    };
+    // Вызываем экшен стора, который сделает всю работу (обновит UI, сохранит в БД, поставит в очередь)
+    await clientsStore.add(newClient);
+
     name.value = ''
     phone.value = ''
     close()
-    emit('client-added', response.data)
-    console.log('response', response)
   } catch (err) {
     console.error('ошибка добавления клиента: ', err)
   }
