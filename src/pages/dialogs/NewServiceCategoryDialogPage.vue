@@ -6,7 +6,8 @@ import { useQuasar } from 'quasar'
 
 const $q = useQuasar()
 const categoriesStore = useCategoriesStore()
-const specializationStore = useSpecializationsStore()
+// Не создаем экземпляр store здесь, чтобы он не был "заморожен"
+// const specializationStore = useSpecializationsStore()
 
 const isOpen = ref(false)
 const name = ref('')
@@ -23,7 +24,10 @@ function close(){
 defineExpose({open})
 
 const addNew = async () => {
+  // Получаем актуальный экземпляр store прямо перед использованием
+  const specializationStore = useSpecializationsStore()
   const selectedSpecialization = specializationStore.getSelectedSpecialization
+
   if (!selectedSpecialization || !selectedSpecialization.id) {
     $q.notify({
       type: 'negative',
