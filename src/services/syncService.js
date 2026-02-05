@@ -110,24 +110,50 @@ class SyncService {
       }
       // --- Конец трансформации ---
 
-      // Перед отправкой на сервер удаляем из payload временный локальный ID,
-      // который использовался для связи. Серверу он не нужен.
-      if (op.type === 'insert' && op.payload?.local_id) {
-        // Мы не удаляем его из объекта op.payload, а создаем копию без него для отправки
-        // т.к. op.payload.local_id еще понадобится в markSynced
-      }
-
       try {
         console.log('[Sync] -> Отправка операции на сервер:', op);
-        const serverRes = await api.send(op);
+        const serverRes = await api.send({ operations: [op] });
         console.log('[Sync] <- Сервер успешно обработал операцию. Ответ:', serverRes);
-        await operationsRepo.markSynced(op, serverRes);
+
+        const findResult = (responseItem) => {
+          if (op.type === 'insert') {
+            return responseItem.local_id === op.payload.local_id;
+          }
+          return responseItem.local_id === op.id;
+        };
+
+        if (Array.isArray(serverRes?.synced) && serverRes.synced.length > 0) {
+          const syncResult = serverRes.synced.find(findResult);
+
+          if (syncResult) {
+            // --- ИСПРАВЛЕНИЕ ---
+            // Если это была операция вставки, обновляем server_id у локальной записи.
+            if (op.type === 'insert') {
+              const repo = this.repos[op.table];
+              if (repo && typeof repo.updateServerId === 'function') {
+                await repo.updateServerId(op.payload.local_id, syncResult.server_id);
+              }
+            }
+            // --- КОНЕЦ ИСПРАВЛЕНИЯ ---
+
+            await operationsRepo.markSynced(op, syncResult);
+          } else {
+            throw new Error('Сервер не вернул результат для отправленной операции.');
+          }
+        } else if (Array.isArray(serverRes?.errors) && serverRes.errors.length > 0) {
+          const errorResult = serverRes.errors.find(findResult);
+          if (errorResult) {
+            throw new Error(`Сервер вернул ошибку для операции: ${errorResult.error}`);
+          }
+          throw new Error('Сервер вернул ошибки, но не для этой операции.');
+        } else {
+          throw new Error('Сервер вернул пустой или некорректный ответ.');
+        }
       } catch (e) {
         console.error('[SyncService] Ошибка отправки операции. Она останется в очереди для следующей попытки.', {
           operation: op,
           error: e
         });
-        // Не прерываем весь цикл, а просто переходим к следующей операции
         continue;
       }
     }

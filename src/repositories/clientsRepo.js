@@ -122,3 +122,7 @@ export async function applyServerRecord(record) {
     await dbAdapter.execute(queries.updateFromServer, updateParams);
   }
 }
+
+export async function updateServerId(localId, serverId) {
+  await dbAdapter.execute(queries.updateServerId, [serverId, localId]);
+}

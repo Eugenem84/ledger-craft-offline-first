@@ -17,8 +17,7 @@ export default {
   `,
   delete: `
     DELETE FROM clients WHERE id = ?
-  `
-  ,
+  `,
   insertFromServer: `
     INSERT INTO clients (id, server_id, specialization_id, name, phone, created_at, updated_at)
     VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -27,5 +26,10 @@ export default {
     UPDATE clients
     SET server_id = ?, specialization_id = ?, name = ?, phone = ?, created_at = ?, updated_at = ?
     WHERE server_id = ?
+  `,
+  updateServerId: `
+    UPDATE clients
+    SET server_id = ?
+    WHERE id = ?
   `
 };
