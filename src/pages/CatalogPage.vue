@@ -150,34 +150,30 @@ const openServiceDialog = (service) => {
   showServiceDetails.value = true
 }
 
-// const editClient = async () => {
-//   try {
-//     console.log('отправление запроса на редактирование')
-//     const response = await api.post(`/edit_client`, {
-//       id: selectedClient.value.id,
-//       name: selectedClient.value.name,
-//       phone: selectedClient.value.phone
-//     })
-//     console.log('response: ', response)
-//     await getClients()
-//     editClientMode.value = false
-//     showClientsDetails.value = false
-//     $q.notify({
-//       type: 'positive',
-//       message: 'клиент изменен',
-//       position: "top",
-//       timeout: "1000"
-//     })
-//   } catch (err){
-//     $q.notify({
-//       type: 'negative',
-//       message: 'ошибка редактирования клиента',
-//       position: "top",
-//       timeout: "1000"
-//     })
-//     console.error(err)
-//   }
-// }
+const editClient = async () => {
+  try {
+    await clientsStore.update(selectedClient.value.id, {
+      name: selectedClient.value.name,
+      phone: selectedClient.value.phone
+    })
+    editClientMode.value = false
+    showClientsDetails.value = false
+    $q.notify({
+      type: 'positive',
+      message: 'клиент изменен',
+      position: "top",
+      timeout: "1000"
+    })
+  } catch (err){
+    $q.notify({
+      type: 'negative',
+      message: 'ошибка редактирования клиента',
+      position: "top",
+      timeout: "1000"
+    })
+    console.error(err)
+  }
+}
 
 const editService = async () => {
   try {

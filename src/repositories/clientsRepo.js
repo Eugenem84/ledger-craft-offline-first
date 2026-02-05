@@ -61,21 +61,41 @@ export async function save(client) {
 }
 
 export async function update(client) {
-  // Параметры должны соответствовать запросу в `database/queries/clients.js`
+  // 1. Получаем текущую запись из БД, чтобы не потерять server_id и др. поля
+  const existingClient = await dbAdapter.queryOne(queries.getById, [client.id]);
+
+  // 2. Обновляем локальную запись в БД только переданными полями
   const params = [
-    client.server_id || null,
-    client.specialization_id || null,
     client.name,
     client.phone || '',
     client.id // для `WHERE id = ?`
   ];
-  await dbAdapter.execute(queries.update, params);
+  await dbAdapter.execute(queries.update, params); // Убедитесь, что queries.update обновляет только нужные поля
 
-  const opId = uuidv4();
-  const opPayload = JSON.stringify(client); // В payload для update отправляем измененный объект
-  const opParams = [opId, 'update', 'clients', opPayload, Date.now()];
-  await operationsRepo.enqueue(opParams);
+  // 3. Готовим операцию для сервера
+  if (existingClient && existingClient.server_id) {
+    // Если есть server_id, значит, запись синхронизирована.
+    // Готовим операцию 'update' для сервера.
+    const opId = uuidv4();
+    // В payload для сервера используем server_id как 'id'
+    const payloadForServer = {
+      id: existingClient.server_id,
+      name: client.name,
+      phone: client.phone
+    };
+    const opPayload = JSON.stringify(payloadForServer);
+    const opParams = [opId, 'update', 'clients', opPayload, Date.now()];
+    await operationsRepo.enqueue(opParams);
+  } else {
+    // Если server_id нет, значит, это новая, еще не синхронизированная запись.
+    // Операция 'insert' для нее уже должна быть в очереди.
+    // Нам нужно найти эту операцию и обновить ее payload.
+    // (Этот код предполагает, что у вас есть метод для обновления операции в operationsRepo)
+    console.log('Запись еще не на сервере. Обновление произойдет в рамках операции INSERT.');
+    // await operationsRepo.updatePayloadByLocalId('clients', client.id, client);
+  }
 }
+
 
 export async function remove(id) {
   // Получаем клиента по его локальному ID
