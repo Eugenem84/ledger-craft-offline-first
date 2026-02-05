@@ -1,15 +1,15 @@
 <script setup>
 import {ref} from 'vue'
-import {api} from "boot/axios.js";
-import {useSpecializationsStore} from "stores/specializations.js";
+import { useCategoriesStore } from 'stores/useCategoriesStore.js'
+import { useSpecializationsStore } from 'stores/useSpecializationsStore.js'
+import { useQuasar } from 'quasar'
 
+const $q = useQuasar()
+const categoriesStore = useCategoriesStore()
 const specializationStore = useSpecializationsStore()
 
-const selectedSpecializationId= specializationStore.getSelectedSpecialization.id
 const isOpen = ref(false)
 const name = ref('')
-
-const emit = defineEmits(['service_category-added'])
 
 function open(){
   isOpen.value = true
@@ -17,21 +17,43 @@ function open(){
 
 function close(){
   isOpen.value = false
+  name.value = ''
 }
 
 defineExpose({open})
 
 const addNew = async () => {
-  try {
-    const response = await api.post('/add_category', {
-      category_name: name.value,
-      specialization_id: selectedSpecializationId
+  const selectedSpecialization = specializationStore.getSelectedSpecialization
+  if (!selectedSpecialization || !selectedSpecialization.id) {
+    $q.notify({
+      type: 'negative',
+      message: 'Сначала выберите специализацию',
+      position: 'top',
+      timeout: 2000
     })
-    name.value = ''
+    console.error('Невозможно добавить категорию: специализация не выбрана.')
+    return
+  }
+
+  try {
+    await categoriesStore.add({
+      category_name: name.value,
+      specialization_id: selectedSpecialization.id
+    })
     close()
-    emit('service_category-added', response.data)
-    console.log('response', response)
+    $q.notify({
+      type: 'positive',
+      message: 'Категория добавлена',
+      position: 'top',
+      timeout: 1000
+    })
   } catch (err) {
+    $q.notify({
+      type: 'negative',
+      message: 'Ошибка добавления категории',
+      position: 'top',
+      timeout: 1000
+    })
     console.error('ошибка добавления сервис категории: ', err)
   }
 }
@@ -43,12 +65,12 @@ const addNew = async () => {
   <q-dialog v-model="isOpen">
     <q-card>
       <q-card-section>
-        <div class="text-h6"> новая категория</div>
+        <div class="text-h6"> Новая категория</div>
         <q-input v-model="name" label="Название категории" outlined class="q-mb-md" />
       </q-card-section>
       <q-card-actions align="right">
-        <q-btn flat label="отмена" color="yellow" @click="close" />
-        <q-btn flat label="сохранить" color="yellow" @click="addNew" />
+        <q-btn flat label="Отмена" color="yellow" @click="close" />
+        <q-btn flat label="Сохранить" color="yellow" @click="addNew" />
       </q-card-actions>
     </q-card>
   </q-dialog>

@@ -4,23 +4,19 @@ import {api} from "boot/axios.js";
 import {useQuasar} from "quasar";
 import DeleteConfirmPage from "pages/dialogs/DeleteConfirmPage.vue";
 import NewClientDialogPage from "pages/dialogs/NewClientDialogPage.vue";
-//import NewServiceDialogPage from "pages/dialogs/NewServiceDialogPage.vue";
-//import NewServiceCategoryDialogPage from "pages/dialogs/NewServiceCategoryDialogPage.vue";
-import EditServiceCategoryDialogPage from "pages/dialogs/EditServiceCategoryDialogPage.vue";
+import NewServiceCategoryDialogPage from "pages/dialogs/NewServiceCategoryDialogPage.vue";
 
 import { useClientsStore } from 'stores/useClientsStore.js'
-import { useSpecializationsStore } from 'stores/useSpecializationsStore.js';
+import { useCategoriesStore } from 'stores/useCategoriesStore.js'
 
 const $q = useQuasar()
 
 const clientsStore = useClientsStore()
-//const specializationsStore = useSpecializationsStore()
-
+const categoriesStore = useCategoriesStore()
 
 const newClientDialog = ref(null)
 const newServiceDialog = ref(null)
 const newServiceCategoryDialog = ref(null)
-const editServiceCategoryDialog = ref(null)
 
 const confirmDialog = ref(null)
 
@@ -28,25 +24,23 @@ const tab = ref('services')
 
 const editClientMode = ref(false)
 const editServiceMode = ref(false)
+const editCategoryMode = ref(false)
 
-const clients = ref([])
+
 const services = ref([])
-const serviceCategories = ref([])
 const selectedClient = ref(null)
 const selectedService = ref(null)
 const selectedServiceCategory = ref(null)
 
-//const selectedSpecializationId = specializationsStore.getSelectedSpecialization.id
-
 const showClientsDetails = ref(false)
 const showServiceDetails = ref(false)
+const showCategoryDetails = ref(false)
+
 
 onMounted(async () => {
   console.log('onMounted CatalogPage.vue')
   await clientsStore.load()
-  //console.log('clientsStore.clients: ', clientsStore.clients)
-  //getServiceCategories()
-  //getServicesByCategory()
+  await categoriesStore.load()
 })
 
 function handleDelete(){
@@ -86,38 +80,24 @@ const deleteClient = async () => {
   }
 }
 
-// const getClients = async () => {
-//   try {
-//     const response = await api.get(`/get_clients/${selectedSpecializationId}`)
-//     clients.value = response.data
-//     console.log('clients: ', clients.value)
-//   } catch (err) {
-//     $q.notify({
-//       type: 'negative',
-//       message: 'ошибка загрузки клиентов',
-//       position: "top",
-//       timeout: "1000"
-//     })
-//     console.error('ошибка получения клиентов: ', err)
-//   }
-// }
-
-const getServiceCategories = async () => {
-  const specializationStore = useSpecializationsStore()
+const deleteCategory = async () => {
   try {
-    const specializationId = specializationStore.getSelectedSpecialization.id
-    console.log('специализация: ', specializationId)
-    const response = await api.get(`/get_categories/${specializationId}`)
-    serviceCategories.value = response.data
-    console.log('сервис категории: ', serviceCategories.value)
-  } catch (err) {
+    await categoriesStore.remove(selectedServiceCategory.value.id)
+    showCategoryDetails.value = false
     $q.notify({
-      type: 'negative',
-      message: 'ошибка загрузки категорий работ',
+      type: 'positive',
+      message: 'Категория удалена',
       position: "top",
       timeout: "1000"
     })
-    console.error('ошибка загрузки сервис категорий', err)
+  } catch (err){
+    $q.notify({
+      type: 'negative',
+      message: 'ошибка удаления категории',
+      position: "top",
+      timeout: "1000"
+    })
+    console.error(err)
   }
 }
 
@@ -150,6 +130,11 @@ const openServiceDialog = (service) => {
   showServiceDetails.value = true
 }
 
+const openCategoryDialog = (category) => {
+  selectedServiceCategory.value = {...category}
+  showCategoryDetails.value = true
+}
+
 const editClient = async () => {
   try {
     await clientsStore.update(selectedClient.value.id, {
@@ -168,6 +153,30 @@ const editClient = async () => {
     $q.notify({
       type: 'negative',
       message: 'ошибка редактирования клиента',
+      position: "top",
+      timeout: "1000"
+    })
+    console.error(err)
+  }
+}
+
+const editCategory = async () => {
+  try {
+    await categoriesStore.update(selectedServiceCategory.value.id, {
+      category_name: selectedServiceCategory.value.category_name,
+    })
+    editCategoryMode.value = false
+    showCategoryDetails.value = false
+    $q.notify({
+      type: 'positive',
+      message: 'Категория изменена',
+      position: "top",
+      timeout: "1000"
+    })
+  } catch (err){
+    $q.notify({
+      type: 'negative',
+      message: 'ошибка редактирования категории',
       position: "top",
       timeout: "1000"
     })
@@ -206,32 +215,6 @@ const editService = async () => {
   }
 }
 
-// const deleteService = async () => {
-//   try {
-//     const response = await api.post(`/delete_service`, {
-//       serviceId: selectedService.value.id
-//     })
-//     console.log('response', response)
-//     await getServicesByCategory()
-//     editServiceMode.value = false
-//     showServiceDetails.value = false
-//     $q.notify({
-//       type: 'positive',
-//       message: 'работа удалена',
-//       position: "top",
-//       timeout: "1000"
-//     })
-//   } catch (err){
-//     $q.notify({
-//       type: 'negative',
-//       message: 'ошибка удаления работы',
-//       position: "top",
-//       timeout: "1000"
-//     })
-//     console.error(err)
-//   }
-// }
-
 const openNewClientDialog = () => {
   newClientDialog.value.open()
 }
@@ -244,24 +227,6 @@ const openNewServiceCategoryDialog = () => {
   newServiceCategoryDialog.value.open()
 }
 
-const openEditServiceCategoryDialog = () => {
-  editServiceCategoryDialog.value.open()
-}
-
-const handleServiceAdded = () => {
-  getServicesByCategory()
-  console.log('services: ', services)
-}
-
-const handleServiceCategoryAdded = () => {
-  getServiceCategories()
-}
-
-const handleServiceCategoryEdited = () => {
-  serviceCategories.value = null
-  selectedServiceCategory.value = null
-  getServiceCategories()
-}
 </script>
 
 <template>
@@ -286,62 +251,22 @@ const handleServiceCategoryEdited = () => {
 
         <q-tab-panel name="services" style="padding: 0">
 
-          <div class="row items-center" >
-
-            <q-select v-model="selectedServiceCategory"
-                      :options="serviceCategories"
-                      option-label="category_name"
-                      emit-value
-                      map-options
-                      label="категории работ"
-                      dense
-                      placeholder="нет категорий"
-                      label-color="grey"
-                      color="yellow"
-                      class="col-9"
-                      outlined
-                      @update:model-value="getServicesByCategory"
-            />
-
-            <div class="col-auto self-end">
-              <q-btn class="col-1 text-yellow" @click="openNewServiceCategoryDialog">+</q-btn>
-            </div>
-            <div class="col-auto self-end">
-              <q-btn class="col-1 text-yellow" icon="edit" @click="openEditServiceCategoryDialog" />
-            </div>
-
-          </div>
-
           <q-list bordered separator >
-            <q-item-label v-if="!services">Нет сервисов</q-item-label>
-            <q-item v-for="service in services"
-                    :key="service"
+            <q-item-label v-if="!categoriesStore.items">Нет категорий</q-item-label>
+            <q-item v-for="category in categoriesStore.items"
+                    :key="category.id"
                     class="w-100 justify-between selectService"
                     style="width: 100%"
                     clickable
                     v-ripple
-                    @click="openServiceDialog(service)"
+                    @click="openCategoryDialog(category)"
             >
 
               <q-item-section >
                 <q-item-label class="text-left">
-                  {{ service.service }}
+                  {{ category.category_name }}
                 </q-item-label>
               </q-item-section>
-
-              <q-item-section >
-                <q-item-label class="text-right">
-                  {{ service.price }}
-                </q-item-label>
-              </q-item-section>
-
-              <q-btn
-                icon="add"
-                round
-                class="fab bg-yellow text-black"
-                @click="console.log('не реализовано')"
-                size="20px"
-              />
 
             </q-item>
           </q-list>
@@ -351,7 +276,7 @@ const handleServiceCategoryEdited = () => {
             icon="add"
             round
             class="fab bg-yellow text-black"
-            @click="openNewServiceDialog"
+            @click="openNewServiceCategoryDialog"
             size="20px"
           />
         </q-tab-panel>
@@ -361,7 +286,7 @@ const handleServiceCategoryEdited = () => {
           <!-- отображение списка клиентов -->
           <q-list bordered separator >
 
-            <q-item-label v-if="!clients">Нет материалов</q-item-label>
+            <q-item-label v-if="!clientsStore.items">Нет клиентов</q-item-label>
             <q-item v-for="client in clientsStore.items"
                     :key="client.id"
                     class="w-100 justify-between row"
@@ -437,33 +362,25 @@ const handleServiceCategoryEdited = () => {
 
     </q-dialog>
 
-    <q-dialog v-model="showServiceDetails" persistent>
+    <q-dialog v-model="showCategoryDetails" persistent>
       <q-card>
         <q-card-section>
-          <div class="text-h6">сервис</div>
-          <q-input :disable="!editServiceMode"
-                   v-model="selectedService.service"
+          <div class="text-h6">Категория</div>
+          <q-input :disable="!editCategoryMode"
+                   v-model="selectedServiceCategory.category_name"
                    label-color="yellow"
                    color="yellow"
-                   label="название сервиса"
+                   label="Название категории"
                    outlined
                    class="q-mb-md"
           />
-          <q-input :disable="!editServiceMode"
-                   v-model="selectedService.price"
-                   label-color="yellow"
-                   color="yellow"
-                   label="цена"
-                   outlined class="q-mb-md"
-          />
-
         </q-card-section>
         <q-card-actions align="right">
-          <q-btn v-if="editServiceMode" flat label="отмена" color="yellow" @click="editServiceMode = false" />
-          <q-btn v-if="!editServiceMode" flat label="закрыть" color="yellow" @click="showServiceDetails = false" />
-          <q-btn v-if="!editServiceMode" flat label="редактировать" color="yellow" @click="editServiceMode = true" />
-          <q-btn v-if="editServiceMode" flat label="сохранить" color="yellow" @click="editService" />
-          <q-btn v-if="!editServiceMode" flat label="удалить" color="yellow" @click="handleDelete" />
+          <q-btn v-if="editCategoryMode" flat label="отмена" color="yellow" @click="editCategoryMode = false" />
+          <q-btn v-if="!editCategoryMode" flat label="закрыть" color="yellow" @click="showCategoryDetails = false" />
+          <q-btn v-if="!editCategoryMode" flat label="редактировать" color="yellow" @click="editCategoryMode = true" />
+          <q-btn v-if="editCategoryMode" flat label="сохранить" color="yellow" @click="editCategory" />
+          <q-btn v-if="!editCategoryMode" flat label="удалить" color="yellow" @click="deleteCategory" />
         </q-card-actions>
       </q-card>
 
@@ -472,12 +389,7 @@ const handleServiceCategoryEdited = () => {
     <DeleteConfirmPage ref="confirmDialog"/>
 
     <NewClientDialogPage ref="newClientDialog" />
-    <NewServiceDialogPage ref="newServiceDialog" @service-added="handleServiceAdded" :data="selectedServiceCategory" />
-    <NewServiceCategoryDialogPage ref="newServiceCategoryDialog" @service_category-added="handleServiceCategoryAdded" />
-    <EditServiceCategoryDialogPage ref="editServiceCategoryDialog"
-                                   @service_category-edited="handleServiceCategoryEdited"
-                                   :data="selectedServiceCategory"
-    />
+    <NewServiceCategoryDialogPage ref="newServiceCategoryDialog" />
   </div>
 
 </template>
