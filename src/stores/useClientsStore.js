@@ -75,6 +75,7 @@ export const useClientsStore = defineStore('clients', {
       } catch (err) {
         this.error = err
         this.items = oldList // Откат
+        throw err // Пробрасываем ошибку дальше
       }
     }
   }

@@ -38,5 +38,21 @@ export default {
         WHERE id = ?
       `, [serverRes.updated_at, op.payload.id]);
     }
+  },
+
+  /**
+   * Удаляет из очереди операцию 'insert' по локальному ID записи.
+   * Это нужно, чтобы отменить создание записи, которая еще не была синхронизирована.
+   * @param {string} tableName - Имя таблицы
+   * @param {string} localId - Локальный ID записи
+   */
+  async removeByLocalId(tableName, localId) {
+    const operations = await db.query('SELECT * FROM operations WHERE "table" = ? AND type = "insert"', [tableName]);
+    for (const op of operations) {
+      const payload = JSON.parse(op.payload);
+      if (payload.local_id === localId) {
+        await db.execute('DELETE FROM operations WHERE id = ?', [op.id]);
+      }
+    }
   }
 };

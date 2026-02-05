@@ -78,13 +78,27 @@ export async function update(client) {
 }
 
 export async function remove(id) {
-  await dbAdapter.execute(queries.delete, [id]);
+  // Получаем клиента по его локальному ID
+  const client = await dbAdapter.queryOne(queries.getById, [id]);
 
-  const opId = uuidv4();
-  // Для удаления достаточно передать id в payload
-  const opPayload = JSON.stringify({ id });
-  const opParams = [opId, 'delete', 'clients', opPayload, Date.now()];
-  await operationsRepo.enqueue(opParams);
+  if (client && client.server_id) {
+    // Если у клиента есть server_id, значит он был синхронизирован.
+    // Ставим в очередь операцию 'delete' для сервера.
+    const opId = uuidv4();
+    // Для удаления на сервере используем server_id.
+    const opPayload = JSON.stringify({ id: client.server_id });
+    const opParams = [opId, 'delete', 'clients', opPayload, Date.now()];
+    await operationsRepo.enqueue(opParams);
+  } else if (client) {
+    // Если у клиента нет server_id, значит он был создан оффлайн
+    // и еще не был синхронизирован с сервером.
+    // В этом случае нам не нужно отправлять 'delete' на сервер.
+    // Вместо этого мы должны найти и удалить из очереди операцию 'insert'.
+    await operationsRepo.removeByLocalId('clients', id);
+  }
+
+  // В любом случае удаляем клиента из локальной базы данных.
+  await dbAdapter.execute(queries.delete, [id]);
 }
 
 export async function applyServerRecord(record) {

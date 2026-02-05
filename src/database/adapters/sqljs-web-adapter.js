@@ -53,6 +53,11 @@ const dbAdapter = {
     }
   },
 
+  queryOne: function(sql, params = []) {
+    const rows = this.query(sql, params);
+    return rows.length > 0 ? rows[0] : null;
+  },
+
   transaction: async function(cb) {
     try {
       await cb()

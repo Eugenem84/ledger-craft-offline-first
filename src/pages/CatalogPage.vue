@@ -2,11 +2,11 @@
 import {onMounted, ref} from 'vue'
 import {api} from "boot/axios.js";
 import {useQuasar} from "quasar";
-//import DeleteConfirmPage from "pages/DeleteConfirmPage.vue";
+import DeleteConfirmPage from "pages/dialogs/DeleteConfirmPage.vue";
 import NewClientDialogPage from "pages/dialogs/NewClientDialogPage.vue";
 //import NewServiceDialogPage from "pages/dialogs/NewServiceDialogPage.vue";
 //import NewServiceCategoryDialogPage from "pages/dialogs/NewServiceCategoryDialogPage.vue";
-//import EditServiceCategoryDialogPage from "pages/dialogs/EditServiceCategoryDialogPage.vue";
+import EditServiceCategoryDialogPage from "pages/dialogs/EditServiceCategoryDialogPage.vue";
 
 import { useClientsStore } from 'stores/useClientsStore.js'
 import { useSpecializationsStore } from 'stores/useSpecializationsStore.js';
@@ -49,21 +49,42 @@ onMounted(async () => {
   //getServicesByCategory()
 })
 
-// function handleDelete(){
-//   if (showClientsDetails.value) {
-//     confirmDialog.value.open(
-//       'Удаление клиента',
-//       `Вы уверены что хотите удалить клиента "${selectedClient.value.name}" ?`,
-//       () => {deleteClient()}
-//     )
-//   } else if (showServiceDetails.value){
-//     confirmDialog.value.open(
-//       'Удаление услуги',
-//       `Вы уврены что хотите удалить сервис "${selectedService.value.service}"`,
-//       () => {deleteService()}
-//     )
-//   }
-// }
+function handleDelete(){
+  if (showClientsDetails.value) {
+    confirmDialog.value.open(
+      'Удаление клиента',
+      `Вы уверены что хотите удалить клиента "${selectedClient.value.name}" ?`,
+      () => {deleteClient()}
+    )
+  } else if (showServiceDetails.value){
+    confirmDialog.value.open(
+      'Удаление услуги',
+      `Вы уврены что хотите удалить сервис "${selectedService.value.service}"`,
+      () => {deleteService()}
+    )
+  }
+}
+
+const deleteClient = async () => {
+  try {
+    await clientsStore.remove(selectedClient.value.id)
+    showClientsDetails.value = false
+    $q.notify({
+      type: 'positive',
+      message: 'клиент удален',
+      position: "top",
+      timeout: "1000"
+    })
+  } catch (err){
+    $q.notify({
+      type: 'negative',
+      message: 'ошибка удаления клиента',
+      position: "top",
+      timeout: "1000"
+    })
+    console.error(err)
+  }
+}
 
 // const getClients = async () => {
 //   try {
@@ -188,32 +209,6 @@ const editService = async () => {
     console.error(err)
   }
 }
-
-// const deleteClient = async () => {
-//   try {
-//     const response = await api.post(`/delete_client`, {
-//       clientId: selectedClient.value.id
-//     })
-//     console.log('response', response)
-//     await getClients()
-//     editClientMode.value = false
-//     showClientsDetails.value = false
-//     $q.notify({
-//       type: 'positive',
-//       message: 'клиент удален',
-//       position: "top",
-//       timeout: "1000"
-//     })
-//   } catch (err){
-//     $q.notify({
-//       type: 'negative',
-//       message: 'ошибка удаления клиента',
-//       position: "top",
-//       timeout: "1000"
-//     })
-//     console.error(err)
-//   }
-// }
 
 // const deleteService = async () => {
 //   try {

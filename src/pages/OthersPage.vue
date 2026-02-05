@@ -23,7 +23,11 @@ const selectedSpecialization = computed({
 })
 
 // 4. Загружаем данные при монтировании компонента
-onMounted(() => specializationsStore.load())
+onMounted(() => {
+  specializationsStore.load().then(() => {
+    // Первая специализация будет выбрана по умолчанию в сторе
+  })
+})
 
 const sync = async () => {
   try {

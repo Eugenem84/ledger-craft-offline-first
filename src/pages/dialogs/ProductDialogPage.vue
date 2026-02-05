@@ -2,7 +2,7 @@
 import {ref} from 'vue'
 import {api} from 'boot/axios.js'
 import {useSpecializationsStore} from "stores/specializations.js";
-import DeleteConfirmPage from "pages/DeleteConfirmPage.vue";
+import DeleteConfirmPage from "pages/dialogs/DeleteConfirmPage.vue";
 import ArrivalProductDialogPage from "pages/dialogs/ArrivalProductDialogPage.vue";
 
 const deleteConfirmPage = ref(null)

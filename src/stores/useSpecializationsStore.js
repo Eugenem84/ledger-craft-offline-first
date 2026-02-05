@@ -23,6 +23,9 @@ export const useSpecializationsStore = defineStore('specializations', {
       this.loading = true
       try {
         this.items = await specializationsRepo.getAll()
+        if (this.selectedId === null && this.items.length > 0) {
+          this.selectedId = this.items[0].id
+        }
       } catch (err) {
         this.error = err
       } finally {

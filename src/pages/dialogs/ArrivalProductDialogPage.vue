@@ -1,7 +1,7 @@
 <script setup>
 import {ref} from 'vue'
 import {api} from 'boot/axios.js'
-import DeleteConfirmPage from "pages/DeleteConfirmPage.vue";
+import DeleteConfirmPage from "pages/dialogs/DeleteConfirmPage.vue";
 
 const deleteConfirmPage = ref(null)
 
