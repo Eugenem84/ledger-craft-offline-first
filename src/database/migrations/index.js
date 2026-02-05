@@ -3,13 +3,15 @@ import m002 from './002_create_operations.js'
 import m003 from './003_create_meta.js'
 import m004 from './004_create_specializations_table.js'
 import m005 from './005_create_categories_table.js'
+import m006 from './006_create_services_table.js'
 
 const migrations = [
   m001,
   m002,
   m003,
   m004,
-  m005
+  m005,
+  m006
 ]
 
 export default migrations

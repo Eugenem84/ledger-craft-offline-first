@@ -7,6 +7,7 @@ import operationsRepo from 'src/repositories/operationsRepo';
 
 import * as clientsRepo from 'src/repositories/clientsRepo';
 import * as specializationsRepo from 'src/repositories/specializationsRepo';
+import * as categoriesRepo from 'src/repositories/categoriesRepo';
 // импортируй остальные репозитории по мере добавления
 
 class SyncService {
@@ -17,6 +18,7 @@ class SyncService {
     this.repos = {
       clients: clientsRepo,
       specializations: specializationsRepo,
+      categories: categoriesRepo,
       // orders: ordersRepo,
       // invoices: invoicesRepo,
       // ...
@@ -27,6 +29,9 @@ class SyncService {
     // а значение - таблица, на которую он ссылается.
     this.fkTransformationMap = {
       clients: {
+        specialization_id: 'specializations'
+      },
+      categories: {
         specialization_id: 'specializations'
       }
       // Например, в будущем:

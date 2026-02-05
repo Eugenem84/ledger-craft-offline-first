@@ -1,50 +1,74 @@
 <script setup>
 import {ref} from 'vue'
-import {api} from "boot/axios.js";
-import {useSpecializationsStore} from "stores/specializations.js";
+import { useServicesStore } from 'stores/useServicesStore.js'
+import { useSpecializationsStore } from 'stores/useSpecializationsStore.js'
+import { useQuasar } from 'quasar'
 
+const $q = useQuasar()
+const servicesStore = useServicesStore()
 const specializationStore = useSpecializationsStore()
 
-const selectedSpecializationId= specializationStore.getSelectedSpecialization.id
 const isOpen = ref(false)
 const name = ref('')
 const price = ref('')
-const categoryId = ref('')
+const category = ref(null)
 
-const emit = defineEmits(['service-added'])
+defineExpose({open})
 
-const props = defineProps({
-  data: {type: Number}
-})
-
-function open(){
+function open(selectedCategory){
+  category.value = selectedCategory
   isOpen.value = true
-  categoryId.value = props.data.value
 }
 
 function close(){
   isOpen.value = false
-  categoryId.value = ''
+  name.value = ''
+  price.value = ''
+  category.value = null
 }
 
-defineExpose({open})
-
 const addNew = async () => {
+  const selectedSpecialization = specializationStore.getSelectedSpecialization
+  if (!selectedSpecialization || !selectedSpecialization.id) {
+    $q.notify({
+      type: 'negative',
+      message: 'Сначала выберите специализацию',
+      position: 'top',
+      timeout: 2000
+    })
+    return
+  }
+  if (!category.value || !category.value.id) {
+    $q.notify({
+      type: 'negative',
+      message: 'Категория не выбрана',
+      position: 'top',
+      timeout: 2000
+    })
+    return
+  }
+
   try {
-    console.log('category_id: ', props.data.id)
-    const response = await api.post('/add_service', {
+    await servicesStore.add({
       service: name.value,
       price: price.value,
-      category_id: props.data.id,
-      specialization_id: selectedSpecializationId
+      category_id: category.value.id,
+      specialization_id: selectedSpecialization.id
     })
-    name.value = ''
-    price.value = ''
-    categoryId.value = ''
     close()
-    emit('service-added', response.data)
-    console.log('response', response)
+    $q.notify({
+      type: 'positive',
+      message: 'Услуга добавлена',
+      position: 'top',
+      timeout: 1000
+    })
   } catch (err) {
+    $q.notify({
+      type: 'negative',
+      message: 'Ошибка добавления услуги',
+      position: 'top',
+      timeout: 1000
+    })
     console.error('ошибка добавления сервиса: ', err)
   }
 }
@@ -52,23 +76,20 @@ const addNew = async () => {
 </script>
 
 <template>
-
   <q-dialog v-model="isOpen">
     <q-card>
       <q-card-section>
-        <div class="text-h6"> новый сервис</div>
-        <q-input v-model="name" label="Название сервиса" outlined class="q-mb-md"/>
-        <q-input v-model="price" label="цена" outlined class="q-mb-md" />
+        <div class="text-h6">Новая услуга</div>
+        <q-input v-model="name" label="Название услуги" outlined class="q-mb-md"/>
+        <q-input v-model="price" label="Цена" outlined class="q-mb-md" />
       </q-card-section>
       <q-card-actions align="right">
-        <q-btn flat label="отмена" color="yellow" @click="close" />
-        <q-btn flat label="сохранить" color="yellow" @click="addNew" />
+        <q-btn flat label="Отмена" color="yellow" @click="close" />
+        <q-btn flat label="Сохранить" color="yellow" @click="addNew" />
       </q-card-actions>
     </q-card>
   </q-dialog>
-
 </template>
 
 <style scoped>
-
 </style>
