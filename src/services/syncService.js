@@ -8,34 +8,29 @@ import operationsRepo from 'src/repositories/operationsRepo';
 import * as clientsRepo from 'src/repositories/clientsRepo';
 import * as specializationsRepo from 'src/repositories/specializationsRepo';
 import * as categoriesRepo from 'src/repositories/categoriesRepo';
-// импортируй остальные репозитории по мере добавления
+import * as servicesRepo from 'src/repositories/servicesRepo';
 
 class SyncService {
   constructor() {
     this.syncing = false;
 
-    // тут указываешь репозитории, а не имена таблиц
     this.repos = {
       clients: clientsRepo,
       specializations: specializationsRepo,
       categories: categoriesRepo,
-      // orders: ordersRepo,
-      // invoices: invoicesRepo,
-      // ...
+      services: servicesRepo,
     };
 
-    // Карта для преобразования локальных ID в серверные перед отправкой.
-    // Ключ - имя таблицы, значение - объект, где ключ - поле с внешним ключом,
-    // а значение - таблица, на которую он ссылается.
     this.fkTransformationMap = {
       clients: {
         specialization_id: 'specializations'
       },
       categories: {
         specialization_id: 'specializations'
+      },
+      services: {
+        category_id: 'categories'
       }
-      // Например, в будущем:
-      // orders: { client_id: 'clients', service_id: 'services' }
     };
   }
 
@@ -60,29 +55,24 @@ class SyncService {
     }
   }
 
-  // 1. Отправляем локальные операции
   async _syncLocalToServer() {
     const pending = await operationsRepo.dequeue();
 
     if (!pending.length) {
-      console.log('[Sync] Локальная очередь пуста. Нет операций для отправки на сервер.');
+      console.log('[Sync] Локальная очередь пуста.');
       return;
     }
 
-    console.log(`[Sync] Найдено ${pending.length} локальных операций для отправки на сервер.`);
+    console.log(`[Sync] Найдено ${pending.length} локальных операций для отправки.`);
 
     for (const op of pending) {
-      // Важно: payload из базы приходит как JSON-строка. Его нужно парсить.
       try {
-        // Преобразуем строку в объект. Если payload пустой, будет null.
         op.payload = op.payload ? JSON.parse(op.payload) : null;
       } catch (e) {
         console.error('[SyncService] Не удалось распарсить payload, операция пропущена:', op, e);
-        // Если payload "сломан", мы не можем его обработать. Пропускаем эту операцию.
         continue;
       }
 
-      // --- Универсальная трансформация Payload перед отправкой ---
       const transformations = this.fkTransformationMap[op.table];
       let transformationFailed = false;
 
@@ -92,33 +82,25 @@ class SyncService {
             const targetTable = transformations[fkField];
             const localFkId = op.payload[fkField];
 
-            console.log(`[Sync] Трансформация: ищем server_id для поля ${fkField} (${localFkId}) в таблице ${targetTable}.`);
-
             const record = await dbAdapter.query(`SELECT server_id FROM ${targetTable} WHERE id = ?`, [localFkId]);
 
             if (record.length > 0 && record[0].server_id) {
-              const serverFkId = record[0].server_id;
-              console.log(`[Sync] Трансформация: ID найден (${serverFkId}). Заменяем в payload.`);
-              op.payload[fkField] = serverFkId;
+              op.payload[fkField] = record[0].server_id;
             } else {
-              console.error(`[Sync] КРИТИЧЕСКАЯ ОШИБКА: Не удалось найти server_id для ${fkField} с локальным ID ${localFkId}. ` +
-                `Операция для таблицы "${op.table}" не может быть синхронизирована. Операция пропущена.`);
+              console.error(`[Sync] КРИТИЧЕСКАЯ ОШИБКА: Не удалось найти server_id для ${fkField} с локальным ID ${localFkId}. Операция пропущена.`);
               transformationFailed = true;
-              break; // Прерываем цикл трансформаций для этой операции
+              break;
             }
           }
         }
       }
 
       if (transformationFailed) {
-        continue; // Пропускаем текущую операцию и переходим к следующей
+        continue;
       }
-      // --- Конец трансформации ---
 
       try {
-        console.log('[Sync] -> Отправка операции на сервер:', op);
         const serverRes = await api.send({ operations: [op] });
-        console.log('[Sync] <- Сервер успешно обработал операцию. Ответ:', serverRes);
 
         const findResult = (responseItem) => {
           if (op.type === 'insert') {
@@ -131,16 +113,12 @@ class SyncService {
           const syncResult = serverRes.synced.find(findResult);
 
           if (syncResult) {
-            // --- ИСПРАВЛЕНИЕ ---
-            // Если это была операция вставки, обновляем server_id у локальной записи.
             if (op.type === 'insert') {
               const repo = this.repos[op.table];
               if (repo && typeof repo.updateServerId === 'function') {
                 await repo.updateServerId(op.payload.local_id, syncResult.server_id);
               }
             }
-            // --- КОНЕЦ ИСПРАВЛЕНИЯ ---
-
             await operationsRepo.markSynced(op, syncResult);
           } else {
             throw new Error('Сервер не вернул результат для отправленной операции.');
@@ -155,59 +133,43 @@ class SyncService {
           throw new Error('Сервер вернул пустой или некорректный ответ.');
         }
       } catch (e) {
-        console.error('[SyncService] Ошибка отправки операции. Она останется в очереди для следующей попытки.', {
-          operation: op,
-          error: e
-        });
+        console.error('[SyncService] Ошибка отправки операции. Она останется в очереди.', { operation: op, error: e });
         continue;
       }
     }
   }
 
-  // 2. Забираем данные с сервера и передаем в репозитории
   async _syncServerToLocal() {
     const lastSyncedAt = await metaRepo.getLastSyncedAt();
 
     for (const table of Object.keys(this.repos)) {
       const repo = this.repos[table];
 
-      console.log(`[Sync] fetching updates for table "${table}" since ${lastSyncedAt}`);
+      try {
+        const response = await api.fetchUpdates({
+          table,
+          since: lastSyncedAt
+        });
 
-      const response = await api.fetchUpdates({
-        table,
-        since: lastSyncedAt
-      });
+        const records = Array.isArray(response) ? response : (Array.isArray(response?.records) ? response.records : []);
 
-      console.log(`[Sync] raw response for table "${table}":`, response);
-
-      const records = Array.isArray(response)
-        ? response
-        : Array.isArray(response?.records)
-          ? response.records
-          : [];
-
-      console.log(`[Sync] received ${records.length} updates for table "${table}"`);
-      console.log(`[Sync] updates for table "${table}":`, records);
-
-      for (const record of records) {
-        console.log(`[Sync] applying record to "${table}":`, record);
-        await repo.applyServerRecord(record);
+        for (const record of records) {
+          await repo.applyServerRecord(record);
+        }
+      } catch (e) {
+        console.error(`[Sync] Ошибка при получении обновлений для таблицы "${table}":`, e);
+        // Не прерываем синхронизацию других таблиц
       }
     }
 
     await metaRepo.setLastSyncedAt(Date.now());
   }
 
-  /**
-   * Полный сброс локальных данных для отладки.
-   * Очищает все таблицы, управляемые синхронизацией, и сбрасывает время последней синхронизации.
-   */
   async fullReset() {
     console.log('[Sync] Full reset started');
     for (const table of Object.keys(this.repos)) {
       const repo = this.repos[table];
       if (typeof repo.clearAll === 'function') {
-        console.log(`[Sync] Clearing table "${table}"`);
         await repo.clearAll();
       }
     }
@@ -215,12 +177,7 @@ class SyncService {
     console.log('[Sync] Full reset finished');
   }
 
-  /**
-   * Полностью удаляет локальную базу данных.
-   * Требует перезагрузки страницы для повторной инициализации.
-   */
   async deleteLocalDB() {
-    console.log('[SyncService] Deleting local database.');
     await dbAdapter.deleteDatabase();
   }
 }

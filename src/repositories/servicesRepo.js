@@ -15,7 +15,6 @@ export async function save(service) {
     id,
     service.server_id || null,
     service.category_id,
-    service.specialization_id,
     service.service,
     service.price || ''
   ]
@@ -82,7 +81,6 @@ export async function applyServerRecord(record) {
       localId,
       record.id,
       record.category_id,
-      record.specialization_id,
       record.service,
       record.price || '',
       record.created_at || Math.floor(Date.now() / 1000),

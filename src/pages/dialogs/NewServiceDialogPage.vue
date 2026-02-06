@@ -1,12 +1,10 @@
 <script setup>
 import {ref} from 'vue'
 import { useServicesStore } from 'stores/useServicesStore.js'
-import { useSpecializationsStore } from 'stores/useSpecializationsStore.js'
 import { useQuasar } from 'quasar'
 
 const $q = useQuasar()
 const servicesStore = useServicesStore()
-const specializationStore = useSpecializationsStore()
 
 const isOpen = ref(false)
 const name = ref('')
@@ -28,16 +26,6 @@ function close(){
 }
 
 const addNew = async () => {
-  const selectedSpecialization = specializationStore.getSelectedSpecialization
-  if (!selectedSpecialization || !selectedSpecialization.id) {
-    $q.notify({
-      type: 'negative',
-      message: 'Сначала выберите специализацию',
-      position: 'top',
-      timeout: 2000
-    })
-    return
-  }
   if (!category.value || !category.value.id) {
     $q.notify({
       type: 'negative',
@@ -53,7 +41,6 @@ const addNew = async () => {
       service: name.value,
       price: price.value,
       category_id: category.value.id,
-      specialization_id: selectedSpecialization.id
     })
     close()
     $q.notify({

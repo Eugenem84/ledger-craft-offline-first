@@ -5,8 +5,7 @@ export default {
       CREATE TABLE IF NOT EXISTS services (
         id TEXT PRIMARY KEY,
         server_id BIGINT,
-        category_id TEXT,
-        specialization_id BIGINT,
+        category_id TEXT NOT NULL,
         service VARCHAR(255) NOT NULL,
         price VARCHAR(255),
         created_at INTEGER DEFAULT (strftime('%s','now')),
