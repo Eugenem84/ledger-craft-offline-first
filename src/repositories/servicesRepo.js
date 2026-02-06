@@ -71,16 +71,27 @@ export async function remove(id) {
 }
 
 export async function applyServerRecord(record) {
+  // Находим локальный ID категории по серверному ID, который пришел в записи об услуге
+  const category = await dbAdapter.queryOne(
+    'SELECT id FROM categories WHERE server_id = ?',
+    [record.category_id]
+  );
+
+  if (!category) {
+    console.error(`[Sync] Не удалось найти локальную категорию с server_id: ${record.category_id}. Услуга "${record.service}" пропущена.`);
+    return;
+  }
+  const localCategoryId = category.id;
+
   const existing = await dbAdapter.query(`
     SELECT * FROM services WHERE server_id = ?
   `, [record.id]);
 
   if (!existing.length) {
-    const localId = uuidv4();
     const params = [
-      localId,
+      uuidv4(),
       record.id,
-      record.category_id,
+      localCategoryId, // Используем найденный локальный ID
       record.service,
       record.price || '',
       record.created_at || Math.floor(Date.now() / 1000),
@@ -93,6 +104,7 @@ export async function applyServerRecord(record) {
 
   const local = existing[0];
   if (record.updated_at > local.updated_at) {
+    // При обновлении также нужно передавать category_id
     const updateParams = [
       record.service,
       record.price || '',
@@ -103,6 +115,23 @@ export async function applyServerRecord(record) {
   }
 }
 
+export async function clearAll() {
+  await dbAdapter.execute('DELETE FROM services');
+}
+
 export async function updateServerId(localId, serverId) {
   await dbAdapter.execute(queries.updateServerId, [serverId, localId]);
+}
+
+/**
+ * Отладочная функция для вывода всех записей из таблицы services в консоль.
+ */
+export async function logAllServicesForDebugging() {
+  try {
+    const allServices = await dbAdapter.query(queries.getAll);
+    console.log('--- [DEBUG] Содержимое таблицы `services` в локальной БД ---');
+    console.table(allServices);
+  } catch (e) {
+    console.error('--- [DEBUG] Ошибка при чтении таблицы `services` ---', e);
+  }
 }

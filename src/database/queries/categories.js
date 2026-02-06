@@ -14,11 +14,11 @@ export default {
   updateServerId: 'UPDATE categories SET server_id = ? WHERE id = ?',
   insertFromServer: `
     INSERT INTO categories (id, server_id, specialization_id, category_name, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, strftime('%s', ?), strftime('%s', ?))
   `,
   updateFromServer: `
     UPDATE categories
-    SET category_name = ?, updated_at = ?
+    SET category_name = ?, updated_at = strftime('%s', ?)
     WHERE server_id = ?
   `,
 };

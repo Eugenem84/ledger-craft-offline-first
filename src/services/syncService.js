@@ -10,6 +10,8 @@ import * as specializationsRepo from 'src/repositories/specializationsRepo';
 import * as categoriesRepo from 'src/repositories/categoriesRepo';
 import * as servicesRepo from 'src/repositories/servicesRepo';
 
+import { logAllServicesForDebugging } from 'src/repositories/servicesRepo';
+
 class SyncService {
   constructor() {
     this.syncing = false;
@@ -32,6 +34,11 @@ class SyncService {
         category_id: 'categories'
       }
     };
+
+    // --- [DEBUG] Добавляем отладочную функцию в консоль ---
+    if (process.env.DEV) {
+      window.debugShowServices = servicesRepo.logAllServicesForDebugging;
+    }
   }
 
   async sync() {
@@ -52,6 +59,7 @@ class SyncService {
     } finally {
       this.syncing = false;
       console.log('[Sync] end');
+      await logAllServicesForDebugging()
     }
   }
 

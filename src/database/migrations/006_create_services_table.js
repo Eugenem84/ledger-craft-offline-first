@@ -7,7 +7,7 @@ export default {
         server_id BIGINT,
         category_id TEXT NOT NULL,
         service VARCHAR(255) NOT NULL,
-        price VARCHAR(255),
+        price INTEGER,
         created_at INTEGER DEFAULT (strftime('%s','now')),
         updated_at INTEGER DEFAULT (strftime('%s','now')),
         deleted_at INTEGER
