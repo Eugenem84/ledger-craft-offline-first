@@ -12,6 +12,7 @@ export default {
         weight REAL,
         base_sale_price INTEGER,
         product_category_id TEXT,
+        product_category_server_id BIGINT,
         created_at INTEGER DEFAULT (strftime('%s','now')),
         updated_at INTEGER DEFAULT (strftime('%s','now')),
         deleted_at INTEGER

@@ -6,7 +6,6 @@ import { useProductCategoriesStore } from "stores/useProductCategoriesStore.js";
 import { useProductsStore } from "stores/useProductsStore.js";
 import ProductCategoryDialogPage from "pages/dialogs/ProductCategoryDialogPage.vue";
 import ProductDialogPage from "pages/dialogs/ProductDialogPage.vue";
-import { logAllProductsForDebugging } from "src/repositories/productsRepo.js";
 
 const $q = useQuasar();
 
@@ -38,8 +37,6 @@ watch(selectedProductCategory, async (newCategory) => {
   if (newCategory && newCategory.id) {
     // Если выбрана новая категория, загружаем товары для нее
     await productsStore.loadByCategoryId(newCategory.id);
-    // Для отладки выводим в консоль все товары из локальной таблицы
-    await logAllProductsForDebugging();
   } else {
     // Если категория сброшена, очищаем список товаров
     productsStore.clear();
