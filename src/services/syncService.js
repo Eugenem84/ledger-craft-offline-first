@@ -9,6 +9,8 @@ import * as clientsRepo from 'src/repositories/clientsRepo';
 import * as specializationsRepo from 'src/repositories/specializationsRepo';
 import * as categoriesRepo from 'src/repositories/categoriesRepo';
 import * as servicesRepo from 'src/repositories/servicesRepo';
+import * as productCategoriesRepo from 'src/repositories/productCategoriesRepo'; // Импортируем репо
+import * as productsRepo from 'src/repositories/productsRepo'; // Импортируем репо
 
 import { logAllServicesForDebugging } from 'src/repositories/servicesRepo';
 
@@ -21,6 +23,8 @@ class SyncService {
       specializations: specializationsRepo,
       categories: categoriesRepo,
       services: servicesRepo,
+      product_categories: productCategoriesRepo, // Добавляем репо в список
+      products: productsRepo, // Добавляем репо в список
     };
 
     this.fkTransformationMap = {
@@ -32,6 +36,13 @@ class SyncService {
       },
       services: {
         category_id: 'categories'
+      },
+      // Вот оно, исправление:
+      product_categories: {
+        specialization_id: 'specializations'
+      },
+      products: {
+        product_category_id: 'product_categories'
       }
     };
 
