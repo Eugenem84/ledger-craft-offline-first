@@ -17,7 +17,6 @@ export async function getByCategoryId(categoryId) {
 export async function save(product) {
   const id = product.id || uuidv4()
 
-  // Получаем server_id для выбранной категории
   const category = await dbAdapter.queryOne('SELECT server_id FROM product_categories WHERE id = ?', [product.product_category_id]);
   const categoryServerId = category ? category.server_id : null;
 
@@ -30,14 +29,21 @@ export async function save(product) {
     product.product_number,
     product.weight,
     product.base_sale_price,
-    product.product_category_id, // локальный UUID
-    categoryServerId // server_id категории
+    product.product_category_id,
+    categoryServerId
   ]
 
   await dbAdapter.execute(queries.insert, params)
 
-  const payloadForServer = { ...product, product_category_id: categoryServerId };
+  // --- ИСПРАВЛЕНИЕ ---
+  // В очередь кладем оба ID, чтобы syncService мог разобраться
+  const payloadForServer = {
+    ...product,
+    product_category_id: product.product_category_id, // локальный UUID
+    product_category_server_id: categoryServerId     // серверный ID (может быть null)
+  };
   delete payloadForServer.id;
+
   const opId = uuidv4();
   const opPayload = JSON.stringify({ local_id: id, ...payloadForServer });
   const opParams = [opId, 'insert', 'products', opPayload, Date.now()];
@@ -48,7 +54,6 @@ export async function save(product) {
 }
 
 export async function update(product) {
-  // Получаем server_id для выбранной категории
   const category = await dbAdapter.queryOne('SELECT server_id FROM product_categories WHERE id = ?', [product.product_category_id]);
   const categoryServerId = category ? category.server_id : null;
 
@@ -59,8 +64,8 @@ export async function update(product) {
     product.product_number,
     product.weight,
     product.base_sale_price,
-    product.product_category_id, // локальный UUID
-    categoryServerId, // server_id категории
+    product.product_category_id,
+    categoryServerId,
     product.id
   ];
   await dbAdapter.execute(queries.update, params);
@@ -68,6 +73,8 @@ export async function update(product) {
   const existingProduct = await dbAdapter.queryOne(queries.getById, [product.id]);
   if (existingProduct && existingProduct.server_id) {
     const opId = uuidv4();
+    // --- ИСПРАВЛЕНИЕ ---
+    // В очередь кладем и локальный, и серверный ID категории
     const payloadForServer = {
       id: existingProduct.server_id,
       name: product.name,
@@ -76,7 +83,8 @@ export async function update(product) {
       product_number: product.product_number,
       weight: product.weight,
       base_sale_price: product.base_sale_price,
-      product_category_id: categoryServerId // Отправляем на сервер ID категории
+      product_category_id: product.product_category_id, // локальный UUID
+      product_category_server_id: categoryServerId     // серверный ID (может быть null)
     };
     const opPayload = JSON.stringify(payloadForServer);
     const opParams = [opId, 'update', 'products', opPayload, Date.now()];
@@ -111,15 +119,15 @@ export async function applyServerRecord(record) {
   if (!existing) {
     const params = [
       uuidv4(),
-      record.id, // server_id товара
+      record.id,
       record.name,
       record.description,
       record.manufacturer,
       record.product_number,
       record.weight,
       record.base_sale_price,
-      localCategoryId, // локальный UUID категории
-      record.product_category_id, // server_id категории
+      localCategoryId,
+      record.product_category_id,
       record.created_at || Math.floor(Date.now() / 1000),
       record.updated_at || Math.floor(Date.now() / 1000)
     ];
@@ -136,10 +144,10 @@ export async function applyServerRecord(record) {
       record.product_number,
       record.weight,
       record.base_sale_price,
-      localCategoryId, // локальный UUID категории
-      record.product_category_id, // server_id категории
+      localCategoryId,
+      record.product_category_id,
       record.updated_at,
-      record.id // server_id товара
+      record.id
     ];
     await dbAdapter.execute(queries.updateFromServer, updateParams);
   }

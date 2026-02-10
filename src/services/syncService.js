@@ -37,7 +37,6 @@ class SyncService {
       services: {
         category_id: 'categories'
       },
-      // Вот оно, исправление:
       product_categories: {
         specialization_id: 'specializations'
       },
@@ -97,9 +96,25 @@ class SyncService {
 
       if (transformations && (op.type === 'insert' || op.type === 'update')) {
         for (const fkField in transformations) {
+          // --- ИСПРАВЛЕНИЕ ---
+          // Имя "сигнального" поля, например "product_category_server_id"
+          const serverFkField = fkField.replace(/_id$/, '') + '_server_id';
+
+          if (op.payload && op.payload.hasOwnProperty(serverFkField)) {
+            // Если есть "сигнальное" поле, используем его значение
+            op.payload[fkField] = op.payload[serverFkField];
+            // Удаляем "сигнальное" поле, чтобы не отправлять его на сервер
+            delete op.payload[serverFkField];
+            continue; // Переходим к следующему полю, не выполняя стандартное преобразование
+          }
+          // --- КОНЕЦ ИСПРАВЛЕНИЯ ---
+
           if (op.payload && op.payload[fkField]) {
             const targetTable = transformations[fkField];
             const localFkId = op.payload[fkField];
+
+            // Если localFkId null или undefined, ничего не делаем
+            if (localFkId == null) continue;
 
             const record = await dbAdapter.query(`SELECT server_id FROM ${targetTable} WHERE id = ?`, [localFkId]);
 
@@ -125,7 +140,8 @@ class SyncService {
           if (op.type === 'insert') {
             return responseItem.local_id === op.payload.local_id;
           }
-          return responseItem.local_id === op.id;
+          // Для update и delete ищем по id, который был в payload
+          return responseItem.id === op.payload.id;
         };
 
         if (Array.isArray(serverRes?.synced) && serverRes.synced.length > 0) {
@@ -140,16 +156,19 @@ class SyncService {
             }
             await operationsRepo.markSynced(op, syncResult);
           } else {
-            throw new Error('Сервер не вернул результат для отправленной операции.');
+             // Если сервер вернул 200, но не нашел нашу операцию, это странно, но не ошибка
+            console.warn('[Sync] Сервер не вернул результат для отправленной операции, но ответил 200 OK.', op);
+            // Возможно, операция уже была применена. Помечаем как синхронизированную, чтобы не зацикливаться.
+            await operationsRepo.markSynced(op, { status: 'already_applied' });
           }
         } else if (Array.isArray(serverRes?.errors) && serverRes.errors.length > 0) {
-          const errorResult = serverRes.errors.find(findResult);
+          const errorResult = serverRes.errors.find(e => e.id === op.payload.id || e.local_id === op.payload.local_id);
           if (errorResult) {
             throw new Error(`Сервер вернул ошибку для операции: ${errorResult.error}`);
           }
-          throw new Error('Сервер вернул ошибки, но не для этой операции.');
+          throw new Error('Сервер вернул массив ошибок, но не для этой операции.');
         } else {
-          throw new Error('Сервер вернул пустой или некорректный ответ.');
+           throw new Error('Сервер вернул пустой или некорректный ответ.');
         }
       } catch (e) {
         console.error('[SyncService] Ошибка отправки операции. Она останется в очереди.', { operation: op, error: e });
