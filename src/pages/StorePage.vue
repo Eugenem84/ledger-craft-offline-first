@@ -1,11 +1,12 @@
 <script setup>
-import { onMounted, ref, computed } from "vue";
+import { onMounted, ref, computed, watch } from "vue";
 import { useQuasar } from "quasar";
 import { useSpecializationsStore } from "stores/useSpecializationsStore.js";
 import { useProductCategoriesStore } from "stores/useProductCategoriesStore.js";
 import { useProductsStore } from "stores/useProductsStore.js";
 import ProductCategoryDialogPage from "pages/dialogs/ProductCategoryDialogPage.vue";
 import ProductDialogPage from "pages/dialogs/ProductDialogPage.vue";
+import { logAllProductsForDebugging } from "src/repositories/productsRepo.js";
 
 const $q = useQuasar();
 
@@ -28,17 +29,22 @@ onMounted(async () => {
   if (selectedSpecialization.value) {
     await productCategoriesStore.load(selectedSpecialization.value.id);
   }
+  // Очищаем список товаров при монтировании, чтобы не показывать лишнего
+  productsStore.clear();
 });
 
-const getProductsByProductCategories = async () => {
-  if (selectedProductCategory.value) {
-    // Здесь нужно будет реализовать загрузку товаров по ID категории
-    // await productsStore.loadByCategoryId(selectedProductCategory.value.id);
-    console.log("Загрузка товаров для категории:", selectedProductCategory.value.id)
+// Следим за изменением выбранной категории
+watch(selectedProductCategory, async (newCategory) => {
+  if (newCategory && newCategory.id) {
+    // Если выбрана новая категория, загружаем товары для нее
+    await productsStore.loadByCategoryId(newCategory.id);
+    // Для отладки выводим в консоль все товары из локальной таблицы
+    await logAllProductsForDebugging();
   } else {
-    productsStore.items = [];
+    // Если категория сброшена, очищаем список товаров
+    productsStore.clear();
   }
-};
+});
 
 const openAddProductCategoryDialog = () => {
   if (!selectedSpecialization.value) {
@@ -75,7 +81,10 @@ const handleProductCategorySaved = async () => {
 };
 
 const handleProductSaved = async () => {
-  await getProductsByProductCategories();
+  // Перезагружаем только товары текущей категории
+  if (selectedProductCategory.value) {
+    await productsStore.loadByCategoryId(selectedProductCategory.value.id);
+  }
   selectedProduct.value = null;
 };
 </script>
@@ -90,7 +99,6 @@ const handleProductSaved = async () => {
               clearable
               class="col-9"
               outlined
-              @update:model-value="getProductsByProductCategories"
     />
 
     <div class="col-auto self-end">
@@ -106,6 +114,7 @@ const handleProductSaved = async () => {
   <q-list bordered separator>
     <q-item-label header v-if="!products.length && selectedProductCategory">Нет товаров в этой категории</q-item-label>
     <q-item-label header v-if="!selectedProductCategory">Выберите категорию для просмотра товаров</q-item-label>
+    <!-- ИСПОЛЬЗУЕМ products ВМЕСТО filteredProducts -->
     <q-item v-for="product in products"
             :key="product.id"
             class="w-100 justify-between"

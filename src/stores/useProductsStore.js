@@ -21,6 +21,22 @@ export const useProductsStore = defineStore('products', {
       }
     },
 
+    async loadByCategoryId(categoryId) {
+      this.loading = true;
+      this.error = null;
+      try {
+        this.items = await productsRepo.getByCategoryId(categoryId);
+      } catch (err) {
+        this.error = err;
+      } finally {
+        this.loading = false;
+      }
+    },
+
+    clear() {
+      this.items = [];
+    },
+
     async add(data) {
       this.error = null
       const newItem = { ...data, id: data.id || crypto.randomUUID() }

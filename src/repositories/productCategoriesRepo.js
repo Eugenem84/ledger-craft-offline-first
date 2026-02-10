@@ -17,6 +17,11 @@ export async function getBySpecializationId(specializationId) {
   return rows;
 }
 
+export async function getLocalIdByServerId(serverId) {
+  const result = await dbAdapter.queryOne('SELECT id FROM product_categories WHERE server_id = ?', [serverId]);
+  return result ? result.id : null;
+}
+
 export async function save(category) {
   const id = category.id || uuidv4()
 

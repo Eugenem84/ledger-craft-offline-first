@@ -2,10 +2,16 @@ import { v4 as uuidv4 } from 'uuid'
 import dbAdapter from 'src/database/adapters/sqljs-web-adapter'
 import queries from 'src/database/queries/products'
 import operationsRepo from 'src/repositories/operationsRepo'
+import { getLocalIdByServerId as getCategoryLocalId } from 'src/repositories/productCategoriesRepo.js'
 
 export async function getAll() {
   const rows = await dbAdapter.query(queries.getAll)
   return rows
+}
+
+export async function getByCategoryId(categoryId) {
+  const rows = await dbAdapter.query(queries.getByCategoryId, [categoryId]);
+  return rows;
 }
 
 export async function save(product) {
@@ -38,6 +44,9 @@ export async function save(product) {
 
 export async function update(product) {
   const existingProduct = await dbAdapter.queryOne(queries.getById, [product.id]);
+  // Найдем категорию, чтобы получить ее server_id для отправки в очередь
+  const category = await dbAdapter.queryOne('SELECT server_id FROM product_categories WHERE id = ?', [product.product_category_id]);
+  const categoryServerId = category ? category.server_id : null;
 
   const params = [
     product.name,
@@ -61,7 +70,7 @@ export async function update(product) {
       product_number: product.product_number,
       weight: product.weight,
       base_sale_price: product.base_sale_price,
-      product_category_id: product.product_category_id
+      product_category_id: categoryServerId // Отправляем на сервер его ID категории
     };
     const opPayload = JSON.stringify(payloadForServer);
     const opParams = [opId, 'update', 'products', opPayload, Date.now()];
@@ -90,6 +99,13 @@ export async function applyServerRecord(record) {
   `, [record.id]);
 
   if (!existing.length) {
+    // --- ИСПРАВЛЕНИЕ ---
+    // Находим локальный ID категории по ее серверному ID
+    const localCategoryId = await getCategoryLocalId(record.product_category_id);
+    if (!localCategoryId) {
+      console.warn(`Не удалось найти локальную категорию для товара "${record.name}" (server_id: ${record.id}). Товар не будет добавлен.`);
+      return;
+    }
     const params = [
       uuidv4(),
       record.id,
@@ -99,7 +115,7 @@ export async function applyServerRecord(record) {
       record.product_number,
       record.weight,
       record.base_sale_price,
-      record.product_category_id,
+      localCategoryId, // Используем найденный локальный ID
       record.created_at || Math.floor(Date.now() / 1000),
       record.updated_at || Math.floor(Date.now() / 1000)
     ];
@@ -110,6 +126,13 @@ export async function applyServerRecord(record) {
 
   const local = existing[0];
   if (record.updated_at > local.updated_at) {
+    // --- ИСПРАВЛЕНИЕ (для обновления) ---
+    const localCategoryId = await getCategoryLocalId(record.product_category_id);
+    if (!localCategoryId) {
+      console.warn(`Не удалось найти локальную категорию для обновления товара "${record.name}" (server_id: ${record.id}). Товар не будет обновлен.`);
+      return;
+    }
+
     const updateParams = [
       record.name,
       record.description,
@@ -117,7 +140,7 @@ export async function applyServerRecord(record) {
       record.product_number,
       record.weight,
       record.base_sale_price,
-      record.product_category_id,
+      localCategoryId, // Используем найденный локальный ID
       record.updated_at,
       record.id
     ];
@@ -131,4 +154,15 @@ export async function clearAll() {
 
 export async function updateServerId(localId, serverId) {
   await dbAdapter.execute(queries.updateServerId, [serverId, localId]);
+}
+
+// --- DEBUG FUNCTION ---
+export async function logAllProductsForDebugging() {
+  try {
+    const allProducts = await getAll();
+    console.log('--- [DEBUG] Содержимое таблицы `products` в локальной БД ---');
+    console.table(allProducts);
+  } catch (e) {
+    console.error('Ошибка при отладке таблицы products:', e);
+  }
 }

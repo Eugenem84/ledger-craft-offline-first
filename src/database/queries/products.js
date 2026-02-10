@@ -1,6 +1,7 @@
 export default {
   getAll: 'SELECT * FROM products',
   getById: 'SELECT * FROM products WHERE id = ?',
+  getByCategoryId: 'SELECT * FROM products WHERE product_category_id = ?',
   insert: `
     INSERT INTO products (id, server_id, name, description, manufacturer, product_number, weight, base_sale_price, product_category_id)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
