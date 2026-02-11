@@ -6,6 +6,10 @@ export default {
     SELECT * FROM clients
     WHERE id = ?
   `,
+  findByServerId: `
+    SELECT * FROM clients
+    WHERE server_id = ?
+  `,
   insert: `
     INSERT INTO clients (id, server_id, specialization_id, name, phone, created_at, updated_at)
     VALUES (?, ?, ?, ?, ?, strftime('%s','now'), strftime('%s','now'))

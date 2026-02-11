@@ -2,6 +2,8 @@ import { v4 as uuidv4 } from 'uuid'
 import dbAdapter from 'src/database/adapters/sqljs-web-adapter'
 import queries from 'src/database/queries/orders'
 import operationsRepo from 'src/repositories/operationsRepo'
+import { findByServerId as findSpecializationByServerId } from "src/repositories/specializationsRepo.js";
+import { findByServerId as findClientByServerId } from "src/repositories/clientsRepo.js";
 
 // Helper to convert amount from cents to roubles
 const fromCents = (order) => {
@@ -21,14 +23,56 @@ export async function getBySpecializationId(specializationId) {
   return rows.map(fromCents);
 }
 
+async function getSpecializationData(order) {
+  if (order.specialization_id) {
+    return {
+      id: order.specialization_id,
+      server_id: order.specialization_server_id || null
+    };
+  }
+  if (order.specialization_server_id) {
+    const specialization = await findSpecializationByServerId(order.specialization_server_id);
+    if (specialization) {
+      return {
+        id: specialization.id,
+        server_id: specialization.server_id
+      };
+    }
+  }
+  return { id: null, server_id: null };
+}
+
+async function getClientData(order) {
+  if (order.client_id) {
+    return {
+      id: order.client_id,
+      server_id: order.client_server_id || null
+    };
+  }
+  if (order.client_server_id) {
+    const client = await findClientByServerId(order.client_server_id);
+    if (client) {
+      return {
+        id: client.id,
+        server_id: client.server_id
+      };
+    }
+  }
+  return { id: null, server_id: null };
+}
+
 export async function save(order) {
   const id = order.id || uuidv4()
+  const specializationData = await getSpecializationData(order);
+  const clientData = await getClientData(order);
 
   const params = [
     id,
     order.server_id || null,
-    order.specialization_id || null,
-    order.client_id || null,
+    specializationData.id,
+    specializationData.server_id,
+    clientData.id,
+    clientData.server_id,
     order.hours || 0,
     order.minutes || 0,
     (order.total_amount || 0) * 100, // Convert to cents
@@ -56,10 +100,14 @@ export async function save(order) {
 
 export async function update(order) {
   const existingOrder = await dbAdapter.queryOne(queries.getById, [order.id]);
+  const specializationData = await getSpecializationData(order);
+  const clientData = await getClientData(order);
 
   const params = [
-    order.specialization_id || null,
-    order.client_id || null,
+    specializationData.id,
+    specializationData.server_id,
+    clientData.id,
+    clientData.server_id,
     order.hours || 0,
     order.minutes || 0,
     (order.total_amount || 0) * 100, // Convert to cents
@@ -116,11 +164,15 @@ export async function applyServerRecord(record) {
 
   if (!existing.length) {
     const localId = uuidv4();
+    const specializationData = await getSpecializationData({ specialization_server_id: record.specialization_id });
+    const clientData = await getClientData({ client_server_id: record.client_id });
     const params = [
       localId,
       recordInCents.id,
-      recordInCents.specialization_id,
-      recordInCents.client_id,
+      specializationData.id,
+      specializationData.server_id,
+      clientData.id,
+      clientData.server_id,
       recordInCents.hours,
       recordInCents.minutes,
       recordInCents.total_amount,
@@ -141,9 +193,13 @@ export async function applyServerRecord(record) {
 
   const local = existing[0];
   if (recordInCents.updated_at > local.updated_at) {
+    const specializationData = await getSpecializationData({ specialization_server_id: record.specialization_id });
+    const clientData = await getClientData({ client_server_id: record.client_id });
     const updateParams = [
-      recordInCents.specialization_id,
-      recordInCents.client_id,
+      specializationData.id,
+      specializationData.server_id,
+      clientData.id,
+      clientData.server_id,
       recordInCents.hours,
       recordInCents.minutes,
       recordInCents.total_amount,

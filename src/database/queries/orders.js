@@ -23,24 +23,24 @@ export default {
     WHERE o.specialization_id = ?
   `,
   insert: `
-    INSERT INTO orders (id, server_id, specialization_id, client_id, hours, minutes, total_amount, comments, user_id, user_order_number, status, paid, model_id, share_token, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, strftime('%s','now'), strftime('%s','now'))
+    INSERT INTO orders (id, server_id, specialization_id, specialization_server_id, client_id, client_server_id, hours, minutes, total_amount, comments, user_id, user_order_number, status, paid, model_id, share_token, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, strftime('%s','now'), strftime('%s','now'))
   `,
   update: `
     UPDATE orders
-    SET specialization_id = ?, client_id = ?, hours = ?, minutes = ?, total_amount = ?, comments = ?, user_id = ?, user_order_number = ?, status = ?, paid = ?, model_id = ?, share_token = ?, updated_at = strftime('%s','now')
+    SET specialization_id = ?, specialization_server_id = ?, client_id = ?, client_server_id = ?, hours = ?, minutes = ?, total_amount = ?, comments = ?, user_id = ?, user_order_number = ?, status = ?, paid = ?, model_id = ?, share_token = ?, updated_at = strftime('%s','now')
     WHERE id = ?
   `,
   delete: `
     DELETE FROM orders WHERE id = ?
   `,
   insertFromServer: `
-    INSERT INTO orders (id, server_id, specialization_id, client_id, hours, minutes, total_amount, comments, user_id, user_order_number, status, paid, model_id, share_token, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO orders (id, server_id, specialization_id, specialization_server_id, client_id, client_server_id, hours, minutes, total_amount, comments, user_id, user_order_number, status, paid, model_id, share_token, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `,
   updateFromServer: `
     UPDATE orders
-    SET specialization_id = ?, client_id = ?, hours = ?, minutes = ?, total_amount = ?, comments = ?, user_id = ?, user_order_number = ?, status = ?, paid = ?, model_id = ?, share_token = ?, updated_at = ?
+    SET specialization_id = ?, specialization_server_id = ?, client_id = ?, client_server_id = ?, hours = ?, minutes = ?, total_amount = ?, comments = ?, user_id = ?, user_order_number = ?, status = ?, paid = ?, model_id = ?, share_token = ?, updated_at = ?
     WHERE server_id = ?
   `,
   updateServerId: `

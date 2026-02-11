@@ -10,6 +10,11 @@ export async function getAll() {
   return await dbAdapter.query(queries.getAll)
 }
 
+export async function findByServerId(serverId) {
+  const result = await dbAdapter.query(queries.findByServerId, [serverId]);
+  return result.length > 0 ? result[0] : null;
+}
+
 /**
  * Сохраняет новую специализацию в локальной базе и добавляет операцию в очередь.
  * @param {object} specialization - Объект специализации. Должен содержать 'name'.

@@ -12,6 +12,11 @@ export async function getAll() {
   return rows
 }
 
+export async function findByServerId(serverId) {
+  const result = await dbAdapter.query(queries.findByServerId, [serverId]);
+  return result.length > 0 ? result[0] : null;
+}
+
 export async function save(client) {
   // Генерируем новый локальный UUID для клиента, если он создается впервые.
   // Если клиент уже имеет id (например, при редактировании), используется существующий.
