@@ -7,6 +7,8 @@ export default {
         server_id INTEGER,
         specialization_id TEXT,
         client_id TEXT,
+        specialization_server_id INTEGER,
+        client_server_id INTEGER,
         hours INTEGER,
         minutes INTEGER,
         total_amount INTEGER, -- Changed from REAL to INTEGER
