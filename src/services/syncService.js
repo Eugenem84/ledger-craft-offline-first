@@ -46,7 +46,8 @@ class SyncService {
         product_category_id: 'product_categories'
       },
       orders: {
-        client_id: 'clients'
+        client_id: 'clients',
+        specialization_id: 'specializations'
       }
     };
 

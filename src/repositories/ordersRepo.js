@@ -3,14 +3,22 @@ import dbAdapter from 'src/database/adapters/sqljs-web-adapter'
 import queries from 'src/database/queries/orders'
 import operationsRepo from 'src/repositories/operationsRepo'
 
+// Helper to convert amount from cents to roubles
+const fromCents = (order) => {
+  if (order && order.total_amount) {
+    return { ...order, total_amount: order.total_amount / 100 };
+  }
+  return order;
+};
+
 export async function getAll() {
   const rows =  await dbAdapter.query(queries.getAll)
-  return rows
+  return rows.map(fromCents);
 }
 
 export async function getBySpecializationId(specializationId) {
   const rows = await dbAdapter.query(queries.getBySpecializationId, [specializationId])
-  return rows
+  return rows.map(fromCents);
 }
 
 export async function save(order) {
@@ -19,9 +27,18 @@ export async function save(order) {
   const params = [
     id,
     order.server_id || null,
+    order.specialization_id || null,
     order.client_id || null,
-    order.total_amount,
-    order.status
+    order.hours || 0,
+    order.minutes || 0,
+    (order.total_amount || 0) * 100, // Convert to cents
+    order.comments || '',
+    order.user_id || null,
+    order.user_order_number || null,
+    order.status || 'waiting',
+    order.paid || 0,
+    order.model_id || null,
+    order.share_token || null
   ]
 
   await dbAdapter.execute(queries.insert, params)
@@ -41,9 +58,18 @@ export async function update(order) {
   const existingOrder = await dbAdapter.queryOne(queries.getById, [order.id]);
 
   const params = [
+    order.specialization_id || null,
     order.client_id || null,
-    order.total_amount,
-    order.status,
+    order.hours || 0,
+    order.minutes || 0,
+    (order.total_amount || 0) * 100, // Convert to cents
+    order.comments || '',
+    order.user_id || null,
+    order.user_order_number || null,
+    order.status || 'waiting',
+    order.paid || 0,
+    order.model_id || null,
+    order.share_token || null,
     order.id
   ];
   await dbAdapter.execute(queries.update, params);
@@ -52,10 +78,9 @@ export async function update(order) {
     const opId = uuidv4();
     const payloadForServer = {
       id: existingOrder.server_id,
-      client_id: order.client_id,
-      total_amount: order.total_amount,
-      status: order.status
+      ...order
     };
+    delete payloadForServer.id;
     const opPayload = JSON.stringify(payloadForServer);
     const opParams = [opId, 'update', 'orders', opPayload, Date.now()];
     await operationsRepo.enqueue(opParams);
@@ -84,16 +109,30 @@ export async function applyServerRecord(record) {
     SELECT * FROM orders WHERE server_id = ?
   `, [record.id]);
 
+  const recordInCents = {
+    ...record,
+    total_amount: (record.total_amount || 0) * 100 // Convert to cents
+  };
+
   if (!existing.length) {
     const localId = uuidv4();
     const params = [
       localId,
-      record.id,
-      record.client_id || null,
-      record.total_amount,
-      record.status,
-      record.created_at || Math.floor(Date.now() / 1000),
-      record.updated_at || Math.floor(Date.now() / 1000)
+      recordInCents.id,
+      recordInCents.specialization_id,
+      recordInCents.client_id,
+      recordInCents.hours,
+      recordInCents.minutes,
+      recordInCents.total_amount,
+      recordInCents.comments,
+      recordInCents.user_id,
+      recordInCents.user_order_number,
+      recordInCents.status,
+      recordInCents.paid,
+      recordInCents.model_id,
+      recordInCents.share_token,
+      recordInCents.created_at || Math.floor(Date.now() / 1000),
+      recordInCents.updated_at || Math.floor(Date.now() / 1000)
     ];
 
     await dbAdapter.execute(queries.insertFromServer, params);
@@ -101,13 +140,22 @@ export async function applyServerRecord(record) {
   }
 
   const local = existing[0];
-  if (record.updated_at > local.updated_at) {
+  if (recordInCents.updated_at > local.updated_at) {
     const updateParams = [
-      record.client_id || null,
-      record.total_amount,
-      record.status,
-      record.updated_at,
-      record.id
+      recordInCents.specialization_id,
+      recordInCents.client_id,
+      recordInCents.hours,
+      recordInCents.minutes,
+      recordInCents.total_amount,
+      recordInCents.comments,
+      recordInCents.user_id,
+      recordInCents.user_order_number,
+      recordInCents.status,
+      recordInCents.paid,
+      recordInCents.model_id,
+      recordInCents.share_token,
+      recordInCents.updated_at,
+      recordInCents.id
     ];
     await dbAdapter.execute(queries.updateFromServer, updateParams);
   }

@@ -20,27 +20,27 @@ export default {
       c.name AS client_name
     FROM orders o
     LEFT JOIN clients c ON o.client_id = c.id
-    WHERE c.specialization_id = ?
+    WHERE o.specialization_id = ?
   `,
   insert: `
-    INSERT INTO orders (id, server_id, client_id, total_amount, status, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, strftime('%s','now'), strftime('%s','now'))
+    INSERT INTO orders (id, server_id, specialization_id, client_id, hours, minutes, total_amount, comments, user_id, user_order_number, status, paid, model_id, share_token, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, strftime('%s','now'), strftime('%s','now'))
   `,
   update: `
     UPDATE orders
-    SET client_id = ?, total_amount = ?, status = ?, updated_at = strftime('%s','now')
+    SET specialization_id = ?, client_id = ?, hours = ?, minutes = ?, total_amount = ?, comments = ?, user_id = ?, user_order_number = ?, status = ?, paid = ?, model_id = ?, share_token = ?, updated_at = strftime('%s','now')
     WHERE id = ?
   `,
   delete: `
     DELETE FROM orders WHERE id = ?
   `,
   insertFromServer: `
-    INSERT INTO orders (id, server_id, client_id, total_amount, status, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO orders (id, server_id, specialization_id, client_id, hours, minutes, total_amount, comments, user_id, user_order_number, status, paid, model_id, share_token, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `,
   updateFromServer: `
     UPDATE orders
-    SET client_id = ?, total_amount = ?, status = ?, updated_at = ?
+    SET specialization_id = ?, client_id = ?, hours = ?, minutes = ?, total_amount = ?, comments = ?, user_id = ?, user_order_number = ?, status = ?, paid = ?, model_id = ?, share_token = ?, updated_at = ?
     WHERE server_id = ?
   `,
   updateServerId: `

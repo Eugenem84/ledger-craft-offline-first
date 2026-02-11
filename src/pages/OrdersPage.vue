@@ -4,7 +4,7 @@ import { useRouter } from "vue-router";
 import { useOrdersStore } from "stores/useOrdersStore.js"; // Updated import
 import { useQuasar } from "quasar";
 import DeleteConfirmPage from "pages/dialogs/DeleteConfirmPage.vue"; // Corrected import path
-import { useSpecializationsStore } from "stores/useSpecializationsStore.js";
+//import { useSpecializationsStore } from "stores/useSpecializationsStore.js";
 
 const $q = useQuasar()
 
@@ -24,8 +24,23 @@ const filteredOrders = computed(() => {
 })
 
 
-function formatDate(timestamp) {
-  const date = new Date(timestamp * 1000); // Convert Unix timestamp to milliseconds
+function formatDate(dateInput) {
+  if (!dateInput) return '---';
+
+  let date;
+  // Check if the input is a Unix timestamp (number) or a date string
+  if (typeof dateInput === 'number') {
+    date = new Date(dateInput * 1000);
+  } else if (typeof dateInput === 'string') {
+    date = new Date(dateInput);
+  } else {
+    return '---';
+  }
+
+  if (isNaN(date.getTime())) {
+    return '---';
+  }
+
   const now = new Date();
 
   // Опции для дня и месяца словами
@@ -68,6 +83,7 @@ const getOrders = async () => {
   try {
     await orderStore.load(); // Load orders using the store action
     console.log('ордеры: ', orders.value)
+    console.table(JSON.parse(JSON.stringify(orders.value)))
   } catch (err) {
     $q.notify({
       type: 'negative',
@@ -128,7 +144,7 @@ onMounted(() => {
               </q-item-label>
 
               <q-item-label name="order-number" class="q-ml-sm" style="white-space: nowrap; color: white">
-                №: {{order.id}}
+                №: {{order.server_id}}
               </q-item-label>
             </div>
             <div class="col-6 text-center">

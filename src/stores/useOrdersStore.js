@@ -44,7 +44,11 @@ export const useOrdersStore = defineStore('orders', {
 
     async add(data) {
       this.error = null
-      const newItem = { ...data, id: data.id || crypto.randomUUID() }
+      const newItem = {
+        ...data,
+        id: data.id || crypto.randomUUID(),
+        paid: data.paid ? 1 : 0
+      }
       this.items.push(newItem)
 
       try {
@@ -61,10 +65,14 @@ export const useOrdersStore = defineStore('orders', {
       if (index === -1) return
 
       const oldItem = { ...this.items[index] }
-      this.items[index] = { ...oldItem, ...changes }
+      const updatedItem = { ...oldItem, ...changes }
+      if (changes.paid !== undefined) {
+        updatedItem.paid = changes.paid ? 1 : 0
+      }
+      this.items[index] = updatedItem
 
       try {
-        await ordersRepo.update({ id, ...changes })
+        await ordersRepo.update(updatedItem)
       } catch (err) {
         this.error = err
         this.items[index] = oldItem
