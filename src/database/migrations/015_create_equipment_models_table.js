@@ -4,6 +4,7 @@ export default {
     await db.execute(`
       CREATE TABLE IF NOT EXISTS equipment_models (
         id TEXT PRIMARY KEY,
+        server_id INTEGER,
         name TEXT,
         specialization_id TEXT,
         specialization_server_id INTEGER,
