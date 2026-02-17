@@ -1,65 +1,55 @@
 <script setup>
 import {ref, computed, onMounted} from 'vue'
-import {useOrderStore} from "stores/order.js";
-import {api} from "boot/axios.js";
-import {useSpecializationsStore} from "stores/specializations.js";
+import {useOrdersStore} from "stores/useOrdersStore.js";
+import {useSpecializationsStore} from "stores/useSpecializationsStore.js";
 import {useRouter} from "vue-router";
-import DeleteConfirmPage from "pages/DeleteConfirmPage.vue";
+import DeleteConfirmPage from "pages/dialogs/DeleteConfirmPage.vue";
+import {useQuasar} from "quasar";
+
+import * as orderServicesRepo from 'src/repositories/orderServicesRepo.js'
+import * as orderMaterialsRepo from 'src/repositories/orderMaterialsRepo.js'
+import * as orderProductsRepo from 'src/repositories/orderProductsRepo.js'
+import * as clientsRepo from 'src/repositories/clientsRepo.js'
+import * as categoriesRepo from 'src/repositories/categoriesRepo.js'
+import * as productCategoriesRepo from 'src/repositories/productCategoriesRepo.js'
+import * as servicesRepo from 'src/repositories/servicesRepo.js'
+import * as productsRepo from 'src/repositories/productsRepo.js'
+// import * as modelsRepo from 'src/repositories/modelsRepo.js' // TODO: создать репозиторий для моделей
 
 const deleteConfirmPage = ref(null)
-
-import {useQuasar} from "quasar";
-//import {data} from "autoprefixer";
-
 const isLoading = ref(false)
-
 const $q = useQuasar()
-
 const router = useRouter()
 const specializationsStore = useSpecializationsStore()
-const selectedSpecializationId = specializationsStore.getSelectedSpecialization.id
+const selectedSpecializationId = specializationsStore.selectedSpecialization?.id
+const ordersStore = useOrdersStore()
 
-const orderStore = useOrderStore()
+const order = ref(null)
+const services = ref([])
+const materials = ref([])
+const products = ref([])
 
 const orderStatus = ref('waiting');
 const paid = ref(false)
 
-const order = ref(null)
-const services = ref([])
-const materials =ref([])
-
 const storeProducts = ref([])
-const products = ref([])
 const productCategories = ref([])
 const selectedStoreProduct = ref(null)
 const selectedProductCategory = ref(null)
 
-
-//const clientName = ref(null)
-const client = ref({
-  id:null,
-  name: 'выберите клиента',
-  phone: ''
-})
-const clientId = ref(null)
-const modelId = ref(null)
+const client = ref({ id: null, name: 'выберите клиента', phone: '' })
 const comments = ref(null)
 
 const clients = ref([])
-
-const filteredClients = ref([...clients.value])
-
-const models = ref(null)
-
-const model = ref({id: null, name: null})
+const filteredClients = ref([])
+const models = ref([])
+const model = ref({ id: null, name: null })
 
 const selectedServiceCategory = ref(null)
-
-const serviceCategories = ref(null)
-const servicesByCategory = ref(null)
+const serviceCategories = ref([])
+const servicesByCategory = ref([])
 
 const tab = ref('all')
-
 const editMode = ref(false)
 const isNewOrder = computed(() => !order.value?.id)
 
@@ -69,205 +59,50 @@ const showAddNewClientDialog = ref(false)
 const showAddNewModelDialog = ref(false)
 const showAddProductFromStoreDialog = ref(false)
 
-const newMaterial = ref({
-  name: '',
-  price: 0,
-  amount: 0
-})
-
-const newService = ref({
-  name: '',
-  price: 0,
-})
-
-const newClient = ref({
-  name: '',
-  phone: '',
-})
-
-const newModel = ref({
-  name: '',
-})
+const newMaterial = ref({ name: '', price: 0, amount: 0 })
+const newService = ref({ name: '', price: 0 })
+const newClient = ref({ name: '', phone: '' })
+const newModel = ref({ name: '' })
 
 const filterClients = (val, update) => {
   if (val === '') {
-    update(() => {
-      filteredClients.value = [...clients.value]
-    })
+    update(() => { filteredClients.value = [...clients.value] })
     return
   }
-
   update(() => {
-    filteredClients.value = clients.value.filter(client =>
-      client.name.toLowerCase().includes(val.toLowerCase()) ||
-      client.phone.toString().toLowerCase().includes(val.toLowerCase())
+    filteredClients.value = clients.value.filter(c =>
+      c.name.toLowerCase().includes(val.toLowerCase()) ||
+      (c.phone && c.phone.toString().toLowerCase().includes(val.toLowerCase()))
     )
   })
 }
 
-const getServices = async () => {
-  try {
-    const orderId = order.value.id
-    const response = await api.get(`/get_services/${orderId}`)
-    services.value = response.data
-    console.log('services: ', services.value )
-  }  catch (err) {
-    console.error('ошибка загрузки сервисов', err)
-    $q.notify({
-      type: 'negative',
-      message: 'ошибка загрузки сервисов: ',
-      position: "top",
-      timeout: "1000"
-    })
-  }
-}
+onMounted(async () => {
+  const selectedOrder = ordersStore.getSelectedOrder;
+  if (selectedOrder) {
+    order.value = { ...selectedOrder };
+    paid.value = !!order.value.paid;
+    orderStatus.value = order.value.status;
+    comments.value = order.value.comments;
 
-const switсhPaidStatus = async () => {
-  const id = order.value.id
-  try {
-    const response = await api.put(`switch_paid_status/${id}`)
-    if (response.status === 200) {
-      paid.value = !paid.value
-      console.log('статус оплаты изменен')
-    }
-  } catch (err) {
-    console.log('ошибка смены статуса: ', err)
-  }
-}
+    client.value = {
+      id: order.value.client_id,
+      name: order.value.client_name,
+      phone: order.value.client_phone
+    };
 
-const updateOrderStatus = async () => {
-  try {
-    const id = order.value.id
-    const response = await api.put(`/update_order_status/${id}`, {
-      status: orderStatus.value
-    })
-    if (response.status === 200) {
-      console.log('статус ордера изменен на: ', orderStatus.value)
-    } else {
-      console.error('ошибка обновления статуса', response)}
-  } catch (err) {
-    console.error('ошибка запроса: ', err)
-  }
-}
+    // TODO: Загрузка модели
+    // if (order.value.model_id) {
+    //   const m = await modelsRepo.getById(order.value.model_id);
+    //   if (m) {
+    //     model.value = m;
+    //   }
+    // }
 
-const getMaterialsByOrder = async () => {
-  try {
-    const orderId = order.value.id
-    const response = await api.get(`/get_materials_by_order/${orderId}`)
+    services.value = await orderServicesRepo.getByOrderId(order.value.id)
+    materials.value = await orderMaterialsRepo.getByOrderId(order.value.id)
+    products.value = await orderProductsRepo.getByOrderId(order.value.id)
 
-    materials.value = []
-    products.value = []
-
-    response.data.forEach(item => {
-      if (item.product_id) {
-        products.value.push({...item})
-      } else {
-        materials.value.push({...item})
-      }
-    })
-    console.log('materials: ', materials.value)
-    console.log('products: ', products.value)
-  } catch (err) {
-    $q.notify({
-      type: 'negative',
-      message: 'ошибка загрузки материалов',
-      position: "top",
-      timeout: "1000"
-    })
-    console.error('ошибка получения материалов: ', err)
-  }
-}
-
-const getServiceCategories = async () => {
-  const specializationStore = useSpecializationsStore()
-  try {
-    const specializationId = specializationStore.getSelectedSpecialization.id
-    console.log('специализация: ', specializationId)
-    const response = await api.get(`/get_categories/${specializationId}`)
-    serviceCategories.value = response.data
-    selectedServiceCategory.value = serviceCategories.value[0].id
-    await getServicesByCategory(selectedServiceCategory.value)
-    console.log('сервис категории: ', serviceCategories.value)
-  } catch (err) {
-    $q.notify({
-      type: 'negative',
-      message: 'ошибка загрузки категорий сервисов',
-      position: "top",
-      timeout: "1000"
-    })
-    console.error('ошибка загрузки сервис категорий', err)
-  }
-}
-
-const getServicesByCategory = async (categoryId) => {
-  console.log('подгружаем сервисы категории: ', categoryId)
-  console.log('selectedServiceCategory: ', selectedServiceCategory)
-  try {
-    const response = await api.get(`/get_service/${categoryId}`)
-    servicesByCategory.value = response.data
-    console.log('подгружены сервисы категории: ', servicesByCategory.value)
-  } catch (err) {
-    $q.notify({
-      type: 'negative',
-      message: 'ошибка загрузки сервисов',
-      position: "top",
-      timeout: "1000"
-    })
-    console.error('ошибка загрузке сервисов данной категории: ', categoryId , err )
-  }
-}
-
-const deleteOrder = async () => {
-
-  deleteConfirmPage.value.open(
-    'Подтвердите удаление',
-    `Вы уверены, что хотите удалить ордер "${order.value.id}"?`,
-    async () => {
-      try {
-        const response = await api.delete(`/delete_order/${order.value.id}`)
-        if (response.status === 200) {
-          $q.notify({
-            type: 'positive',
-            message: `ордер ${order.value.id} удален`,
-            position: 'top',
-            timeout: 500
-          })
-        }
-      } catch (err) {
-        $q.notify({
-          type: 'negative',
-          message: 'ошибка удаления ордера',
-          position: "top",
-          timeout: "1000"
-        })
-        console.error("Ошибка удаления ордера", err);
-      } finally {
-        router.back()
-      }
-    }
-  );
-}
-
-onMounted(() => {
-  if(orderStore.currentOrder){
-    order.value = orderStore.currentOrder
-    console.log('ордер: ', order.value)
-    paid.value = order.value.paid
-    orderStatus.value = order.value.status
-    client.value.name = order.value.client_name
-    client.value.phone = order.value.client_phone
-    client.value.id = order.value.client_id
-    clientId.value = order.value.client_id
-    modelId.value = order.value.model_id
-    model.value.name = order.value.model_name
-    if (order.value.model_id){
-      modelId.value = order.value.model_id
-    }
-    if (order.value.comments) {
-      comments.value = order.value.comments
-    }
-    getServices()
-    getMaterialsByOrder()
   } else {
     console.log('режим нового ордера')
     order.value = {
@@ -278,229 +113,150 @@ onMounted(() => {
       comments: ''
     }
     editMode.value = true
-    getProductCategories()
   }
-  getClients()
-  getModels()
-  getServiceCategories()
-  console.log('client: ', client.value)
-})
 
-const getClients = async () => {
+  clients.value = await clientsRepo.getAll()
+  filteredClients.value = [...clients.value]
+  // models.value = await modelsRepo.getAll() // TODO:
+  serviceCategories.value = await categoriesRepo.getBySpecializationId(selectedSpecializationId)
+  productCategories.value = await productCategoriesRepo.getBySpecializationId(selectedSpecializationId)
+
+  if (serviceCategories.value.length > 0) {
+    selectedServiceCategory.value = serviceCategories.value[0].id
+    await getServicesByCategory(selectedServiceCategory.value)
+  }
+});
+
+const getServicesByCategory = async (categoryId) => {
   try {
-    const response = await api.get(`/get_clients/${selectedSpecializationId}`)
-    clients.value = response.data
-    console.log('clients: ', clients)
+    servicesByCategory.value = await servicesRepo.getByCategoryId(categoryId)
   } catch (err) {
-    $q.notify({
-      type: 'negative',
-      message: 'ошибка загрузки клиентов',
-      position: "top",
-      timeout: "1000"
-    })
-    console.error('ошибка получения клиентов: ', err)
-  }
-}
-
-const getModels = async () => {
-  try {
-    const response = await api.get(`/get_equipment_models/${selectedSpecializationId}`)
-    models.value = response.data
-    console.log('models: ', models)
-  } catch (err) {
-    $q.notify({
-      type: 'negative',
-      message: 'ошибка загрузки моделей',
-      position: "top",
-      timeout: "1000"
-    })
-    console.error('ошибка получения моделей: ', err)
-  }
-}
-
-const getProductCategories = async () => {
-  try {
-    const response = await api.get(`/get_product_categories/${selectedSpecializationId}`)
-    productCategories.value = response.data
-    console.log('productCategories: ', productCategories.value)
-  } catch (err){
-    $q.notify({
-      type: 'negative',
-      message: 'ошибка загрузки категорий товаров',
-      position: "top",
-      timeout: "1000"
-    })
+    $q.notify({ type: 'negative', message: 'Ошибка загрузки работ' })
     console.error(err)
   }
 }
 
-const getProductsByCategory = async (selectedProductCategory) => {
+const getProductsByCategory = async (productCategoryId) => {
   selectedStoreProduct.value = null
   try {
-    const response = await api.get(`/get_products/${selectedProductCategory.id}`)
-    storeProducts.value = response.data
-    console.log('products: ', products.value)
+    storeProducts.value = await productsRepo.getByCategoryId(productCategoryId)
   } catch (err){
-    $q.notify({
-      type: 'negative',
-      message: 'ошибка загрузки продуктов',
-      position: "top",
-      timeout: "1000"
-    })
+    $q.notify({ type: 'negative', message: 'Ошибка загрузки товаров' })
     console.error(err)
   }
 }
 
-const activeEditMode = async () => {
-  console.log('активен режим редактора ордера')
-  await getClients()
-  console.log('client_id: ', order.value.client_id)
-  client.value.id = order.value.client_id
-  await getModels()
-  console.log('model_id: ', order.value.model_id)
-  model.value.id = order.value.model_id
+const switсhPaidStatus = async () => {
+  paid.value = !paid.value
+  if (!isNewOrder.value) {
+    await ordersStore.update(order.value.id, { paid: paid.value })
+  }
+}
+
+const updateOrderStatus = async () => {
+  if (!isNewOrder.value) {
+    await ordersStore.update(order.value.id, { status: orderStatus.value })
+  }
+}
+
+const deleteOrder = async () => {
+  deleteConfirmPage.value.open(
+    'Подтвердите удаление',
+    `Вы уверены, что хотите удалить ордер №"${order.value.server_id || order.value.id}"?`,
+    async () => {
+      try {
+        await ordersStore.remove(order.value.id)
+        $q.notify({ type: 'positive', message: `Ордер удален` })
+        router.back()
+      } catch (err) {
+        $q.notify({ type: 'negative', message: 'Ошибка удаления ордера' })
+        console.error(err);
+      }
+    }
+  );
+}
+
+const activeEditMode = () => {
   editMode.value = true
-  await getProductCategories()
 }
 
 const saveOrder = async () => {
   try {
-    if(isNewOrder.value){
+    if (isNewOrder.value) {
       await createOrder()
     } else {
       await updateOrder()
     }
-  } catch (err) {
-    $q.notify({
-      type: 'negative',
-      message: 'ошибка сохранения заказа'
-    })
-    console.error('ошибка сохранения заказа: ', err)
-  }
-
-}
-
-const createOrder = async () => {
-  const token = localStorage.getItem('authToken')
-  console.log('token: ', token)
-  console.log('сохроняем новый ордер')
-  console.log('services', services.value.map(service => service.id))
-  console.log('addedMaterials: ', materials.value)
-  try {
-    const response = await api.post(`/save_order`, {
-      clientId: client.value.id,
-      modelId: model.value.id,
-      specializationId: selectedSpecializationId,
-      totalAmount: totalSumProducts.value + totalSumMaterials.value + totalSumServices.value,
-      addedMaterials: materials.value,
-      addedProducts: products.value,
-      servicesId: services.value.map(service => service.id),
-      comments: comments.value,
-      paid: paid.value,
-      userOrderNumber: '',
-      status: orderStatus.value,
-    }, {
-      headers: {
-        Authorization: `Bearer ${token}`
-      }
-    })
-    console.log('response: ', response)
-    $q.notify({
-      type: 'positive',
-      message: 'ордер создан',
-      position: "top",
-      timeout: "1000"
-    })
+    $q.notify({ type: 'positive', message: 'Ордер сохранен' })
     router.back()
-  } catch (err){
-    $q.notify({
-      type: 'negative',
-      message: 'ошибка создания ордера',
-      position: "top",
-      timeout: "1000"
-    })
+  } catch (err) {
+    $q.notify({ type: 'negative', message: 'Ошибка сохранения ордера' })
     console.error(err)
   }
 }
 
-const updateOrder = async () => {
-  console.log('обновляем ордер на сервере')
-  console.log('cервисы для сохранения: ', services.value)
-  try {
-    const totalAmount = totalSumServices.value + totalSumMaterials.value + totalSumProducts.value
-    console.log('client_id: ', client.value.id)
-    console.log('model_id', model.value.id)
-    const response = await api.post('/update_order', {
-      id: order.value.id,
-      client_id: client.value.id,
-      model_id: model.value.id,
-      specialization_id: selectedSpecializationId,
-      user_order_number: '',
-      total_amount: totalAmount,
-      materials: materials.value,
-      products: products.value,
-      comments: comments.value,
-      services: services.value.map(service => service.id),
-      paid: paid.value
-    })
-    console.log('данные для передачи: ', response)
-    console.log('данные ордера обновлены')
-    $q.notify({
-      type: 'positive',
-      message: 'ордер обновлен',
-      position: "top",
-      timeout: "1000"
-    })
-    router.back()
-  } catch (err) {
-    $q.notify({
-      type: 'negative',
-      message: 'ошибка ошибка обновления ордера',
-      position: "top",
-      timeout: "1000"
-    })
-    console.error('ошибка обновления ордера', err)
+const createOrder = async () => {
+  const newOrderData = {
+    specialization_id: selectedSpecializationId,
+    client_id: client.value?.id,
+    model_id: model.value?.id,
+    total_amount: totalSumProducts.value + totalSumMaterials.value + totalSumServices.value,
+    comments: comments.value,
+    paid: paid.value,
+    status: orderStatus.value,
+  };
+  const newOrderId = await ordersStore.add(newOrderData);
+
+  // Сохраняем связанные сущности
+  for (const service of services.value) {
+    await orderServicesRepo.add(newOrderId, service.id);
+  }
+  for (const material of materials.value) {
+    await orderMaterialsRepo.add(newOrderId, material.id, material.amount, material.price);
+  }
+  for (const product of products.value) {
+    await orderProductsRepo.add(newOrderId, product.id, product.amount, product.price);
   }
 }
 
-// Вычисляемая сумма материалов
-const totalSumServices = computed(() => {
-  if (!services.value) return 0;
-  return services.value.reduce((sum, service) => {
-    const price = Number(service.price) || 0;
-    return sum + price
-  }, 0);
-})
+const updateOrder = async () => {
+  const updatedOrderData = {
+    client_id: client.value?.id,
+    model_id: model.value?.id,
+    total_amount: totalSumProducts.value + totalSumMaterials.value + totalSumServices.value,
+    comments: comments.value,
+    paid: paid.value,
+    status: orderStatus.value,
+  };
+  await ordersStore.update(order.value.id, updatedOrderData);
 
-// Вычисляемая сумма материалов
-const totalSumMaterials = computed(() => {
-  if (!materials.value) return 0;
-  return materials.value.reduce((sum, material) => {
-    const price = Number(material.price) || 0;
-    const amount = Number(material.amount) || 0;
-    return sum + price * amount;
-  }, 0);
-})
+  // Обновляем связанные сущности (простой вариант: удалить все и добавить заново)
+  await orderServicesRepo.removeByOrderId(order.value.id);
+  for (const service of services.value) {
+    await orderServicesRepo.add(order.value.id, service.id);
+  }
 
-const totalSumProducts = computed(() => {
-  if (!products.value) return 0
-  return products.value.reduce((sum, product) => {
-    const price = Number(product.price) || 0
-    const amount = Number(product.amount) || 0
-    return sum + price * amount
-  }, 0)
-})
+  await orderMaterialsRepo.removeByOrderId(order.value.id);
+  for (const material of materials.value) {
+    await orderMaterialsRepo.add(order.value.id, material.id, material.amount, material.price);
+  }
+
+  await orderProductsRepo.removeByOrderId(order.value.id);
+  for (const product of products.value) {
+    await orderProductsRepo.add(order.value.id, product.id, product.amount, product.price);
+  }
+}
+
+const totalSumServices = computed(() => services.value.reduce((sum, service) => sum + Number(service.price || 0), 0));
+const totalSumMaterials = computed(() => materials.value.reduce((sum, material) => sum + Number(material.price || 0) * Number(material.amount || 0), 0));
+const totalSumProducts = computed(() => products.value.reduce((sum, product) => sum + Number(product.price || 0) * Number(product.amount || 0), 0));
 
 const computedToggleColor = computed(() => {
   switch (orderStatus.value) {
-    case 'waiting':
-      return 'orange'
-    case 'process':
-      return 'red'
-    case 'done':
-      return 'green'
-    default:
-      return 'yellow'
+    case 'waiting': return 'orange'
+    case 'process': return 'red'
+    case 'done': return 'green'
+    default: return 'yellow'
   }
 })
 
@@ -514,170 +270,109 @@ const closeDialog = () => {
 
 const addNewService = async () => {
   try {
-    console.log('selected category_id: ', selectedServiceCategory.value)
-    const response = await api.post('/add_service', {
+    const newServiceData = {
       service: newService.value.name,
       price: newService.value.price,
       category_id: selectedServiceCategory.value
-    })
-    console.log('response: ', response)
-    $q.notify({
-      type: 'positive',
-      message: 'работа ' + newService.value.name + ' успешно создана',
-      position: "top",
-      timeout: "1000"
-    })
+    }
+    await servicesRepo.save(newServiceData)
+    $q.notify({ type: 'positive', message: 'Работа добавлена' })
     await getServicesByCategory(selectedServiceCategory.value)
     closeDialog()
   } catch (err) {
-    $q.notify({
-      type: 'negative',
-      message: 'ошибка создании работы',
-      position: "top",
-      timeout: "1000"
-    })
-    console.error('ошибка создание нового сервиса:  ',err)
+    $q.notify({ type: 'negative', message: 'Ошибка добавления работы' })
+    console.error(err)
   }
 }
 
 const addMaterial = () => {
-  if (
-    newMaterial.value.name.trim() !== '' &&
-    newMaterial.value.price > 0 &&
-    newMaterial.value.amount > 0
-  ) {
-    console.log('Добавление нового материала:', { ...newMaterial.value })
-    materials.value.push(newMaterial.value)
-    newMaterial.value = { name: '', price: 0, amount: 0 }
-    showAddNewMaterialDialog.value = false
-    console.log('materials: ', materials.value)
+  if (newMaterial.value.name.trim() && newMaterial.value.price > 0 && newMaterial.value.amount > 0) {
+    materials.value.push({ ...newMaterial.value, id: crypto.randomUUID() }); // Добавляем временный ID
+    newMaterial.value = { name: '', price: 0, amount: 0 };
+    showAddNewMaterialDialog.value = false;
   } else {
-    console.error('Введите корректные данные')
+    $q.notify({ type: 'warning', message: 'Введите корректные данные' })
   }
 }
 
 const addNewClient = async () => {
   try {
-    const response = await api.post('/add_client', {
+    const newClientId = await clientsRepo.save({
       name: newClient.value.name,
       phone: newClient.value.phone,
       specialization_id: selectedSpecializationId
     })
-    showAddNewClientDialog.value = false
-    getClients()
-    client.value = response.data.client
-    $q.notify({
-      type: 'positive',
-      message: 'новый клиент "' + newClient.value.name + '" добавлен',
-      position: "top",
-      timeout: "1000"
-    })
+    const newClientData = await clientsRepo.getById(newClientId)
+    clients.value.push(newClientData)
+    client.value = newClientData
+    $q.notify({ type: 'positive', message: 'Клиент добавлен' })
+    closeDialog()
   } catch (err) {
-    $q.notify({
-      type: 'negative',
-      message: 'ошибка добавления клиента',
-      position: "top",
-      timeout: "1000"
-    })
-    console.error('ошибка добавления клиента: ', err)
-  }
-}
-
-const addNewModel = async () => {
-  try {
-    const response = await api.post('/add_equipment_model', {
-      name: newModel.value.name,
-      specialization_id: selectedSpecializationId
-    })
-    showAddNewModelDialog.value = false
-    getModels()
-    model.value = response.data.model
-    $q.notify({
-      type: 'positive',
-      message: 'модель добавлена',
-      position: "top",
-      timeout: "1000"
-    })
-  } catch (err){
-    $q.notify({
-      type: 'negative',
-      message: 'ошибка добавления модели',
-      position: "top",
-      timeout: "1000"
-    })
+    $q.notify({ type: 'negative', message: 'Ошибка добавления клиента' })
     console.error(err)
   }
 }
 
+const addNewModel = async () => {
+  // try {
+  //   const newModelId = await modelsRepo.save({
+  //     name: newModel.value.name,
+  //     specialization_id: selectedSpecializationId
+  //   })
+  //   const newModelData = await modelsRepo.getById(newModelId)
+  //   models.value.push(newModelData)
+  //   model.value = newModelData
+  //   $q.notify({ type: 'positive', message: 'Модель добавлена' })
+  //   closeDialog()
+  // } catch (err){
+  //   $q.notify({ type: 'negative', message: 'Ошибка добавления модели' })
+  //   console.error(err)
+  // }
+}
+
 const addProductFromStore = () => {
-  console.log('selectedStoreProduct: ', selectedStoreProduct.value)
-  const product = {
-    product_id: selectedStoreProduct.value.id,
-    name: selectedStoreProduct.value.name,
-    price: selectedStoreProduct.value.base_sale_price,
-    amount: 1
+  if (selectedStoreProduct.value) {
+    const productToAdd = {
+      ...selectedStoreProduct.value,
+      product_id: selectedStoreProduct.value.id,
+      price: selectedStoreProduct.value.base_sale_price,
+      amount: 1
+    }
+    products.value.push(productToAdd)
+    showAddProductFromStoreDialog.value = false
   }
-  products.value.push(product)
-  console.log('products: ', products.value)
-  showAddProductFromStoreDialog.value = false
 }
 
 const deleteMaterialFromOrder = (index) => {
-  console.log('index: ', index)
   materials.value.splice(index, 1)
 }
 
 const clearOrder = () => {
-  console.log("очищаем текущий ордер...")
-  client.value = null
-  model.value = null
+  client.value = { id: null, name: 'выберите клиента', phone: '' }
+  model.value = { id: null, name: null }
   services.value = []
   materials.value = []
   products.value = []
+  comments.value = ''
 }
 
 const generateAndCopyLink = async () => {
+  // Эта функция требует онлайн-взаимодействия, оставляем как есть,
+  // но в идеале нужно проверять статус сети
+  if (!order.value?.server_id) {
+    $q.notify({ type: 'warning', message: 'Сначала нужно синхронизировать ордер' })
+    return;
+  }
   isLoading.value = true
-
   try {
-    // 1. Запрашиваем ссылку у сервера
-    const { data } = await api.post(`/order-report/${order.value.id}/share-link`)
-
-    // 2. Копируем в буфер обмена
-    await copyToClipboard(data.url)
-
-    // 3. Показываем уведомление
-    $q.notify({
-      type: 'positive',
-      message: 'ссылка скопирована в буфер обмена',
-      position: "top",
-      timeout: "1000"
-    })
+    const { data } = await api.post(`/order-report/${order.value.server_id}/share-link`)
+    await navigator.clipboard.writeText(data.url)
+    $q.notify({ type: 'positive', message: 'Ссылка скопирована' })
   } catch (error) {
-    $q.notify({
-      type: 'negative',
-      message: 'ошибка копирования ссылки',
-      position: "top",
-      timeout: "1000"
-    })
+    $q.notify({ type: 'negative', message: 'Ошибка копирования ссылки' })
     console.error('Ошибка:', error)
   } finally {
     isLoading.value = false
-  }
-}
-
-const copyToClipboard = async (text) => {
-  try {
-    // Современный API
-    await navigator.clipboard.writeText(text)
-  } catch {
-    // Фолбэк для старых браузеров
-    const textarea = document.createElement('textarea')
-    textarea.value = text
-    document.body.appendChild(textarea)
-    textarea.select()
-    document.execCommand('copy')
-    document.body.removeChild(textarea)
   }
 }
 
@@ -724,7 +419,7 @@ const copyToClipboard = async (text) => {
     <div v-if="order && !isNewOrder">
       <a style="color:grey; font-size:12px ">№</a>
       <a style="color: yellow; font-size: 17px; padding-top: 5px; display: inline-block">
-        {{order.id}}
+        {{order.server_id || order.id}}
       </a>
     </div>
 

@@ -2,14 +2,16 @@ export default {
   getAll: `
     SELECT
       o.*,
-      c.name AS client_name
+      c.name AS client_name,
+      c.phone AS client_phone
     FROM orders o
     LEFT JOIN clients c ON o.client_id = c.id
   `,
   getById: `
     SELECT
       o.*,
-      c.name AS client_name
+      c.name AS client_name,
+      c.phone AS client_phone
     FROM orders o
     LEFT JOIN clients c ON o.client_id = c.id
     WHERE o.id = ?
@@ -17,7 +19,8 @@ export default {
   getBySpecializationId: `
     SELECT
       o.*,
-      c.name AS client_name
+      c.name AS client_name,
+      c.phone AS client_phone
     FROM orders o
     LEFT JOIN clients c ON o.client_id = c.id
     WHERE o.specialization_id = ?
