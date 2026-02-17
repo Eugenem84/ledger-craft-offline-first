@@ -1,5 +1,5 @@
 import dbAdapter from 'src/database/adapters/sqljs-web-adapter'
-import queries from 'src/database/queries/order_products'
+import queries from 'src/database/queries/order_product.js'
 
 export async function getByOrderId(orderId) {
   const rows = await dbAdapter.query(queries.getByOrderId, [orderId])

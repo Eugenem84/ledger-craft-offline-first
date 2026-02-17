@@ -7,8 +7,8 @@ import DeleteConfirmPage from "pages/dialogs/DeleteConfirmPage.vue";
 import {useQuasar} from "quasar";
 
 import * as orderServiceRepo from 'src/repositories/orderServiceRepo.js'
-import * as orderMaterialsRepo from 'src/repositories/orderMaterialsRepo.js'
-import * as orderProductsRepo from 'src/repositories/orderProductsRepo.js'
+import * as orderMaterialRepo from 'src/repositories/orderMaterialRepo.js'
+import * as orderProductRepo from 'src/repositories/orderProductRepo.js'
 import * as clientsRepo from 'src/repositories/clientsRepo.js'
 import * as categoriesRepo from 'src/repositories/categoriesRepo.js'
 import * as productCategoriesRepo from 'src/repositories/productCategoriesRepo.js'
@@ -100,8 +100,8 @@ onMounted(async () => {
     // }
 
     services.value = await orderServiceRepo.getByOrderId(order.value.id)
-    materials.value = await orderMaterialsRepo.getByOrderId(order.value.id)
-    products.value = await orderProductsRepo.getByOrderId(order.value.id)
+    materials.value = await orderMaterialRepo.getByOrderId(order.value.id)
+    products.value = await orderProductRepo.getByOrderId(order.value.id)
 
   } else {
     console.log('режим нового ордера')
@@ -212,10 +212,10 @@ const createOrder = async () => {
     await orderServiceRepo.add(newOrderId, service.id);
   }
   for (const material of materials.value) {
-    await orderMaterialsRepo.add(newOrderId, material.id, material.amount, material.price);
+    await orderMaterialRepo.add(newOrderId, material.id, material.amount, material.price);
   }
   for (const product of products.value) {
-    await orderProductsRepo.add(newOrderId, product.id, product.amount, product.price);
+    await orderProductRepo.add(newOrderId, product.id, product.amount, product.price);
   }
 }
 
@@ -236,14 +236,14 @@ const updateOrder = async () => {
     await orderServiceRepo.add(order.value.id, service.id);
   }
 
-  await orderMaterialsRepo.removeByOrderId(order.value.id);
+  await orderMaterialRepo.removeByOrderId(order.value.id);
   for (const material of materials.value) {
-    await orderMaterialsRepo.add(order.value.id, material.id, material.amount, material.price);
+    await orderMaterialRepo.add(order.value.id, material.id, material.amount, material.price);
   }
 
-  await orderProductsRepo.removeByOrderId(order.value.id);
+  await orderProductRepo.removeByOrderId(order.value.id);
   for (const product of products.value) {
-    await orderProductsRepo.add(order.value.id, product.id, product.amount, product.price);
+    await orderProductRepo.add(order.value.id, product.id, product.amount, product.price);
   }
 }
 

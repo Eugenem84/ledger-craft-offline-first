@@ -11,7 +11,10 @@ import m010 from './010_create_sales_products_prices_table.js'
 import m011 from './011_create_product_categories_table.js'
 import m012 from './012_create_incoming_products_table.js'
 import m013 from './013_create_order_product_table.js'
-import m014 from './014_create_orders_table.js' // Add this line
+import m014 from './014_create_orders_table.js'
+import m015 from './015_create_equipment_models_table.js'
+import m016 from './016_create_incoming_products_table.js'
+import m018 from './018_create_materials_table.js'
 import m020 from './020_create_order_service_table.js'
 import m021 from './021_create_order_material_table.js'
 import m022 from './022_create_order_product_table.js'
@@ -32,6 +35,9 @@ const migrations = [
   m012,
   m013,
   m014,
+  m015,
+  m016,
+  m018,
   m020,
   m021,
   m022,
