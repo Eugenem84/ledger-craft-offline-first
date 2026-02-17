@@ -6,7 +6,7 @@ import {useRouter} from "vue-router";
 import DeleteConfirmPage from "pages/dialogs/DeleteConfirmPage.vue";
 import {useQuasar} from "quasar";
 
-import * as orderServicesRepo from 'src/repositories/orderServicesRepo.js'
+import * as orderServiceRepo from 'src/repositories/orderServiceRepo.js'
 import * as orderMaterialsRepo from 'src/repositories/orderMaterialsRepo.js'
 import * as orderProductsRepo from 'src/repositories/orderProductsRepo.js'
 import * as clientsRepo from 'src/repositories/clientsRepo.js'
@@ -99,7 +99,7 @@ onMounted(async () => {
     //   }
     // }
 
-    services.value = await orderServicesRepo.getByOrderId(order.value.id)
+    services.value = await orderServiceRepo.getByOrderId(order.value.id)
     materials.value = await orderMaterialsRepo.getByOrderId(order.value.id)
     products.value = await orderProductsRepo.getByOrderId(order.value.id)
 
@@ -209,7 +209,7 @@ const createOrder = async () => {
 
   // Сохраняем связанные сущности
   for (const service of services.value) {
-    await orderServicesRepo.add(newOrderId, service.id);
+    await orderServiceRepo.add(newOrderId, service.id);
   }
   for (const material of materials.value) {
     await orderMaterialsRepo.add(newOrderId, material.id, material.amount, material.price);
@@ -231,9 +231,9 @@ const updateOrder = async () => {
   await ordersStore.update(order.value.id, updatedOrderData);
 
   // Обновляем связанные сущности (простой вариант: удалить все и добавить заново)
-  await orderServicesRepo.removeByOrderId(order.value.id);
+  await orderServiceRepo.removeByOrderId(order.value.id);
   for (const service of services.value) {
-    await orderServicesRepo.add(order.value.id, service.id);
+    await orderServiceRepo.add(order.value.id, service.id);
   }
 
   await orderMaterialsRepo.removeByOrderId(order.value.id);
