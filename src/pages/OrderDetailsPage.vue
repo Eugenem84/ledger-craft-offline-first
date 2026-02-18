@@ -3,6 +3,7 @@ import {ref, computed, onMounted, toRaw} from 'vue'
 import {useOrdersStore} from "stores/useOrdersStore.js";
 import {useSpecializationsStore} from "stores/useSpecializationsStore.js";
 import {useModelsStore} from "stores/useModelsStore.js";
+import {useCategoriesStore} from "stores/useCategoriesStore.js";
 import {useRouter} from "vue-router";
 import DeleteConfirmPage from "pages/dialogs/DeleteConfirmPage.vue";
 import {useQuasar} from "quasar";
@@ -11,7 +12,6 @@ import * as orderServiceRepo from 'src/repositories/orderServiceRepo.js'
 import * as orderMaterialRepo from 'src/repositories/orderMaterialRepo.js'
 import * as orderProductRepo from 'src/repositories/orderProductRepo.js'
 import * as clientsRepo from 'src/repositories/clientsRepo.js'
-import * as categoriesRepo from 'src/repositories/categoriesRepo.js'
 import * as productCategoriesRepo from 'src/repositories/productCategoriesRepo.js'
 import * as servicesRepo from 'src/repositories/servicesRepo.js'
 import * as productsRepo from 'src/repositories/productsRepo.js'
@@ -25,6 +25,7 @@ const specializationsStore = useSpecializationsStore()
 const selectedSpecializationId = specializationsStore.selectedSpecialization?.id
 const ordersStore = useOrdersStore()
 const modelsStore = useModelsStore()
+const categoriesStore = useCategoriesStore()
 
 const order = ref(null)
 const services = ref([])
@@ -48,7 +49,6 @@ const models = ref([])
 const model = ref({ id: null, name: null })
 
 const selectedServiceCategory = ref(null)
-const serviceCategories = ref([])
 const servicesByCategory = ref([])
 
 const tab = ref('all')
@@ -120,13 +120,13 @@ onMounted(async () => {
   filteredClients.value = [...clients.value]
   models.value = await modelsRepo.getAll()
   console.table(toRaw(models.value))
+  await categoriesStore.load()
   if (selectedSpecializationId) {
-    serviceCategories.value = await categoriesRepo.getBySpecializationId(selectedSpecializationId)
     productCategories.value = await productCategoriesRepo.getBySpecializationId(selectedSpecializationId)
   }
 
-  if (serviceCategories.value.length > 0) {
-    selectedServiceCategory.value = serviceCategories.value[0].id
+  if (categoriesStore.items.length > 0) {
+    selectedServiceCategory.value = categoriesStore.items[0].id
     await getServicesByCategory(selectedServiceCategory.value)
   }
 });
@@ -743,7 +743,7 @@ const generateAndCopyLink = async () => {
         <!-- панель выбора сервисов -->
         <q-tab-panel name="servicesChoice" style="padding: 0">
           <q-select v-model="selectedServiceCategory"
-                    :options="serviceCategories"
+                    :options="categoriesStore.items"
                     option-label="category_name"
                     option-value="id"
                     emit-value
