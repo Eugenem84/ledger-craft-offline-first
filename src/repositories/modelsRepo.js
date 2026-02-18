@@ -2,6 +2,7 @@ import { v4 as uuidv4 } from 'uuid'
 import dbAdapter from 'src/database/adapters/sqljs-web-adapter'
 import queries from 'src/database/queries/models'
 import operationsRepo from 'src/repositories/operationsRepo'
+import * as specializationsRepo from 'src/repositories/specializationsRepo'
 
 export async function getAll() {
   const rows =  await dbAdapter.query(queries.getAll)
@@ -26,6 +27,7 @@ export async function save(model) {
     model.server_id || null,
     model.name,
     model.specialization_id || null,
+    model.specialization_server_id || null,
   ]
 
   await dbAdapter.execute(queries.insert, params)
@@ -46,6 +48,8 @@ export async function update(model) {
 
   const params = [
     model.name,
+    model.specialization_id || null,
+    model.specialization_server_id || null,
     model.id // for `WHERE id = ?`
   ];
   await dbAdapter.execute(queries.update, params);
@@ -55,6 +59,8 @@ export async function update(model) {
     const payloadForServer = {
       id: existingModel.server_id,
       name: model.name,
+      specialization_id: model.specialization_id,
+      specialization_server_id: model.specialization_server_id,
     };
     const opPayload = JSON.stringify(payloadForServer);
     const opParams = [opId, 'update', 'equipment_models', opPayload, Date.now()];
@@ -81,6 +87,16 @@ export async function remove(id) {
 export async function applyServerRecord(record) {
   const existing = await dbAdapter.query(queries.findByServerId, [record.id]);
 
+  let localSpecializationId = null;
+  if (record.specialization_id) {
+    const specialization = await specializationsRepo.findByServerId(record.specialization_id);
+    if (specialization) {
+      localSpecializationId = specialization.id;
+    } else {
+      console.warn(`[applyServerRecord] Не найдена локальная специализация для server_id: ${record.specialization_id}`);
+    }
+  }
+
   if (!existing.length) {
     // New record
     const localId = uuidv4();
@@ -88,7 +104,8 @@ export async function applyServerRecord(record) {
       localId,           // local id
       record.id,         // server_id
       record.name,
-      record.specialization_id || null,
+      localSpecializationId,
+      record.specialization_id, // specialization_server_id
       record.created_at || Math.floor(Date.now() / 1000),
       record.updated_at || Math.floor(Date.now() / 1000)
     ];
@@ -102,6 +119,8 @@ export async function applyServerRecord(record) {
   if (new Date(record.updated_at) > new Date(local.updated_at)) {
     const updateParams = [
       record.name,
+      localSpecializationId,
+      record.specialization_id, // specialization_server_id
       record.updated_at,
       record.id // server_id for WHERE
     ];
