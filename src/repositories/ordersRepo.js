@@ -4,6 +4,8 @@ import queries from 'src/database/queries/orders'
 import operationsRepo from 'src/repositories/operationsRepo'
 import { findByServerId as findSpecializationByServerId } from "src/repositories/specializationsRepo.js";
 import { findByServerId as findClientByServerId } from "src/repositories/clientsRepo.js";
+import { getById as getModelById } from "src/repositories/modelsRepo.js";
+import { findByServerId as findModelByServerId } from "src/repositories/modelsRepo.js";
 
 // Helper to convert amount from cents to roubles
 const fromCents = (order) => {
@@ -88,6 +90,14 @@ export async function save(order) {
   await dbAdapter.execute(queries.insert, params)
 
   const payloadForServer = { ...order };
+  if (order.model_id) {
+    const model = await getModelById(order.model_id);
+    if (model && model.server_id) {
+      payloadForServer.model_id = model.server_id;
+    } else {
+      delete payloadForServer.model_id; // Не отправляем, если нет server_id
+    }
+  }
   delete payloadForServer.id;
   const opId = uuidv4();
   const opPayload = JSON.stringify({ local_id: id, ...payloadForServer });
@@ -128,6 +138,14 @@ export async function update(order) {
       id: existingOrder.server_id,
       ...order
     };
+    if (order.model_id) {
+      const model = await getModelById(order.model_id);
+      if (model && model.server_id) {
+        payloadForServer.model_id = model.server_id;
+      } else {
+        delete payloadForServer.model_id;
+      }
+    }
     delete payloadForServer.id;
     const opPayload = JSON.stringify(payloadForServer);
     const opParams = [opId, 'update', 'orders', opPayload, Date.now()];
@@ -162,6 +180,14 @@ export async function applyServerRecord(record) {
     total_amount: (record.total_amount || 0) * 100 // Convert to cents
   };
 
+  let localModelId = null;
+  if (record.model_id) {
+    const model = await findModelByServerId(record.model_id);
+    if (model) {
+      localModelId = model.id;
+    }
+  }
+
   if (!existing.length) {
     const localId = uuidv4();
     const specializationData = await getSpecializationData({ specialization_server_id: record.specialization_id });
@@ -181,7 +207,7 @@ export async function applyServerRecord(record) {
       recordInCents.user_order_number,
       recordInCents.status,
       recordInCents.paid,
-      recordInCents.model_id,
+      localModelId,
       recordInCents.share_token,
       recordInCents.created_at || Math.floor(Date.now() / 1000),
       recordInCents.updated_at || Math.floor(Date.now() / 1000)
@@ -208,7 +234,7 @@ export async function applyServerRecord(record) {
       recordInCents.user_order_number,
       recordInCents.status,
       recordInCents.paid,
-      recordInCents.model_id,
+      localModelId,
       recordInCents.share_token,
       recordInCents.updated_at,
       recordInCents.id
