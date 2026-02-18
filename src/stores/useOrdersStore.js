@@ -53,9 +53,11 @@ export const useOrdersStore = defineStore('orders', {
 
       try {
         await ordersRepo.save(newItem)
+        return newItem.id // Возвращаем только ID созданного элемента
       } catch (err) {
         this.error = err
         this.items = this.items.filter(o => o.id !== newItem.id)
+        throw err // Пробрасываем ошибку для обработки в компоненте
       }
     },
 
