@@ -29,6 +29,7 @@ export async function save(client) {
     id,
     client.server_id || null,
     client.specialization_id || null,
+    client.specialization_server_id || null,
     client.name,
     client.phone || ''
   ]
@@ -74,6 +75,8 @@ export async function update(client) {
   const params = [
     client.name,
     client.phone || '',
+    client.specialization_id || null,
+    client.specialization_server_id || null,
     client.id // для `WHERE id = ?`
   ];
   await dbAdapter.execute(queries.update, params); // Убедитесь, что queries.update обновляет только нужные поля
@@ -87,7 +90,9 @@ export async function update(client) {
     const payloadForServer = {
       id: existingClient.server_id,
       name: client.name,
-      phone: client.phone
+      phone: client.phone,
+      specialization_id: client.specialization_id,
+      specialization_server_id: client.specialization_server_id
     };
     const opPayload = JSON.stringify(payloadForServer);
     const opParams = [opId, 'update', 'clients', opPayload, Date.now()];
@@ -150,6 +155,7 @@ export async function applyServerRecord(record) {
       localId,           // локальный id
       record.id,         // server_id
       localSpecializationId,
+      record.specialization_id, // specialization_server_id
       record.name,
       record.phone || '',
       record.created_at || Math.floor(Date.now() / 1000),
@@ -167,6 +173,7 @@ export async function applyServerRecord(record) {
       record.name,
       record.phone || '',
       localSpecializationId,
+      record.specialization_id, // specialization_server_id
       record.updated_at,
       record.id // server_id для WHERE
     ];

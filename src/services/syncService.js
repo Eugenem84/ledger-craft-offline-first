@@ -21,14 +21,14 @@ class SyncService {
     this.syncing = false;
 
     this.repos = {
-      clients: clientsRepo,
       specializations: specializationsRepo,
       categories: categoriesRepo,
-      services: servicesRepo,
       product_categories: productCategoriesRepo,
+      equipment_models: modelsRepo,
+      clients: clientsRepo,
+      services: servicesRepo,
       products: productsRepo,
       orders: ordersRepo,
-      equipment_models: modelsRepo,
     };
 
     this.fkTransformationMap = {

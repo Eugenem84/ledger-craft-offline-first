@@ -5,7 +5,8 @@ export default {
       CREATE TABLE IF NOT EXISTS clients (
         id TEXT PRIMARY KEY,
         server_id bigint,
-        specialization_id bigint,
+        specialization_id TEXT,
+        specialization_server_id bigint,
         name varchar(255) NOT NULL,
         phone varchar(255),
         created_at INTEGER DEFAULT (strftime('%s','now')),
