@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import * as ordersRepo from 'src/repositories/ordersRepo.js'
 import { useSpecializationsStore } from "stores/useSpecializationsStore.js";
+import { useClientsStore } from "stores/useClientsStore.js";
 
 export const useOrdersStore = defineStore('orders', {
   state: () => ({
@@ -52,12 +53,19 @@ export const useOrdersStore = defineStore('orders', {
       const specializationsStore = useSpecializationsStore();
       const selectedSpecialization = specializationsStore.getSelectedSpecialization;
 
+      const clientsStore = useClientsStore();
+      if (!clientsStore.isLoaded) {
+        await clientsStore.load();
+      }
+      const client = clientsStore.items.find(c => c.id === data.client_id);
+
       const newItem = {
         ...data,
         id: data.id || crypto.randomUUID(),
         paid: data.paid ? 1 : 0,
         specialization_id: selectedSpecialization?.id || null,
         specialization_server_id: selectedSpecialization?.server_id || null,
+        client_server_id: client?.server_id || null,
       }
       this.items.push(newItem)
 
