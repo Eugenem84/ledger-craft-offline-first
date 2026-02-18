@@ -2,6 +2,7 @@
 import {ref, computed, onMounted} from 'vue'
 import {useOrdersStore} from "stores/useOrdersStore.js";
 import {useSpecializationsStore} from "stores/useSpecializationsStore.js";
+import {useModelsStore} from "stores/useModelsStore.js";
 import {useRouter} from "vue-router";
 import DeleteConfirmPage from "pages/dialogs/DeleteConfirmPage.vue";
 import {useQuasar} from "quasar";
@@ -14,7 +15,7 @@ import * as categoriesRepo from 'src/repositories/categoriesRepo.js'
 import * as productCategoriesRepo from 'src/repositories/productCategoriesRepo.js'
 import * as servicesRepo from 'src/repositories/servicesRepo.js'
 import * as productsRepo from 'src/repositories/productsRepo.js'
-// import * as modelsRepo from 'src/repositories/modelsRepo.js' // TODO: создать репозиторий для моделей
+import * as modelsRepo from 'src/repositories/modelsRepo.js'
 
 const deleteConfirmPage = ref(null)
 const isLoading = ref(false)
@@ -23,6 +24,7 @@ const router = useRouter()
 const specializationsStore = useSpecializationsStore()
 const selectedSpecializationId = specializationsStore.selectedSpecialization?.id
 const ordersStore = useOrdersStore()
+const modelsStore = useModelsStore()
 
 const order = ref(null)
 const services = ref([])
@@ -91,13 +93,12 @@ onMounted(async () => {
       phone: order.value.client_phone
     };
 
-    // TODO: Загрузка модели
-    // if (order.value.model_id) {
-    //   const m = await modelsRepo.getById(order.value.model_id);
-    //   if (m) {
-    //     model.value = m;
-    //   }
-    // }
+    if (order.value.model_id) {
+      const m = await modelsRepo.getById(order.value.model_id);
+      if (m) {
+        model.value = m;
+      }
+    }
 
     services.value = await orderServiceRepo.getByOrderId(order.value.id)
     materials.value = await orderMaterialRepo.getByOrderId(order.value.id)
@@ -117,9 +118,11 @@ onMounted(async () => {
 
   clients.value = await clientsRepo.getAll()
   filteredClients.value = [...clients.value]
-  // models.value = await modelsRepo.getAll() // TODO:
-  serviceCategories.value = await categoriesRepo.getBySpecializationId(selectedSpecializationId)
-  productCategories.value = await productCategoriesRepo.getBySpecializationId(selectedSpecializationId)
+  models.value = await modelsRepo.getAll()
+  if (selectedSpecializationId) {
+    serviceCategories.value = await categoriesRepo.getBySpecializationId(selectedSpecializationId)
+    productCategories.value = await productCategoriesRepo.getBySpecializationId(selectedSpecializationId)
+  }
 
   if (serviceCategories.value.length > 0) {
     selectedServiceCategory.value = serviceCategories.value[0].id
@@ -314,20 +317,20 @@ const addNewClient = async () => {
 }
 
 const addNewModel = async () => {
-  // try {
-  //   const newModelId = await modelsRepo.save({
-  //     name: newModel.value.name,
-  //     specialization_id: selectedSpecializationId
-  //   })
-  //   const newModelData = await modelsRepo.getById(newModelId)
-  //   models.value.push(newModelData)
-  //   model.value = newModelData
-  //   $q.notify({ type: 'positive', message: 'Модель добавлена' })
-  //   closeDialog()
-  // } catch (err){
-  //   $q.notify({ type: 'negative', message: 'Ошибка добавления модели' })
-  //   console.error(err)
-  // }
+  try {
+    const newModelId = await modelsStore.add({
+      name: newModel.value.name,
+      specialization_id: selectedSpecializationId
+    })
+    const newModelData = await modelsRepo.getById(newModelId)
+    models.value.push(newModelData)
+    model.value = newModelData
+    $q.notify({ type: 'positive', message: 'Модель добавлена' })
+    closeDialog()
+  } catch (err){
+    $q.notify({ type: 'negative', message: 'Ошибка добавления модели' })
+    console.error(err)
+  }
 }
 
 const addProductFromStore = () => {

@@ -8,6 +8,11 @@ export async function getAll() {
   return rows
 }
 
+export async function getBySpecializationId(specializationId) {
+  const rows = await dbAdapter.query(queries.getBySpecializationId, [specializationId]);
+  return rows;
+}
+
 export async function save(category) {
   const id = category.id || uuidv4()
 

@@ -1,6 +1,7 @@
 export default {
   getAll: 'SELECT * FROM categories',
   getById: 'SELECT * FROM categories WHERE id = ?',
+  getBySpecializationId: 'SELECT * FROM categories WHERE specialization_id = ?',
   insert: `
     INSERT INTO categories (id, server_id, specialization_id, category_name)
     VALUES (?, ?, ?, ?)
