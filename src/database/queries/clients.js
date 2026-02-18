@@ -16,7 +16,7 @@ export default {
   `,
   update: `
     UPDATE clients
-    SET server_id = ?, specialization_id = ?, name = ?, phone = ?, updated_at = strftime('%s','now')
+    SET name = ?, phone = ?, updated_at = strftime('%s','now')
     WHERE id = ?
   `,
   delete: `
@@ -28,7 +28,7 @@ export default {
   `,
   updateFromServer: `
     UPDATE clients
-    SET server_id = ?, specialization_id = ?, name = ?, phone = ?, created_at = ?, updated_at = ?
+    SET name = ?, phone = ?, specialization_id = ?, updated_at = ?
     WHERE server_id = ?
   `,
   updateServerId: `

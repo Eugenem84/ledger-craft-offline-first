@@ -1,5 +1,5 @@
 <script setup>
-import {ref, computed, onMounted} from 'vue'
+import {ref, computed, onMounted, toRaw} from 'vue'
 import {useOrdersStore} from "stores/useOrdersStore.js";
 import {useSpecializationsStore} from "stores/useSpecializationsStore.js";
 import {useModelsStore} from "stores/useModelsStore.js";
@@ -119,6 +119,7 @@ onMounted(async () => {
   clients.value = await clientsRepo.getAll()
   filteredClients.value = [...clients.value]
   models.value = await modelsRepo.getAll()
+  console.table(toRaw(models.value))
   if (selectedSpecializationId) {
     serviceCategories.value = await categoriesRepo.getBySpecializationId(selectedSpecializationId)
     productCategories.value = await productCategoriesRepo.getBySpecializationId(selectedSpecializationId)

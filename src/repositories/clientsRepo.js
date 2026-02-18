@@ -2,6 +2,7 @@ import { v4 as uuidv4 } from 'uuid'
 import dbAdapter from 'src/database/adapters/sqljs-web-adapter'
 import queries from 'src/database/queries/clients'
 import operationsRepo from 'src/repositories/operationsRepo'
+import * as specializationsRepo from 'src/repositories/specializationsRepo'
 
 //console.log('queries.insert:', queries.insert)
 console.log('!!! queries object:', queries)
@@ -132,13 +133,23 @@ export async function applyServerRecord(record) {
     SELECT * FROM clients WHERE server_id = ?
   `, [record.id]); // используем record.id как server_id
 
+  let localSpecializationId = null;
+  if (record.specialization_id) {
+    const specialization = await specializationsRepo.findByServerId(record.specialization_id);
+    if (specialization) {
+      localSpecializationId = specialization.id;
+    } else {
+      console.warn(`[applyServerRecord] Не найдена локальная специализация для server_id: ${record.specialization_id}`);
+    }
+  }
+
   if (!existing.length) {
     // Новая запись
     const localId = uuidv4();
     const params = [
       localId,           // локальный id
       record.id,         // server_id
-      record.specialization_id || null,
+      localSpecializationId,
       record.name,
       record.phone || '',
       record.created_at || Math.floor(Date.now() / 1000),
@@ -155,6 +166,7 @@ export async function applyServerRecord(record) {
     const updateParams = [
       record.name,
       record.phone || '',
+      localSpecializationId,
       record.updated_at,
       record.id // server_id для WHERE
     ];

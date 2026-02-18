@@ -9,9 +9,10 @@ import * as clientsRepo from 'src/repositories/clientsRepo';
 import * as specializationsRepo from 'src/repositories/specializationsRepo';
 import * as categoriesRepo from 'src/repositories/categoriesRepo';
 import * as servicesRepo from 'src/repositories/servicesRepo';
-import * as productCategoriesRepo from 'src/repositories/productCategoriesRepo'; // Импортируем репо
-import * as productsRepo from 'src/repositories/productsRepo'; // Импортируем репо
-import * as ordersRepo from 'src/repositories/ordersRepo'; // Импортируем репо
+import * as productCategoriesRepo from 'src/repositories/productCategoriesRepo';
+import * as productsRepo from 'src/repositories/productsRepo';
+import * as ordersRepo from 'src/repositories/ordersRepo';
+import * as modelsRepo from 'src/repositories/modelsRepo';
 
 import { logAllServicesForDebugging } from 'src/repositories/servicesRepo';
 
@@ -24,9 +25,10 @@ class SyncService {
       specializations: specializationsRepo,
       categories: categoriesRepo,
       services: servicesRepo,
-      product_categories: productCategoriesRepo, // Добавляем репо в список
-      products: productsRepo, // Добавляем репо в список
-      orders: ordersRepo, // Добавляем репо в список
+      product_categories: productCategoriesRepo,
+      products: productsRepo,
+      orders: ordersRepo,
+      equipment_models: modelsRepo,
     };
 
     this.fkTransformationMap = {
@@ -47,6 +49,10 @@ class SyncService {
       },
       orders: {
         client_id: 'clients',
+        specialization_id: 'specializations',
+        model_id: 'equipment_models'
+      },
+      equipment_models: {
         specialization_id: 'specializations'
       }
     };
