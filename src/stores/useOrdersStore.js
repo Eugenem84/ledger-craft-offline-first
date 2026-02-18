@@ -24,11 +24,16 @@ export const useOrdersStore = defineStore('orders', {
       this.error = null
       try {
         const specializationsStore = useSpecializationsStore();
-        const specializationId = specializationsStore.selectedSpecialization?.id;
+          // Ждем загрузки специализаций, если они еще не загружены
+        if (!specializationsStore.isLoaded) {
+          await specializationsStore.load();
+        }
+        const specializationId = specializationsStore.getSelectedSpecialization?.id;
 
         if (specializationId) {
           this.items = await ordersRepo.getBySpecializationId(specializationId);
         } else {
+          // Загружаем все, если специализация не выбрана (или их нет)
           this.items = await ordersRepo.getAll();
         }
       } catch (err) {
@@ -44,14 +49,20 @@ export const useOrdersStore = defineStore('orders', {
 
     async add(data) {
       this.error = null
+      const specializationsStore = useSpecializationsStore();
+      const selectedSpecialization = specializationsStore.getSelectedSpecialization;
+
       const newItem = {
         ...data,
         id: data.id || crypto.randomUUID(),
-        paid: data.paid ? 1 : 0
+        paid: data.paid ? 1 : 0,
+        specialization_id: selectedSpecialization?.id || null,
+        specialization_server_id: selectedSpecialization?.server_id || null,
       }
       this.items.push(newItem)
 
       try {
+        // Теперь newItem содержит данные о специализации
         await ordersRepo.save(newItem)
         return newItem.id // Возвращаем только ID созданного элемента
       } catch (err) {

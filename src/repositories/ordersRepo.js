@@ -68,6 +68,10 @@ export async function save(order) {
   const specializationData = await getSpecializationData(order);
   const clientData = await getClientData(order);
 
+  console.log('Specialization data:', specializationData);
+  console.log('SelectedSpecialization: ', specializationData.server_id );
+
+
   const params = [
     id,
     order.server_id || null,
@@ -86,6 +90,8 @@ export async function save(order) {
     order.model_id || null,
     order.share_token || null
   ]
+
+  console.log('SQL Params:', params);
 
   await dbAdapter.execute(queries.insert, params)
 
