@@ -4,7 +4,7 @@ import {useOrdersStore} from "stores/useOrdersStore.js";
 import {useSpecializationsStore} from "stores/useSpecializationsStore.js";
 import {useModelsStore} from "stores/useModelsStore.js";
 import {useCategoriesStore} from "stores/useCategoriesStore.js";
-import {useRouter} from "vue-router";
+import {useRouter, useRoute} from "vue-router";
 import DeleteConfirmPage from "pages/dialogs/DeleteConfirmPage.vue";
 import {useQuasar} from "quasar";
 
@@ -18,6 +18,11 @@ import * as productsRepo from 'src/repositories/productsRepo.js'
 import * as modelsRepo from 'src/repositories/modelsRepo.js'
 
 const deleteConfirmPage = ref(null)
+const route = useRoute()
+
+const isCreateRoute = computed(() =>
+  route.name === 'new-order' || route.path === '/orders/new'
+)
 const isLoading = ref(false)
 const $q = useQuasar()
 const router = useRouter()
@@ -80,32 +85,7 @@ const filterClients = (val, update) => {
 }
 
 onMounted(async () => {
-  const selectedOrder = ordersStore.getSelectedOrder;
-  if (selectedOrder) {
-    order.value = { ...selectedOrder };
-    paid.value = !!order.value.paid;
-    orderStatus.value = order.value.status;
-    comments.value = order.value.comments;
-
-    client.value = {
-      id: order.value.client_id,
-      name: order.value.client_name,
-      phone: order.value.client_phone
-    };
-
-    if (order.value.model_id) {
-      const m = await modelsRepo.getById(order.value.model_id);
-      if (m) {
-        model.value = m;
-      }
-    }
-
-    services.value = await orderServiceRepo.getByOrderId(order.value.id)
-    materials.value = await orderMaterialRepo.getByOrderId(order.value.id)
-    products.value = await orderProductRepo.getByOrderId(order.value.id)
-
-  } else {
-    console.log('режим нового ордера')
+  if (isCreateRoute.value) {
     order.value = {
       status: 'waiting',
       paid: false,
@@ -113,7 +93,51 @@ onMounted(async () => {
       modelId: null,
       comments: ''
     }
+    client.value = { id: null, name: 'выберите клиента', phone: '' }
+    model.value = { id: null, name: null }
+    services.value = []
+    materials.value = []
+    products.value = []
+    comments.value = ''
+    paid.value = false
+    orderStatus.value = 'waiting'
     editMode.value = true
+  } else {
+    const selectedOrder = ordersStore.getSelectedOrder;
+    if (selectedOrder) {
+      order.value = { ...selectedOrder };
+      paid.value = !!order.value.paid;
+      orderStatus.value = order.value.status;
+      comments.value = order.value.comments;
+
+      client.value = {
+        id: order.value.client_id,
+        name: order.value.client_name,
+        phone: order.value.client_phone
+      };
+
+      if (order.value.model_id) {
+        const m = await modelsRepo.getById(order.value.model_id);
+        if (m) {
+          model.value = m;
+        }
+      }
+
+      services.value = await orderServiceRepo.getByOrderId(order.value.id)
+      materials.value = await orderMaterialRepo.getByOrderId(order.value.id)
+      products.value = await orderProductRepo.getByOrderId(order.value.id)
+
+    } else {
+      console.log('режим нового ордера')
+      order.value = {
+        status: 'waiting',
+        paid: false,
+        clientId: null,
+        modelId: null,
+        comments: ''
+      }
+      editMode.value = true
+    }
   }
 
   clients.value = await clientsRepo.getAll()
