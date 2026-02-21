@@ -79,6 +79,11 @@ export default {
     });
 
     const serverData = res.data;
+    // #region agent log
+    if (table === 'product_categories') {
+      fetch('http://127.0.0.1:7242/ingest/8e04cba5-afdb-435f-b79d-a4900a5e4055',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'41c4e6'},body:JSON.stringify({sessionId:'41c4e6',location:'api.js:fetchUpdates',message:'product_categories raw response',data:{hasRecords:Array.isArray(serverData?.records),recordsLength:serverData?.records?.length,keys: serverData ? Object.keys(serverData) : []},timestamp:Date.now(),hypothesisId:'H1-H2'})}).catch(()=>{});
+    }
+    // #endregion
 
     if (Array.isArray(serverData?.records)) {
       serverData.records = serverData.records.map(record => {

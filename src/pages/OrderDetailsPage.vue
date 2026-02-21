@@ -27,7 +27,7 @@ const isLoading = ref(false)
 const $q = useQuasar()
 const router = useRouter()
 const specializationsStore = useSpecializationsStore()
-const selectedSpecializationId = specializationsStore.selectedSpecialization?.id
+const selectedSpecializationId = specializationsStore.getSelectedSpecialization?.id
 const ordersStore = useOrdersStore()
 const modelsStore = useModelsStore()
 const categoriesStore = useCategoriesStore()
@@ -145,8 +145,9 @@ onMounted(async () => {
   models.value = await modelsRepo.getAll()
   console.table(toRaw(models.value))
   await categoriesStore.load()
-  if (selectedSpecializationId) {
-    productCategories.value = await productCategoriesRepo.getBySpecializationId(selectedSpecializationId)
+  const specIdForCategories = order.value?.specialization_id ?? selectedSpecializationId
+  if (specIdForCategories) {
+    productCategories.value = await productCategoriesRepo.getBySpecializationId(specIdForCategories)
   }
 
   if (categoriesStore.items.length > 0) {
@@ -164,11 +165,18 @@ const getServicesByCategory = async (categoryId) => {
   }
 }
 
-const getProductsByCategory = async (productCategoryId) => {
+const getProductsByCategory = async (productCategoryIdOrObject) => {
   selectedStoreProduct.value = null
+  const categoryId = productCategoryIdOrObject && typeof productCategoryIdOrObject === 'object'
+    ? productCategoryIdOrObject.id
+    : productCategoryIdOrObject
+  if (categoryId == null) {
+    storeProducts.value = []
+    return
+  }
   try {
-    storeProducts.value = await productsRepo.getByCategoryId(productCategoryId)
-  } catch (err){
+    storeProducts.value = await productsRepo.getByCategoryId(categoryId)
+  } catch (err) {
     $q.notify({ type: 'negative', message: 'Ошибка загрузки товаров' })
     console.error(err)
   }
@@ -323,12 +331,14 @@ const addMaterial = () => {
   }
 }
 
+const effectiveSpecializationId = computed(() => order.value?.specialization_id ?? selectedSpecializationId)
+
 const addNewClient = async () => {
   try {
     const newClientId = await clientsRepo.save({
       name: newClient.value.name,
       phone: newClient.value.phone,
-      specialization_id: selectedSpecializationId
+      specialization_id: effectiveSpecializationId.value
     })
     const newClientData = await clientsRepo.getById(newClientId)
     clients.value.push(newClientData)
@@ -345,7 +355,7 @@ const addNewModel = async () => {
   try {
     const newModelId = await modelsStore.add({
       name: newModel.value.name,
-      specialization_id: selectedSpecializationId
+      specialization_id: effectiveSpecializationId.value
     })
     const newModelData = await modelsRepo.getById(newModelId)
     models.value.push(newModelData)
@@ -988,7 +998,10 @@ const generateAndCopyLink = async () => {
           <div class="text-h6">Добавление товара со склада</div>
           <q-select v-model="selectedProductCategory"
                     :options="productCategories"
+                    option-value="id"
                     option-label="name"
+                    emit-value
+                    map-options
                     label="Выберите категорию"
                     @update:model-value="getProductsByCategory"
                     label-color="yellow"

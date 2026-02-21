@@ -7,6 +7,7 @@ export default {
         server_id BIGINT,
         name VARCHAR(255) NOT NULL,
         specialization_id TEXT,
+        specialization_server_id BIGINT,
         created_at INTEGER DEFAULT (strftime('%s','now')),
         updated_at INTEGER DEFAULT (strftime('%s','now')),
         deleted_at INTEGER

@@ -84,6 +84,10 @@ export async function remove(id) {
 
 // Возвращаем applyServerRecord к простому виду. Он должен хранить серверные ID.
 export async function applyServerRecord(record) {
+  // #region agent log
+  fetch('http://127.0.0.1:7242/ingest/8e04cba5-afdb-435f-b79d-a4900a5e4055',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'41c4e6'},body:JSON.stringify({sessionId:'41c4e6',location:'productCategoriesRepo.js:applyServerRecord',message:'applyServerRecord called',data:{recordId:record?.id},timestamp:Date.now(),hypothesisId:'D'})}).catch(()=>{});
+  // #endregion
+
   const existing = await dbAdapter.queryOne(
     `SELECT * FROM product_categories WHERE server_id = ?`,
     [record.id]
@@ -101,6 +105,9 @@ export async function applyServerRecord(record) {
     ];
 
     await dbAdapter.execute(queries.insertFromServer, params);
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/8e04cba5-afdb-435f-b79d-a4900a5e4055',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'41c4e6'},body:JSON.stringify({sessionId:'41c4e6',location:'productCategoriesRepo.js:applyServerRecord',message:'insertFromServer done',data:{recordId:record?.id},timestamp:Date.now(),hypothesisId:'D'})}).catch(()=>{});
+    // #endregion
     return;
   }
 
