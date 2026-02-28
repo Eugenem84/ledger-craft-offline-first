@@ -99,10 +99,9 @@ export async function save(order) {
   if (order.model_id) {
     const model = await getModelById(order.model_id);
     if (model && model.server_id) {
-      payloadForServer.model_id = model.server_id;
-    } else {
-      delete payloadForServer.model_id; // Не отправляем, если нет server_id
+      payloadForServer.model_server_id = model.server_id;
     }
+    delete payloadForServer.model_id; // Всегда убираем локальный id; серверу шлём только model_server_id
   }
   delete payloadForServer.id;
   const opId = uuidv4();
@@ -147,10 +146,9 @@ export async function update(order) {
     if (order.model_id) {
       const model = await getModelById(order.model_id);
       if (model && model.server_id) {
-        payloadForServer.model_id = model.server_id;
-      } else {
-        delete payloadForServer.model_id;
+        payloadForServer.model_server_id = model.server_id;
       }
+      delete payloadForServer.model_id; // Всегда убираем локальный id; серверу шлём только model_server_id
     }
     delete payloadForServer.id;
     const opPayload = JSON.stringify(payloadForServer);

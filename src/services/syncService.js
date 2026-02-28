@@ -104,7 +104,6 @@ class SyncService {
       }
 
       const transformations = this.fkTransformationMap[op.table];
-      let transformationFailed = false;
 
       if (transformations && (op.type === 'insert' || op.type === 'update')) {
         for (const fkField in transformations) {
@@ -133,16 +132,12 @@ class SyncService {
             if (record.length > 0 && record[0].server_id) {
               op.payload[fkField] = record[0].server_id;
             } else {
-              console.error(`[Sync] КРИТИЧЕСКАЯ ОШИБКА: Не удалось найти server_id для ${fkField} с локальным ID ${localFkId}. Операция пропущена.`);
-              transformationFailed = true;
-              break;
+              // Модель ещё не синхронизирована или не найдена — отправляем null, не блокируем операцию
+              console.warn(`[Sync] Нет server_id для ${fkField} (локальный ID ${localFkId}). Отправляем null.`);
+              op.payload[fkField] = null;
             }
           }
         }
-      }
-
-      if (transformationFailed) {
-        continue;
       }
 
       try {

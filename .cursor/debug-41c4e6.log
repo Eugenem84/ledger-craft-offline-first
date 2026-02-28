@@ -1,0 +1,62 @@
+{"sessionId":"41c4e6","location":"syncService.js:_syncServerToLocal","message":"tables to sync","data":{"tables":["specializations","categories","product_categories","equipment_models","clients","services","products","orders"],"hasProductCategories":true},"timestamp":1771701709854,"hypothesisId":"H3"}
+{"sessionId":"41c4e6","location":"api.js:fetchUpdates","message":"product_categories raw response","data":{"hasRecords":true,"recordsLength":3,"keys":["table","count","records"]},"timestamp":1771701710803,"hypothesisId":"H1-H2"}
+{"sessionId":"41c4e6","location":"syncService.js:_syncServerToLocal","message":"product_categories response","data":{"recordsCount":3,"responseIsArray":false,"hasRecordsKey":true},"timestamp":1771701710803,"hypothesisId":"H1-H2"}
+{"sessionId":"41c4e6","location":"productCategoriesRepo.js:applyServerRecord","message":"applyServerRecord called","data":{"recordId":16},"timestamp":1771701710808,"hypothesisId":"D"}
+{"sessionId":"41c4e6","location":"productCategoriesRepo.js:applyServerRecord","message":"applyServerRecord called","data":{"recordId":2},"timestamp":1771701710804,"hypothesisId":"D"}
+{"sessionId":"41c4e6","location":"productCategoriesRepo.js:applyServerRecord","message":"insertFromServer done","data":{"recordId":2},"timestamp":1771701710805,"hypothesisId":"D"}
+{"sessionId":"41c4e6","location":"productCategoriesRepo.js:applyServerRecord","message":"applyServerRecord called","data":{"recordId":13},"timestamp":1771701710805,"hypothesisId":"D"}
+{"sessionId":"41c4e6","location":"productCategoriesRepo.js:applyServerRecord","message":"insertFromServer done","data":{"recordId":13},"timestamp":1771701710807,"hypothesisId":"D"}
+{"sessionId":"41c4e6","location":"productCategoriesRepo.js:applyServerRecord","message":"insertFromServer done","data":{"recordId":16},"timestamp":1771701710809,"hypothesisId":"D"}
+{"sessionId":"41c4e6","location":"syncService.js:_syncServerToLocal","message":"tables to sync","data":{"tables":["specializations","categories","product_categories","equipment_models","clients","services","products","orders"],"hasProductCategories":true},"timestamp":1771701902629,"hypothesisId":"H3"}
+{"sessionId":"41c4e6","location":"api.js:fetchUpdates","message":"product_categories raw response","data":{"hasRecords":true,"recordsLength":3,"keys":["table","count","records"]},"timestamp":1771701903724,"hypothesisId":"H1-H2"}
+{"sessionId":"41c4e6","location":"syncService.js:_syncServerToLocal","message":"product_categories response","data":{"recordsCount":3,"responseIsArray":false,"hasRecordsKey":true},"timestamp":1771701903725,"hypothesisId":"H1-H2"}
+{"sessionId":"41c4e6","location":"productCategoriesRepo.js:applyServerRecord","message":"applyServerRecord called","data":{"recordId":16},"timestamp":1771701903731,"hypothesisId":"D"}
+{"sessionId":"41c4e6","location":"productCategoriesRepo.js:applyServerRecord","message":"applyServerRecord called","data":{"recordId":2},"timestamp":1771701903725,"hypothesisId":"D"}
+{"sessionId":"41c4e6","location":"productCategoriesRepo.js:applyServerRecord","message":"insertFromServer done","data":{"recordId":2},"timestamp":1771701903727,"hypothesisId":"D"}
+{"sessionId":"41c4e6","location":"productCategoriesRepo.js:applyServerRecord","message":"applyServerRecord called","data":{"recordId":13},"timestamp":1771701903728,"hypothesisId":"D"}
+{"sessionId":"41c4e6","location":"productCategoriesRepo.js:applyServerRecord","message":"insertFromServer done","data":{"recordId":13},"timestamp":1771701903730,"hypothesisId":"D"}
+{"sessionId":"41c4e6","location":"productCategoriesRepo.js:applyServerRecord","message":"insertFromServer done","data":{"recordId":16},"timestamp":1771701903732,"hypothesisId":"D"}
+{"sessionId":"41c4e6","location":"api.js:fetchUpdates","message":"product_categories raw response","data":{"hasRecords":true,"recordsLength":3,"keys":["table","count","records"]},"timestamp":1771701975629,"hypothesisId":"H1-H2"}
+{"sessionId":"41c4e6","location":"productCategoriesRepo.js:applyServerRecord","message":"applyServerRecord called","data":{"recordId":2},"timestamp":1771701975630,"hypothesisId":"D"}
+{"sessionId":"41c4e6","location":"productCategoriesRepo.js:applyServerRecord","message":"insertFromServer done","data":{"recordId":2},"timestamp":1771701975631,"hypothesisId":"D"}
+{"sessionId":"41c4e6","location":"productCategoriesRepo.js:applyServerRecord","message":"applyServerRecord called","data":{"recordId":13},"timestamp":1771701975632,"hypothesisId":"D"}
+{"sessionId":"41c4e6","location":"productCategoriesRepo.js:applyServerRecord","message":"insertFromServer done","data":{"recordId":13},"timestamp":1771701975634,"hypothesisId":"D"}
+{"sessionId":"41c4e6","location":"productCategoriesRepo.js:applyServerRecord","message":"insertFromServer done","data":{"recordId":16},"timestamp":1771701975636,"hypothesisId":"D"}
+{"sessionId":"41c4e6","location":"productCategoriesRepo.js:applyServerRecord","message":"applyServerRecord called","data":{"recordId":16},"timestamp":1771701975635,"hypothesisId":"D"}
+{"sessionId":"41c4e6","location":"api.js:fetchUpdates","message":"product_categories raw response","data":{"hasRecords":true,"recordsLength":3,"keys":["table","count","records"]},"timestamp":1771702453169,"hypothesisId":"H1-H2"}
+{"sessionId":"41c4e6","location":"productCategoriesRepo.js:applyServerRecord","message":"insertFromServer done","data":{"recordId":16},"timestamp":1771702453176,"hypothesisId":"D"}
+{"sessionId":"41c4e6","location":"productCategoriesRepo.js:applyServerRecord","message":"applyServerRecord called","data":{"recordId":2},"timestamp":1771702453169,"hypothesisId":"D"}
+{"sessionId":"41c4e6","location":"productCategoriesRepo.js:applyServerRecord","message":"insertFromServer done","data":{"recordId":2},"timestamp":1771702453171,"hypothesisId":"D"}
+{"sessionId":"41c4e6","location":"productCategoriesRepo.js:applyServerRecord","message":"applyServerRecord called","data":{"recordId":13},"timestamp":1771702453172,"hypothesisId":"D"}
+{"sessionId":"41c4e6","location":"productCategoriesRepo.js:applyServerRecord","message":"insertFromServer done","data":{"recordId":13},"timestamp":1771702453174,"hypothesisId":"D"}
+{"sessionId":"41c4e6","location":"productCategoriesRepo.js:applyServerRecord","message":"applyServerRecord called","data":{"recordId":16},"timestamp":1771702453175,"hypothesisId":"D"}
+{"sessionId":"41c4e6","location":"api.js:fetchUpdates","message":"product_categories raw response","data":{"hasRecords":true,"recordsLength":3,"keys":["table","count","records"]},"timestamp":1771702536255,"hypothesisId":"H1-H2"}
+{"sessionId":"41c4e6","location":"productCategoriesRepo.js:applyServerRecord","message":"insertFromServer done","data":{"recordId":16},"timestamp":1771702536260,"hypothesisId":"D"}
+{"sessionId":"41c4e6","location":"productCategoriesRepo.js:applyServerRecord","message":"applyServerRecord called","data":{"recordId":2},"timestamp":1771702536255,"hypothesisId":"D"}
+{"sessionId":"41c4e6","location":"productCategoriesRepo.js:applyServerRecord","message":"insertFromServer done","data":{"recordId":2},"timestamp":1771702536257,"hypothesisId":"D"}
+{"sessionId":"41c4e6","location":"productCategoriesRepo.js:applyServerRecord","message":"applyServerRecord called","data":{"recordId":13},"timestamp":1771702536257,"hypothesisId":"D"}
+{"sessionId":"41c4e6","location":"productCategoriesRepo.js:applyServerRecord","message":"insertFromServer done","data":{"recordId":13},"timestamp":1771702536258,"hypothesisId":"D"}
+{"sessionId":"41c4e6","location":"productCategoriesRepo.js:applyServerRecord","message":"applyServerRecord called","data":{"recordId":16},"timestamp":1771702536259,"hypothesisId":"D"}
+{"sessionId":"41c4e6","location":"api.js:fetchUpdates","message":"product_categories raw response","data":{"hasRecords":true,"recordsLength":3,"keys":["table","count","records"]},"timestamp":1771702770384,"hypothesisId":"H1-H2"}
+{"sessionId":"41c4e6","location":"productCategoriesRepo.js:applyServerRecord","message":"insertFromServer done","data":{"recordId":16},"timestamp":1771702770392,"hypothesisId":"D"}
+{"sessionId":"41c4e6","location":"productCategoriesRepo.js:applyServerRecord","message":"applyServerRecord called","data":{"recordId":2},"timestamp":1771702770385,"hypothesisId":"D"}
+{"sessionId":"41c4e6","location":"productCategoriesRepo.js:applyServerRecord","message":"insertFromServer done","data":{"recordId":2},"timestamp":1771702770387,"hypothesisId":"D"}
+{"sessionId":"41c4e6","location":"productCategoriesRepo.js:applyServerRecord","message":"applyServerRecord called","data":{"recordId":13},"timestamp":1771702770387,"hypothesisId":"D"}
+{"sessionId":"41c4e6","location":"productCategoriesRepo.js:applyServerRecord","message":"insertFromServer done","data":{"recordId":13},"timestamp":1771702770390,"hypothesisId":"D"}
+{"sessionId":"41c4e6","location":"productCategoriesRepo.js:applyServerRecord","message":"applyServerRecord called","data":{"recordId":16},"timestamp":1771702770390,"hypothesisId":"D"}
+{"sessionId":"41c4e6","location":"api.js:fetchUpdates","message":"product_categories raw response","data":{"hasRecords":true,"recordsLength":0,"keys":["table","count","records"]},"timestamp":1771702980835,"hypothesisId":"H1-H2"}
+{"sessionId":"41c4e6","location":"api.js:fetchUpdates","message":"product_categories raw response","data":{"hasRecords":true,"recordsLength":3,"keys":["table","count","records"]},"timestamp":1772313465237,"hypothesisId":"H1-H2"}
+{"sessionId":"41c4e6","location":"productCategoriesRepo.js:applyServerRecord","message":"insertFromServer done","data":{"recordId":16},"timestamp":1772313465244,"hypothesisId":"D"}
+{"sessionId":"41c4e6","location":"productCategoriesRepo.js:applyServerRecord","message":"insertFromServer done","data":{"recordId":13},"timestamp":1772313465242,"hypothesisId":"D"}
+{"sessionId":"41c4e6","location":"productCategoriesRepo.js:applyServerRecord","message":"applyServerRecord called","data":{"recordId":16},"timestamp":1772313465243,"hypothesisId":"D"}
+{"sessionId":"41c4e6","location":"productCategoriesRepo.js:applyServerRecord","message":"applyServerRecord called","data":{"recordId":2},"timestamp":1772313465238,"hypothesisId":"D"}
+{"sessionId":"41c4e6","location":"productCategoriesRepo.js:applyServerRecord","message":"insertFromServer done","data":{"recordId":2},"timestamp":1772313465239,"hypothesisId":"D"}
+{"sessionId":"41c4e6","location":"productCategoriesRepo.js:applyServerRecord","message":"applyServerRecord called","data":{"recordId":13},"timestamp":1772313465240,"hypothesisId":"D"}
+{"sessionId":"41c4e6","location":"api.js:fetchUpdates","message":"product_categories raw response","data":{"hasRecords":true,"recordsLength":0,"keys":["table","count","records"]},"timestamp":1772313488351,"hypothesisId":"H1-H2"}
+{"sessionId":"41c4e6","location":"api.js:fetchUpdates","message":"product_categories raw response","data":{"hasRecords":true,"recordsLength":3,"keys":["table","count","records"]},"timestamp":1772313502779,"hypothesisId":"H1-H2"}
+{"sessionId":"41c4e6","location":"productCategoriesRepo.js:applyServerRecord","message":"insertFromServer done","data":{"recordId":16},"timestamp":1772313502784,"hypothesisId":"D"}
+{"sessionId":"41c4e6","location":"productCategoriesRepo.js:applyServerRecord","message":"insertFromServer done","data":{"recordId":13},"timestamp":1772313502782,"hypothesisId":"D"}
+{"sessionId":"41c4e6","location":"productCategoriesRepo.js:applyServerRecord","message":"applyServerRecord called","data":{"recordId":16},"timestamp":1772313502783,"hypothesisId":"D"}
+{"sessionId":"41c4e6","location":"productCategoriesRepo.js:applyServerRecord","message":"applyServerRecord called","data":{"recordId":2},"timestamp":1772313502780,"hypothesisId":"D"}
+{"sessionId":"41c4e6","location":"productCategoriesRepo.js:applyServerRecord","message":"insertFromServer done","data":{"recordId":2},"timestamp":1772313502781,"hypothesisId":"D"}
+{"sessionId":"41c4e6","location":"productCategoriesRepo.js:applyServerRecord","message":"applyServerRecord called","data":{"recordId":13},"timestamp":1772313502781,"hypothesisId":"D"}
