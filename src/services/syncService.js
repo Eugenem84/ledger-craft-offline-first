@@ -12,6 +12,7 @@ import * as servicesRepo from 'src/repositories/servicesRepo';
 import * as productCategoriesRepo from 'src/repositories/productCategoriesRepo';
 import * as productsRepo from 'src/repositories/productsRepo';
 import * as ordersRepo from 'src/repositories/ordersRepo';
+import * as orderServiceRepo from 'src/repositories/orderServiceRepo.js';
 import * as modelsRepo from 'src/repositories/modelsRepo';
 
 import { logAllServicesForDebugging } from 'src/repositories/servicesRepo';
@@ -29,6 +30,7 @@ class SyncService {
       services: servicesRepo,
       products: productsRepo,
       orders: ordersRepo,
+      order_service: orderServiceRepo,
     };
 
     this.fkTransformationMap = {
@@ -51,6 +53,10 @@ class SyncService {
         client_id: 'clients',
         specialization_id: 'specializations',
         model_id: 'equipment_models'
+      },
+      order_service: {
+        order_id: 'orders',
+        service_id: 'services'
       },
       equipment_models: {
         specialization_id: 'specializations'
