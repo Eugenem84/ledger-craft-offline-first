@@ -101,6 +101,9 @@ class SyncService {
 
     console.log(`[Sync] Найдено ${pending.length} локальных операций для отправки.`);
 
+    // Подготавливаем все операции (парсим payload и трансформируем внешние ключи)
+    const preparedOps = [];
+
     for (const op of pending) {
       try {
         op.payload = op.payload ? JSON.parse(op.payload) : null;
@@ -110,6 +113,7 @@ class SyncService {
       }
 
       const transformations = this.fkTransformationMap[op.table];
+      let canSend = true;
 
       if (transformations && (op.type === 'insert' || op.type === 'update')) {
         for (const fkField in transformations) {
@@ -117,7 +121,7 @@ class SyncService {
           // Имя "сигнального" поля, например "product_category_server_id"
           const serverFkField = fkField.replace(/_id$/, '') + '_server_id';
 
-          if (op.payload && op.payload.hasOwnProperty(serverFkField)) {
+          if (op.payload && Object.prototype.hasOwnProperty.call(op.payload, serverFkField)) {
             // Если есть "сигнальное" поле, используем его значение
             op.payload[fkField] = op.payload[serverFkField];
             // Удаляем "сигнальное" поле, чтобы не отправлять его на сервер
@@ -138,17 +142,159 @@ class SyncService {
             if (record.length > 0 && record[0].server_id) {
               op.payload[fkField] = record[0].server_id;
             } else {
-              // Модель ещё не синхронизирована или не найдена — отправляем null, не блокируем операцию
-              console.warn(`[Sync] Нет server_id для ${fkField} (локальный ID ${localFkId}). Отправляем null.`);
-              op.payload[fkField] = null;
+              // Модель ещё не синхронизирована или не найдена — откладываем операцию до следующей синхронизации
+              console.warn(`[Sync] Нет server_id для ${fkField} (локальный ID ${localFkId}). Операция будет отложена.`);
+              canSend = false;
+              break;
             }
           }
         }
       }
 
-      try {
-        const serverRes = await api.send({ operations: [op] });
+      if (!canSend) {
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/26bc172a-ccb5-4398-b591-9faafa31958b', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Debug-Session-Id': '674ea3',
+          },
+          body: JSON.stringify({
+            sessionId: '674ea3',
+            runId: 'pre-fix',
+            hypothesisId: 'H5',
+            location: 'syncService.js:160',
+            message: '_syncLocalToServer skipping op without server_id FK',
+            data: {
+              table: op.table,
+              type: op.type,
+              payload: op.payload,
+            },
+            timestamp: Date.now(),
+          }),
+        }).catch(() => {});
+        // #endregion agent log
 
+        continue;
+      }
+
+      preparedOps.push(op);
+    }
+
+    if (!preparedOps.length) {
+      console.log('[Sync] После подготовки не осталось операций для отправки.');
+      return;
+    }
+
+    // Сортируем операции по зависимостям таблиц, чтобы сначала отправлять "родительские" записи
+    const tableOrder = [
+      'specializations',
+      'categories',
+      'product_categories',
+      'equipment_models',
+      'clients',
+      'services',
+      'products',
+      'orders',
+      'order_service',
+    ];
+
+    const getPriority = (table) => {
+      const idx = tableOrder.indexOf(table);
+      return idx === -1 ? tableOrder.length : idx;
+    };
+
+    preparedOps.sort((a, b) => getPriority(a.table) - getPriority(b.table));
+
+    // #region agent log
+    // Логируем порядок операций перед отправкой
+    fetch('http://127.0.0.1:7242/ingest/26bc172a-ccb5-4398-b591-9faafa31958b', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Debug-Session-Id': '674ea3',
+      },
+      body: JSON.stringify({
+        sessionId: '674ea3',
+        runId: 'pre-fix',
+        hypothesisId: 'H6',
+        location: 'syncService.js:185',
+        message: '_syncLocalToServer operations order before api.send',
+        data: {
+          operations: preparedOps.map((op) => ({
+            table: op.table,
+            type: op.type,
+            local_id: op.payload?.local_id ?? null,
+            id: op.payload?.id ?? null,
+          })),
+        },
+        timestamp: Date.now(),
+      }),
+    }).catch(() => {});
+    // #endregion agent log
+
+    // #region agent log
+    // Логируем все подготовленные операции перед отправкой
+    for (const op of preparedOps) {
+      fetch('http://127.0.0.1:7242/ingest/26bc172a-ccb5-4398-b591-9faafa31958b', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Debug-Session-Id': '674ea3',
+        },
+        body: JSON.stringify({
+          sessionId: '674ea3',
+          runId: 'pre-fix',
+          hypothesisId: 'H1',
+          location: 'syncService.js:149',
+          message: '_syncLocalToServer before api.send',
+          data: {
+            table: op.table,
+            type: op.type,
+            payload: op.payload,
+          },
+          timestamp: Date.now(),
+        }),
+      }).catch(() => {});
+    }
+    // #endregion agent log
+
+    let serverRes;
+
+    try {
+      serverRes = await api.send({ operations: preparedOps });
+
+      // #region agent log
+      // Логируем ответ сервера для всех операций
+      for (const op of preparedOps) {
+        fetch('http://127.0.0.1:7242/ingest/26bc172a-ccb5-4398-b591-9faafa31958b', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Debug-Session-Id': '674ea3',
+          },
+          body: JSON.stringify({
+            sessionId: '674ea3',
+            runId: 'pre-fix',
+            hypothesisId: 'H2',
+            location: 'syncService.js:151',
+            message: '_syncLocalToServer after api.send',
+            data: {
+              table: op.table,
+              type: op.type,
+              payload: op.payload,
+              serverRes,
+            },
+            timestamp: Date.now(),
+          }),
+        }).catch(() => {});
+      }
+      // #endregion agent log
+
+      const synced = Array.isArray(serverRes?.synced) ? serverRes.synced : [];
+      const errors = Array.isArray(serverRes?.errors) ? serverRes.errors : [];
+
+      for (const op of preparedOps) {
         const findResult = (responseItem) => {
           if (op.type === 'insert') {
             return responseItem.local_id === op.payload.local_id;
@@ -157,36 +303,109 @@ class SyncService {
           return responseItem.id === op.payload.id;
         };
 
-        if (Array.isArray(serverRes?.synced) && serverRes.synced.length > 0) {
-          const syncResult = serverRes.synced.find(findResult);
+        const syncResult = synced.find(findResult);
 
-          if (syncResult) {
-            if (op.type === 'insert') {
-              const repo = this.repos[op.table];
-              if (repo && typeof repo.updateServerId === 'function') {
-                await repo.updateServerId(op.payload.local_id, syncResult.server_id);
-              }
+        if (syncResult) {
+          if (op.type === 'insert') {
+            const repo = this.repos[op.table];
+            if (repo && typeof repo.updateServerId === 'function') {
+              await repo.updateServerId(op.payload.local_id, syncResult.server_id);
             }
-            await operationsRepo.markSynced(op, syncResult);
-          } else {
-             // Если сервер вернул 200, но не нашел нашу операцию, это странно, но не ошибка
-            console.warn('[Sync] Сервер не вернул результат для отправленной операции, но ответил 200 OK.', op);
-            // Возможно, операция уже была применена. Помечаем как синхронизированную, чтобы не зацикливаться.
-            await operationsRepo.markSynced(op, { status: 'already_applied' });
           }
-        } else if (Array.isArray(serverRes?.errors) && serverRes.errors.length > 0) {
-          const errorResult = serverRes.errors.find(e => e.id === op.payload.id || e.local_id === op.payload.local_id);
-          if (errorResult) {
-            throw new Error(`Сервер вернул ошибку для операции: ${errorResult.error}`);
-          }
-          throw new Error('Сервер вернул массив ошибок, но не для этой операции.');
-        } else {
-           throw new Error('Сервер вернул пустой или некорректный ответ.');
+          await operationsRepo.markSynced(op, syncResult);
+          continue;
         }
-      } catch (e) {
-        console.error('[SyncService] Ошибка отправки операции. Она останется в очереди.', { operation: op, error: e });
-        continue;
+
+        const errorResult = errors.find(e => e.id === op.payload.id || e.local_id === op.payload.local_id);
+
+        if (errorResult) {
+          // #region agent log
+          fetch('http://127.0.0.1:7242/ingest/26bc172a-ccb5-4398-b591-9faafa31958b', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'X-Debug-Session-Id': '674ea3',
+            },
+            body: JSON.stringify({
+              sessionId: '674ea3',
+              runId: 'pre-fix',
+              hypothesisId: 'H3',
+              location: 'syncService.js:178',
+              message: '_syncLocalToServer serverRes.errors for operation',
+              data: {
+                table: op.table,
+                type: op.type,
+                payload: op.payload,
+                errorResult,
+              },
+              timestamp: Date.now(),
+            }),
+          }).catch(() => {});
+          // #endregion agent log
+
+          // #region agent log
+          fetch('http://127.0.0.1:7242/ingest/26bc172a-ccb5-4398-b591-9faafa31958b', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'X-Debug-Session-Id': '674ea3',
+            },
+            body: JSON.stringify({
+              sessionId: '674ea3',
+              runId: 'pre-fix',
+              hypothesisId: 'H4',
+              location: 'syncService.js:187',
+              message: '_syncLocalToServer catch error while sending operation',
+              data: {
+                table: op.table,
+                type: op.type,
+                payload: op.payload,
+                errorMessage: `Сервер вернул ошибку для операции: ${errorResult.error}`,
+              },
+              timestamp: Date.now(),
+            }),
+          }).catch(() => {});
+          // #endregion agent log
+
+          console.error('[SyncService] Ошибка отправки операции. Она останется в очереди.', {
+            operation: op,
+            error: new Error(`Сервер вернул ошибку для операции: ${errorResult.error}`),
+          });
+
+          // Не помечаем как синхронизированную, оставляем в очереди
+          continue;
+        }
+
+        // Если сервер ничего не вернул про эту операцию, считаем, что она уже была применена
+        console.warn('[Sync] Сервер не вернул результат для отправленной операции, но ответил 200 OK.', op);
+        await operationsRepo.markSynced(op, { status: 'already_applied' });
       }
+    } catch (e) {
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/26bc172a-ccb5-4398-b591-9faafa31958b', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Debug-Session-Id': '674ea3',
+        },
+        body: JSON.stringify({
+          sessionId: '674ea3',
+          runId: 'pre-fix',
+          hypothesisId: 'H4',
+          location: 'syncService.js:187',
+          message: '_syncLocalToServer catch error while sending operation',
+          data: {
+            table: 'batch',
+            type: 'batch',
+            payload: null,
+            errorMessage: e?.message,
+          },
+          timestamp: Date.now(),
+        }),
+      }).catch(() => {});
+      // #endregion agent log
+
+      console.error('[SyncService] Ошибка отправки операций. Они останутся в очереди.', e);
     }
   }
 
