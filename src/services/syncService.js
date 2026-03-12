@@ -144,6 +144,32 @@ class SyncService {
             } else {
               // Модель ещё не синхронизирована или не найдена — откладываем операцию до следующей синхронизации
               console.warn(`[Sync] Нет server_id для ${fkField} (локальный ID ${localFkId}). Операция будет отложена.`);
+
+              // #region agent log
+              fetch('http://127.0.0.1:7252/ingest/657caac1-884c-459e-a159-d5ee1c7cad86', {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'X-Debug-Session-Id': 'c685cd',
+                },
+                body: JSON.stringify({
+                  sessionId: 'c685cd',
+                  runId: 'pre-fix',
+                  hypothesisId: 'H1',
+                  location: 'syncService.js:fk-transform',
+                  message: '_syncLocalToServer missing server_id for FK',
+                  data: {
+                    table: op.table,
+                    type: op.type,
+                    fkField,
+                    localFkId,
+                    payloadBeforeSkip: op.payload,
+                  },
+                  timestamp: Date.now(),
+                }),
+              }).catch(() => {});
+              // #endregion agent log
+
               canSend = false;
               break;
             }
@@ -205,6 +231,36 @@ class SyncService {
     };
 
     preparedOps.sort((a, b) => getPriority(a.table) - getPriority(b.table));
+
+      // #region agent log
+      // Логируем операции order_service перед отправкой на сервер
+      const orderServiceOps = preparedOps
+        .filter((op) => op.table === 'order_service')
+        .map((op) => ({
+          type: op.type,
+          payload: op.payload,
+        }));
+
+      fetch('http://127.0.0.1:7252/ingest/657caac1-884c-459e-a159-d5ee1c7cad86', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Debug-Session-Id': 'c685cd',
+        },
+        body: JSON.stringify({
+          sessionId: 'c685cd',
+          runId: 'pre-fix',
+          hypothesisId: 'H2',
+          location: 'syncService.js:before-api-send',
+          message: '_syncLocalToServer order_service operations before api.send',
+          data: {
+            count: orderServiceOps.length,
+            operations: orderServiceOps,
+          },
+          timestamp: Date.now(),
+        }),
+      }).catch(() => {});
+      // #endregion agent log
 
     // #region agent log
     // Логируем порядок операций перед отправкой
