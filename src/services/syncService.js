@@ -80,7 +80,13 @@ class SyncService {
     this.syncing = true;
 
     try {
+      // Выполняем синхронизацию локальных данных на сервер дважды.
+      // Первый проход отправляет родительские записи (например, orders).
+      // Второй проход отправляет дочерние записи (например, order_service),
+      // которые не могли быть отправлены в первый раз из-за отсутствия server_id у родительских.
       await this._syncLocalToServer();
+      await this._syncLocalToServer();
+
       await this._syncServerToLocal();
     } catch (e) {
       console.error('[SyncService] Ошибка синхронизации:', e);
