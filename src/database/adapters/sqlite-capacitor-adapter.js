@@ -8,11 +8,11 @@ export default {
     await CapacitorSQLite.open({ database: 'ledgercraft', encrypted: true })
   },
 
-  execute(sql, params = []) {
+  execute(sql, _params = []) {
     return CapacitorSQLite.execute({ statements: sql })
   },
 
-  async query(sql, params = []) {
+  async query(sql, _params = []) {
     const res = await CapacitorSQLite.query({ statement: sql })
     return res.values || []
   },
@@ -25,7 +25,7 @@ export default {
     }
   },
 
-  enqueueOperation(op) {
+  enqueueOperation(_op) {
     // Сохраняем pending операции
   },
 

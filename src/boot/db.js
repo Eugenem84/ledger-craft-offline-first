@@ -1,3 +1,4 @@
+import { logger } from 'src/utils/logger'
 import { boot } from 'quasar/wrappers'
 import SqlJsAdapter from 'src/database/adapters/sqljs-web-adapter.js'
 import migrations from 'src/database/migrations/index.js'
@@ -7,14 +8,14 @@ import syncService from 'src/services/syncService.js'
 //import { useClientsStore } from "stores/useClientsStore.js";
 
 export default boot(async () => {
-  console.log('[DB] Boot start') // 1️⃣ запуск boot-файла
+  logger.log('[DB] Boot start') // 1️⃣ запуск boot-файла
 
   try {
     const dbAdapter = SqlJsAdapter
-    //console.log('[DB] Adapter loaded:', dbAdapter)
+    //logger.log('[DB] Adapter loaded:', dbAdapter)
 
     await dbAdapter.init()
-    //console.log('[DB] Adapter initialized')
+    //logger.log('[DB] Adapter initialized')
 
     await dbAdapter.execute(`
     CREATE TABLE IF NOT EXISTS migrations (
@@ -38,7 +39,7 @@ export default boot(async () => {
       }
     }
 
-    console.log('sync activated')
+    logger.log('sync activated')
     await syncService.sync()
 
     // dbAdapter.execute(`
@@ -49,12 +50,12 @@ export default boot(async () => {
     // `)
 
     const rows = await dbAdapter.query('SELECT * FROM clients')
-    console.log('[DB] Проверка: клиенты из базы →', rows)
+    logger.log('[DB] Проверка: клиенты из базы →', rows)
 
   } catch (err) {
     console.error('[DB] Ошибка при инициализации:', err)
   }
 
-  console.log('[DB] Boot end')
+  logger.log('[DB] Boot end')
 
 })

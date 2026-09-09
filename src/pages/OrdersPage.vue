@@ -1,4 +1,5 @@
 <script setup>
+import { logger } from 'src/utils/logger'
 import { ref, onMounted, computed } from 'vue';
 import { useRouter } from "vue-router";
 import { useOrdersStore } from "stores/useOrdersStore.js"; // Updated import
@@ -67,13 +68,13 @@ const statusBorderClass = (status) => {
 }
 
 const goToOrderDetails = (order) => {
-  console.log('переходим на ордер', order.id)
+  logger.log('переходим на ордер', order.id)
   orderStore.select(order.id)
   router.push(`/orders/${order.id}`)
 }
 
 const goToNewOrder = () => {
-  console.log('не реализовано')
+  logger.log('не реализовано')
   // Removed orderStore.clearCurrentOrder() as it's not part of the new store's API
   router.push({ name: `new-order`})
 }
@@ -82,8 +83,8 @@ const getOrders = async () => {
   loading.value = true
   try {
     await orderStore.load(); // Load orders using the store action
-    console.log('ордеры: ', orders.value)
-    console.table(JSON.parse(JSON.stringify(orders.value)))
+    logger.log('ордеры: ', orders.value)
+    logger.table(JSON.parse(JSON.stringify(orders.value)))
   } catch (err) {
     $q.notify({
       type: 'negative',

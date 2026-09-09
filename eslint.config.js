@@ -57,6 +57,10 @@ export default [
 
       // allow debugger during development only
       'no-debugger': process.env.NODE_ENV === 'production' ? 'error' : 'off',
+
+      // Параметры с префиксом `_` — намеренно неиспользуемые (интерфейсные
+      // заглушки, напр. адаптеры БД с единой сигнатурой).
+      'no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
     },
   },
 

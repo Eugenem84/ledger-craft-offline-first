@@ -1,43 +1,76 @@
-# ledger-craft (ledger-craft)
+# Ledger Craft
 
-A Quasar Project
+**Система учёта работ и запчастей для мастерских** — offline-first приложение.
+Один и тот же код собирается в мобильное приложение под Android (**Capacitor**)
+и в веб-версию. Приложение должно работать без интернета, а при появлении сети —
+синхронизироваться с сервером.
 
-## Install the dependencies
+## Стек
 
-```bash
-yarn
-# or
-npm install
+| Слой | Технология |
+|---|---|
+| UI / сборка | Quasar 2 (Vue 3) + Pinia + vue-router (hash) |
+| Мобильная сборка | **Capacitor** |
+| Локальная БД | sql.js (WASM, работает в памяти; см. «Известные проблемы») |
+| Синхронизация | собственный сервис на очереди операций (`operations`) |
+| Сетевой слой | axios |
+| Бэкенд | Laravel (PHP) на Beget — **код сервера в этом репозитории отсутствует**, контракт API восстановлен по коду фронта в `docs/BACKEND.md` |
+
+## Схема (упрощённо)
+
+```
+        Android (Capacitor WebView) / браузер (Quasar)
+   ┌────────────────────────────────────────────┐
+   │  Pages → Pinia stores → repositories       │
+   │      │                           │          │
+   │      ▼                           ▼          │
+   │  Локальная БД (sql.js)   Очередь operations │
+   │      ▲                           │          │
+   │      └───────── SyncService ◄────┘          │
+   └──────────────┬─────────────────────────────┘
+                  │ HTTP (axios, заголовок X-Sync-ID)
+                  ▼
+          Laravel API (Beget) + MySQL
 ```
 
-### Start the app in development mode (hot-code reloading, error reporting, etc.)
+## Быстрый старт
 
 ```bash
-quasar dev
+npm install        # или yarn
+npm run dev        # разработка в браузере (http://localhost:8080)
+npm run lint       # eslint
+npm run format     # prettier
+npm run build      # production web-сборка в dist/
 ```
 
-### Lint the files
+## Мобильная сборка под Android
 
 ```bash
-yarn lint
-# or
-npm run lint
+npx quasar build -m capacitor -T android
 ```
 
-### Format the files
+> ⚠️ В этом репозитории папка `src-capacitor` отсутствует (заглушена в `.gitignore`),
+> то есть сборка под Android напрямую из репозитория сейчас не воспроизводится —
+> `src-capacitor` нужно генерировать (`npx quasar new capacitor`) или инициализировать
+> Capacitor отдельно, чтобы получить нативные файлы проекта.
 
-```bash
-yarn format
-# or
-npm run format
-```
+## Документация
 
-### Build the app for production
+- `docs/PLAN.md` — **план действий (дорожная карта)**: что делать, зачем и в каком порядке
+- `docs/ARCHITECTURE.md` — общая архитектура и потоки данных
+- `docs/FRONTEND.md` — структура фронта, локальная БД, синхронизация
+- `docs/BACKEND.md` — контракт серверного API (реконструкция по коду фронта)
+- `docs/DATA-MODEL.md` — схема таблиц локальной и серверной БД, маппинг полей
 
-```bash
-quasar build
-```
+## Известные проблемы (кратко)
 
-### Customize the configuration
+1. Локальная БД **не персистится**: sql.js работает в памяти, выгрузки в постоянное
+   хранилище нет — после перезапуска приложения данные теряются.
+2. WASM sql.js грузится с CDN (`https://sql.js.org/dist/`) — без интернета приложение
+   не стартует, хотя заявлено offline-first.
+3. Синхронизация связных таблиц `order_product` / `order_material` не доработана
+   (их нет в `syncService`), а `_syncLocalToServer` вызывается дважды как костыль.
+4. В миграциях есть дубли и пропуски номеров (см. `docs/FRONTEND.md`).
+5. Нет авторизации: идентификация — только `X-Sync-ID` из localStorage.
 
-See [Configuring quasar.config.js](https://v2.quasar.dev/quasar-cli-vite/quasar-config-js).
+Подробности и план исправлений — в `docs/FRONTEND.md` → «Известные проблемы».

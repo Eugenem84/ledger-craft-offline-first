@@ -1,15 +1,16 @@
 // src/boot/pinia.js
+import { logger } from 'src/utils/logger'
 import { boot } from 'quasar/wrappers'
 import { createPinia } from 'pinia'
 
 export default boot(({ app }) => {
-  console.log('[Pinia] Boot start')
+  logger.log('[Pinia] Boot start')
 
   const pinia = createPinia()
-  console.log('[Pinia] Pinia instance created')
+  logger.log('[Pinia] Pinia instance created')
 
   app.use(pinia)
-  console.log('[Pinia] Pinia instance registered with app')
+  logger.log('[Pinia] Pinia instance registered with app')
 
-  console.log('[Pinia] Boot end')
+  logger.log('[Pinia] Boot end')
 })

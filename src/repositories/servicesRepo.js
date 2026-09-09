@@ -1,3 +1,4 @@
+import { logger } from 'src/utils/logger'
 import { v4 as uuidv4 } from 'uuid'
 import dbAdapter from 'src/database/adapters/sqljs-web-adapter'
 import queries from 'src/database/queries/services'
@@ -129,8 +130,8 @@ export async function updateServerId(localId, serverId) {
 export async function logAllServicesForDebugging() {
   try {
     const allServices = await dbAdapter.query(queries.getAll);
-    console.log('--- [DEBUG] Содержимое таблицы `services` в локальной БД ---');
-    console.table(allServices);
+    logger.log('--- [DEBUG] Содержимое таблицы `services` в локальной БД ---');
+    logger.table(allServices);
   } catch (e) {
     console.error('--- [DEBUG] Ошибка при чтении таблицы `services` ---', e);
   }

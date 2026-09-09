@@ -1,3 +1,4 @@
+import { logger } from 'src/utils/logger'
 import initSqlJs from 'sql.js'
 import StorageAdapter from './storage-adapter.js'
 
@@ -8,7 +9,7 @@ const dbAdapter = {
     try {
       const SQL = await initSqlJs({ locateFile: file => `https://sql.js.org/dist/${file}` })
       db = new SQL.Database()
-      console.log('[SQLJS] Database initialized')
+      logger.log('[SQLJS] Database initialized')
     } catch (err) {
       console.error('[SQLJS] Failed to init database:', err)
       throw err
@@ -27,9 +28,9 @@ const dbAdapter = {
   }
 
   try {
-    console.log('[SQLJS] Executing SQL:', sql, 'Params:', params)
+    logger.log('[SQLJS] Executing SQL:', sql, 'Params:', params)
     db.run(sql, params)
-    console.log('[SQLJS] Executed successfully')
+    logger.log('[SQLJS] Executed successfully')
   } catch (err) {
     console.error('[SQLJS] Execute error:', err, 'SQL:', sql, 'Params:', params)
     throw err
@@ -67,7 +68,7 @@ const dbAdapter = {
     }
   },
 
-  enqueueOperation: function(op) {
+  enqueueOperation: function(_op) {
     // пока пусть молчит
   },
 
@@ -79,7 +80,7 @@ const dbAdapter = {
    * Полностью удаляет базу данных из хранилища браузера.
    */
   deleteDatabase: async function() {
-    console.log('[SQLJS] Deleting local database from storage.');
+    logger.log('[SQLJS] Deleting local database from storage.');
     StorageAdapter.clear(); // Явно вызываем метод из импортированного адаптера
     db = null; // Сбрасываем текущий инстанс БД в памяти
   }

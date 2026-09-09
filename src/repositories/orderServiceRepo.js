@@ -1,3 +1,4 @@
+import { logger } from 'src/utils/logger'
 import { v4 as uuidv4 } from 'uuid'
 import dbAdapter from 'src/database/adapters/sqljs-web-adapter'
 import queries from 'src/database/queries/order_service'
@@ -51,7 +52,7 @@ export async function applyServerRecord(record) {
     [record.order_id]
   )
   if (!orders.length) {
-    console.warn(`[Sync] Не найден локальный заказ для order_service (server order_id=${record.order_id}). Запись пропущена.`)
+    logger.warn(`[Sync] Не найден локальный заказ для order_service (server order_id=${record.order_id}). Запись пропущена.`)
     return
   }
   const localOrderId = orders[0].id
@@ -62,7 +63,7 @@ export async function applyServerRecord(record) {
     [record.service_id]
   )
   if (!services.length) {
-    console.warn(`[Sync] Не найдена локальная услуга для order_service (server service_id=${record.service_id}). Запись пропущена.`)
+    logger.warn(`[Sync] Не найдена локальная услуга для order_service (server service_id=${record.service_id}). Запись пропущена.`)
     return
   }
   const localServiceId = services[0].id

@@ -1,4 +1,5 @@
 <script setup>
+import { logger } from 'src/utils/logger'
 import {ref} from 'vue'
 import {api} from 'boot/axios.js'
 import DeleteConfirmPage from "pages/dialogs/DeleteConfirmPage.vue";
@@ -19,19 +20,19 @@ const arrivalQuantity = ref(null)
 const baseSalePrice = ref(null)
 
 const open = (product) => {
-  console.log('открытие диалогового окна поступления товара')
+  logger.log('открытие диалогового окна поступления товара')
   currentProduct.value = product ? {...product} : null
   name.value = product?.name || ''
   baseSalePrice.value = product?.base_sale_price || ''
   showDialog.value = true
-  console.log('product: ', product)
+  logger.log('product: ', product)
 }
 
 const makeArrivalProduct = async () => {
   try {
-    //console.log('currentCategoryId: ', currentCategory.value.id)
+    //logger.log('currentCategoryId: ', currentCategory.value.id)
     if (currentProduct.value){
-      console.log('запрос на поступление товара')
+      logger.log('запрос на поступление товара')
       await api.post(`/arrival_product`, {
         product_id: currentProduct.value.id,
         base_sale_price: baseSalePrice.value,
@@ -41,7 +42,7 @@ const makeArrivalProduct = async () => {
       showDialog.value = false
       emit('product-category-saved')
     } else {
-      console.log('currentProduct: ', currentProduct.value)
+      logger.log('currentProduct: ', currentProduct.value)
     }
   } catch (err){
     console.error(err)

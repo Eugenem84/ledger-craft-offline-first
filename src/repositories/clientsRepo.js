@@ -1,15 +1,16 @@
+import { logger } from 'src/utils/logger'
 import { v4 as uuidv4 } from 'uuid'
 import dbAdapter from 'src/database/adapters/sqljs-web-adapter'
 import queries from 'src/database/queries/clients'
 import operationsRepo from 'src/repositories/operationsRepo'
 import * as specializationsRepo from 'src/repositories/specializationsRepo'
 
-//console.log('queries.insert:', queries.insert)
-console.log('!!! queries object:', queries)
+//logger.log('queries.insert:', queries.insert)
+logger.log('!!! queries object:', queries)
 
 export async function getAll() {
   const rows =  await dbAdapter.query(queries.getAll)
-  console.log('repo rows: ',rows)
+  logger.log('repo rows: ',rows)
   return rows
 }
 
@@ -53,14 +54,14 @@ export async function save(client) {
 
   // --- Добавлено для отладки ---
   const allClients = await dbAdapter.query('SELECT * FROM clients');
-  console.log('--- Clients in DB After Save ---');
-  console.table(allClients);
-  console.log('--------------------------------');
+  logger.log('--- Clients in DB After Save ---');
+  logger.table(allClients);
+  logger.log('--------------------------------');
 
   const queue = await dbAdapter.query('SELECT * FROM operations ORDER BY created_at ASC');
-  console.log('--- Operations Queue After Save ---');
-  console.table(queue);
-  console.log('---------------------------------');
+  logger.log('--- Operations Queue After Save ---');
+  logger.table(queue);
+  logger.log('---------------------------------');
   // --- Конец отладочного кода ---
 
   // Возвращаем локальный ID созданного или обновленного клиента.
@@ -102,7 +103,7 @@ export async function update(client) {
     // Операция 'insert' для нее уже должна быть в очереди.
     // Нам нужно найти эту операцию и обновить ее payload.
     // (Этот код предполагает, что у вас есть метод для обновления операции в operationsRepo)
-    console.log('Запись еще не на сервере. Обновление произойдет в рамках операции INSERT.');
+    logger.log('Запись еще не на сервере. Обновление произойдет в рамках операции INSERT.');
     // await operationsRepo.updatePayloadByLocalId('clients', client.id, client);
   }
 }
@@ -144,7 +145,7 @@ export async function applyServerRecord(record) {
     if (specialization) {
       localSpecializationId = specialization.id;
     } else {
-      console.warn(`[applyServerRecord] Не найдена локальная специализация для server_id: ${record.specialization_id}`);
+      logger.warn(`[applyServerRecord] Не найдена локальная специализация для server_id: ${record.specialization_id}`);
     }
   }
 

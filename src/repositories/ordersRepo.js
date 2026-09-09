@@ -1,3 +1,4 @@
+import { logger } from 'src/utils/logger'
 import { v4 as uuidv4 } from 'uuid'
 import dbAdapter from 'src/database/adapters/sqljs-web-adapter'
 import queries from 'src/database/queries/orders'
@@ -68,8 +69,8 @@ export async function save(order) {
   const specializationData = await getSpecializationData(order);
   const clientData = await getClientData(order);
 
-  console.log('Specialization data:', specializationData);
-  console.log('SelectedSpecialization: ', specializationData.server_id );
+  logger.log('Specialization data:', specializationData);
+  logger.log('SelectedSpecialization: ', specializationData.server_id );
 
 
   const params = [
@@ -91,7 +92,7 @@ export async function save(order) {
     order.share_token || null
   ]
 
-  console.log('SQL Params:', params);
+  logger.log('SQL Params:', params);
 
   await dbAdapter.execute(queries.insert, params)
 
@@ -155,7 +156,7 @@ export async function update(order) {
     const opParams = [opId, 'update', 'orders', opPayload, Date.now()];
     await operationsRepo.enqueue(opParams);
   } else {
-    console.log('Запись еще не на сервере. Обновление произойдет в рамках операции INSERT.');
+    logger.log('Запись еще не на сервере. Обновление произойдет в рамках операции INSERT.');
   }
 }
 

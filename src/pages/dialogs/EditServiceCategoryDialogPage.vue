@@ -1,4 +1,5 @@
 <script setup>
+import { logger } from 'src/utils/logger'
 import {ref} from 'vue'
 import {api} from "boot/axios.js";
 
@@ -28,7 +29,7 @@ function close(){
 defineExpose({open})
 
 const edit = async () => {
-  console.log('props: ', props.data)
+  logger.log('props: ', props.data)
   try {
     const response = await api.post('/edit_category', {
       id: props.data.id,
@@ -37,14 +38,14 @@ const edit = async () => {
     name.value = ''
     close()
     emit('service_category-edited', response.data)
-    console.log('response', response)
+    logger.log('response', response)
   } catch (err) {
     console.error('ошибка добавления сервис категории: ', err)
   }
 }
 
 const deleteServiceCategory = async () => {
-  console.log('categoryId: ', props.data.id)
+  logger.log('categoryId: ', props.data.id)
   try {
     const response = await api.post('/delete_category', {
       categoryId: props.data.id

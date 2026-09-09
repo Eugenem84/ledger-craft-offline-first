@@ -1,4 +1,5 @@
 <script setup>
+import { logger } from 'src/utils/logger'
 
 import { computed, onMounted } from 'vue'
 import { useQuasar } from 'quasar'
@@ -32,7 +33,7 @@ onMounted(() => {
 const sync = async () => {
   try {
     await SyncService.sync()
-    console.log('Синхронизация завершена успешно.')
+    logger.log('Синхронизация завершена успешно.')
     await specializationsStore.load()
   } catch (error) {
     console.error('Ошибка при синхронизации:', error)
@@ -42,7 +43,7 @@ const sync = async () => {
 const fullReset = async () => {
   try {
     await SyncService.fullReset()
-    console.log('Полный сброс локальной базы выполнен.')
+    logger.log('Полный сброс локальной базы выполнен.')
     await specializationsStore.load() // Перезагружаем данные в сторе (теперь они будут пустыми)
   } catch (error) {
     console.error('Ошибка при полном сбросе:', error)

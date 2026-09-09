@@ -1,3 +1,4 @@
+import { logger } from 'src/utils/logger'
 import { v4 as uuidv4 } from 'uuid'
 import dbAdapter from 'src/database/adapters/sqljs-web-adapter'
 import queries from 'src/database/queries/products'
@@ -112,7 +113,7 @@ export async function applyServerRecord(record) {
 
   const localCategoryId = await getCategoryLocalId(record.product_category_id);
   if (!localCategoryId) {
-    console.warn(`Не удалось найти локальную категорию для товара "${record.name}" (server_id: ${record.id}). Товар не будет обработан.`);
+    logger.warn(`Не удалось найти локальную категорию для товара "${record.name}" (server_id: ${record.id}). Товар не будет обработан.`);
     return;
   }
 

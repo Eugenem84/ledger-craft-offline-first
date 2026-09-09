@@ -1,5 +1,6 @@
 // src/services/api.js
 
+import { logger } from 'src/utils/logger'
 import axios from 'axios';
 
 // моки
@@ -19,7 +20,7 @@ if (!syncId) {
   syncId = crypto.randomUUID();
   localStorage.setItem('sync_id', syncId);
 }
-console.log(`[API] Sync ID: ${syncId}`);
+logger.log(`[API] Sync ID: ${syncId}`);
 
 // Создаем экземпляр axios с преднастроенными заголовками
 const apiClient = axios.create({
@@ -30,11 +31,13 @@ const apiClient = axios.create({
   }
 });
 
+export { apiClient };
+
 
 export default {
   async send(operation) {
     if (USE_MOCK) {
-      console.log('[MOCK] send:', operation);
+      logger.log('[MOCK] send:', operation);
       await new Promise(r => setTimeout(r, 200));
 
       // В моках возвращаем структуру, похожую на серверную
@@ -58,7 +61,7 @@ export default {
 
   async fetchUpdates({ table, since }) {
     if (USE_MOCK) {
-      console.log(`[MOCK] fetchUpdates for ${table}, since ${since}`);
+      logger.log(`[MOCK] fetchUpdates for ${table}, since ${since}`);
       await new Promise(r => setTimeout(r, 300));
       let data = [];
       switch (table) {

@@ -1,4 +1,5 @@
 <script setup>
+import { logger } from 'src/utils/logger'
 import {ref, computed, onMounted, toRaw} from 'vue'
 import {useOrdersStore} from "stores/useOrdersStore.js";
 import {useSpecializationsStore} from "stores/useSpecializationsStore.js";
@@ -16,6 +17,7 @@ import * as productCategoriesRepo from 'src/repositories/productCategoriesRepo.j
 import * as servicesRepo from 'src/repositories/servicesRepo.js'
 import * as productsRepo from 'src/repositories/productsRepo.js'
 import * as modelsRepo from 'src/repositories/modelsRepo.js'
+import { apiClient } from 'src/services/api.js'
 
 const deleteConfirmPage = ref(null)
 const route = useRoute()
@@ -128,7 +130,7 @@ onMounted(async () => {
       products.value = await orderProductRepo.getByOrderId(order.value.id)
 
     } else {
-      console.log('режим нового ордера')
+      logger.log('режим нового ордера')
       order.value = {
         status: 'waiting',
         paid: false,
@@ -143,7 +145,7 @@ onMounted(async () => {
   clients.value = await clientsRepo.getAll()
   filteredClients.value = [...clients.value]
   models.value = await modelsRepo.getAll()
-  console.table(toRaw(models.value))
+  logger.table(toRaw(models.value))
   await categoriesStore.load()
   const specIdForCategories = order.value?.specialization_id ?? selectedSpecializationId
   if (specIdForCategories) {
@@ -182,7 +184,7 @@ const getProductsByCategory = async (productCategoryIdOrObject) => {
   }
 }
 
-const switсhPaidStatus = async () => {
+const togglePaidStatus = async () => {
   paid.value = !paid.value
   if (!isNewOrder.value) {
     await ordersStore.update(order.value.id, { paid: paid.value })
@@ -403,7 +405,7 @@ const generateAndCopyLink = async () => {
   }
   isLoading.value = true
   try {
-    const { data } = await api.post(`/order-report/${order.value.server_id}/share-link`)
+    const { data } = await apiClient.post(`/order-report/${order.value.server_id}/share-link`)
     await navigator.clipboard.writeText(data.url)
     $q.notify({ type: 'positive', message: 'Ссылка скопирована' })
   } catch (error) {
@@ -509,7 +511,7 @@ const generateAndCopyLink = async () => {
 
       <q-btn outline
              size="md"
-             @click="switсhPaidStatus"
+             @click="togglePaidStatus"
              :color="paid ? 'green' : 'grey'"
              glossy
              label="опл"

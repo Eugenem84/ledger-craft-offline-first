@@ -1,17 +1,18 @@
+import { logger } from 'src/utils/logger'
 export default {
   async init() {
     throw new Error('init() not implemented')
   },
-  execute(sql, params = []) {
+  execute(sql, _params = []) {
     throw new Error('execute() not implemented')
   },
-  query(sql, params = []) {
+  query(sql, _params = []) {
     throw new Error('query() not implemented')
   },
-  async transaction(cb) {
+  async transaction(_cb) {
     throw new Error('transaction() not implemented')
   },
-  enqueueOperation(op) {
+  enqueueOperation(_op) {
     throw new Error('enqueueOperation() not implemented')
   },
   dequeueOperations() {
@@ -23,6 +24,6 @@ export default {
   clear() {
     // Используем тот же ключ, что и в sqljs-web-adapter
     localStorage.removeItem('sqljs_db');
-    console.log('[StorageAdapter] Local storage cleared.');
+    logger.log('[StorageAdapter] Local storage cleared.');
   }
 }

@@ -1,3 +1,4 @@
+import { logger } from 'src/utils/logger'
 import { v4 as uuidv4 } from 'uuid'
 import dbAdapter from 'src/database/adapters/sqljs-web-adapter'
 import queries from 'src/database/queries/models'
@@ -93,7 +94,7 @@ export async function applyServerRecord(record) {
     if (specialization) {
       localSpecializationId = specialization.id;
     } else {
-      console.warn(`[applyServerRecord] Не найдена локальная специализация для server_id: ${record.specialization_id}`);
+      logger.warn(`[applyServerRecord] Не найдена локальная специализация для server_id: ${record.specialization_id}`);
     }
   }
 
