@@ -27,7 +27,11 @@ if (typeof window !== 'undefined') {
 const dbAdapter = {
   init: async function() {
     try {
-      const SQL = await initSqlJs({ locateFile: file => `https://sql.js.org/dist/${file}` })
+      const SQL = await initSqlJs({
+        // Локальный WASM (в public/ попадает в корень сайта) — без CDN,
+        // чтобы приложение могло работать офлайн.
+        locateFile: () => '/sql-wasm.wasm'
+      })
       const saved = StorageAdapter.load()
       db = saved ? new SQL.Database(saved) : new SQL.Database()
       logger.log(`[SQLJS] Database initialized${saved ? ' (restored from storage)' : ''}`)

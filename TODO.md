@@ -17,7 +17,7 @@
 ## Сводка фаз
 
 - [x] **Фаза 0** — Гигиена репозитория · 7/7 · *чистая база, lint проходит, меньше шума*
-- [ ] **Фаза 1** — Локальная БД реально персистентная · 1/4 · *данные переживают перезапуск*
+- [ ] **Фаза 1** — Локальная БД реально персистентная · 2/4 · *данные переживают перезапуск*
 - [ ] **Фаза 2** — Схема, миграции, деньги, транзакции · 0/6 · *одна истина в схеме, единые деньги*
 - [ ] **Фаза 3** — Переписать синхронизацию · 0/8 · *связные таблицы синкаются без «двойного прогона»*
 - [ ] **Фаза 4** — Нативный SQLite (Capacitor) для Android · 0/5 · *настоящий SQLite на диске*
@@ -60,8 +60,8 @@
       → в `sqljs-web-adapter.js`: при `init()` загружать сохранённый `Uint8Array` из localStorage;
       после каждой мутации — `db.export()` и запись в storage через `StorageAdapter` (`save`/`load`)
       → *критерий:* создал запись → `location.reload()` → запись на месте
-- [ ] **1.2** (P0) Убрать зависимость от CDN
-      → положить `sql-wasm.wasm` локально (напр. `public/sql-wasm.wasm`) и указать `locateFile` на локальный путь
+- [x] **1.2** (P0) Убрать зависимость от CDN
+      → `public/sql-wasm.wasm` (скопирован из `node_modules/sql.js/dist/`), `locateFile: () => '/sql-wasm.wasm'`
       → *критерий:* `npm run dev` с выключенным интернетом — приложение стартует
 - [ ] **1.3** (P1) Сделать `StorageAdapter` реальным
       → реализовать `save(uuid)` / `load()` / `clear()` поверх localStorage с ключом `sqljs_db`
@@ -254,7 +254,7 @@
 | Фаза 0.5 дебаг-логи | ✅ сделано | `src/utils/logger.js` (DEV-only); заменены 58 `console.log/table` + 7 `console.warn`; в prod-бандле нет вызовов из src |
 | Фаза 0.6 кириллическая «с» | ✅ сделано | `switсhPaidStatus` → `togglePaidStatus` (OrderDetailsPage.vue:187, 514); кириллических идентификаторов в src нет |
 | Фаза 1.1 персистентность | ✅ сделано | `sqljs-web-adapter.js`: загрузка дампа в `init()`, `persist()` после каждой мутации + `beforeunload`; `storage-adapter.js`: `save()`/`load()`/`clear()` (base64 в localStorage, ключ `sqljs_db`) |
-| Фаза 1.2 CDN | ❌ | `initSqlJs({ locateFile: … 'https://sql.js.org/dist/${file}' })` |
+| Фаза 1.2 CDN | ✅ сделано | `public/sql-wasm.wasm` (660КБ); `locateFile: () => '/sql-wasm.wasm'`; в прод-бандле нет `sql.js.org`; файл в `dist/spa/` |
 | Фаза 2.1 дубли миграций | ❌ | `010/023`, `012/016`, `013/019/022`; нет 017; `019` не подключена в `migrations/index.js` |
 | Фаза 3.1 двойной вызов | ❌ на месте | `syncService.js` стр. 87–88: `_syncLocalToServer()` дважды |
 | Фаза 3.4 связные таблицы | ❌ | в `syncService.js` нет `order_product`/`order_material`; есть частичная работа по `order_service` |
