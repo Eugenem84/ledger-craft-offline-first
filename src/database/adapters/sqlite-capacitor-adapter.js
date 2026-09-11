@@ -17,6 +17,11 @@ export default {
     return res.values || []
   },
 
+  async queryOne(sql, params = []) {
+    const rows = await this.query(sql, params)
+    return rows.length > 0 ? rows[0] : null
+  },
+
   async transaction(cb) {
     try {
       await cb()
