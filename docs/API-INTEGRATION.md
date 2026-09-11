@@ -1,18 +1,21 @@
-# Бэкенд: контракт API (по реальному коду Laravel)
+# Интеграция клиента с API
 
-> Исходники бэкенда лежат **рядом** с фронтом: `/Users/artem/PhpstormProjects/LedgerCraftDocker03`
-> (Laravel + MySQL, `docker-compose.yaml`). Обе папки объединены файлом `.code-workspace`.
-> Документ составлен **по реальному коду сервера**: `routes/api.php`,
-> `app/Http/Controllers/SyncController.php`, `app/Http/Controllers/ProductController.php`,
-> серверные миграции `database/migrations/`.
+> Это **взгляд со стороны клиента**: какие эндпоинты вызывает фронт, что он ожидает от
+> ответов и какие есть особенности/ограничения.
+> **Канонический контракт API живёт в репозитории бэкенда:**
+> `LedgerCraftDocker03/docs/API.md` (серверная схема — `LedgerCraftDocker03/docs/DB.md`).
+> При расхождении истина — там.
+>
+> Код бэкенда (Laravel) лежит рядом: `/Users/artem/PhpstormProjects/LedgerCraftDocker03`;
+> обе папки открываются в одном `.code-workspace`.
 
 ## 1. Общие сведения
 
 | Параметр | Значение |
 |---|---|
-| Код сервера | `/Users/artem/PhpstormProjects/LedgerCraftDocker03` (Laravel) |
-| Стек | PHP + Laravel (Sanctum для auth) + MySQL |
-| Пуск | `docker-compose.yaml` |
+| Связанный репозиторий | `/Users/artem/PhpstormProjects/LedgerCraftDocker03` (Laravel) |
+| Канонический контракт | `LedgerCraftDocker03/docs/API.md` |
+| Стек сервера | PHP + Laravel (Sanctum) + PostgreSQL |
 | Base URL (dev) | `https://dev.medovf2h.beget.tech/api` |
 | Идентификация клиента | заголовок `X-Sync-ID` (UUID из `localStorage` устройства) |
 | Формат данных | JSON |
@@ -196,7 +199,9 @@ Headers: X-Sync-ID: <uuid устройства>
 9. **Серверный агент-лог:** в `SyncController.php` есть блок `#region agent log`, пишущий в
    файл фронтового репозитория (`.cursor/debug-c685cd.log`) — аналог задачи 0.3, но на сервере.
 
-## 5. Серверные задачи (репозиторий `LedgerCraftDocker03`)
+## 5. Серверные задачи
+
+Актуальный список — в каноническом `LedgerCraftDocker03/docs/API.md` §7. Кратко (для клиента):
 
 - [x] Исправить `$tables` в `SyncController`: `buy_product_prices`, `sales_products_prices`,
       убрать `service_categories` (сделано в рамках задачи 2.6/серверной гигиены).
