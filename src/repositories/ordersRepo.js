@@ -144,7 +144,10 @@ export async function update(order) {
       }
       delete payloadForServer.model_id; // Всегда убираем локальный id; серверу шлём только model_server_id
     }
-    delete payloadForServer.id;
+    // `...order` перетёр `id` локальным UUID, а серверу для UPDATE нужен именно
+    // СЕРВЕРНЫЙ id: без него `/sync` отвечает `MISSING_ID_FOR_UPDATE` и правка
+    // заказа не уезжает вовсе (найдено при 3.8).
+    payloadForServer.id = existingOrder.server_id;
     const opPayload = JSON.stringify(payloadForServer);
     const opParams = [opId, 'update', 'orders', opPayload, Date.now()];
     await operationsRepo.enqueue(opParams);

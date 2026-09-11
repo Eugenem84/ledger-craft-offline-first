@@ -11,6 +11,7 @@
 // в статусе sending/synced, а следующий sync() возвращает её в работу
 // (recoverInFlight). См. docs/ARCHITECTURE.md §4.1.
 import db from 'src/database/adapters/sqljs-web-adapter';
+import { toEpochSeconds } from 'src/utils/timestamps.js'
 
 const STATUS = {
   PENDING: 'pending',
@@ -118,15 +119,28 @@ export default {
         );
       }
 
-      // Серверный `updated_at` (задача 3.8) — чтобы не «воскрешать» запись
-      // своей же более старой версией.
+      // Версия записи от сервера (задача 3.8): сохраняем её локально, чтобы более
+      // старая копия не «воскрешала» запись (last-write-wins) и чтобы у обоих
+      // устройств была одна и та же версия. Сервер отдаёт ISO-строку (UTC),
+      // локально храним UNIX-секунды.
       if (updatedAt != null) {
-        const whereId = op.type === 'insert' ? localId : op.payload?.id;
+        const stamp = toEpochSeconds(updatedAt);
 
-        if (whereId != null) {
+        if (op.type === 'insert') {
+          // В payload insert локальный id записи лежит в `local_id`.
+          if (localId) {
+            await db.execute(
+              `UPDATE ${op.table} SET updated_at = ? WHERE id = ?`,
+              [stamp, localId]
+            );
+          }
+        } else if (serverId != null) {
+          // В payload update/delete `id` — это СЕРВЕРНЫЙ id записи (`payload.id`),
+          // поэтому локальную строку ищем по `server_id`: по `id` она бы не нашлась
+          // (там локальный UUID), и версия осталась бы «клиентской».
           await db.execute(
-            `UPDATE ${op.table} SET updated_at = ? WHERE id = ?`,
-            [updatedAt, whereId]
+            `UPDATE ${op.table} SET updated_at = ? WHERE server_id = ?`,
+            [stamp, serverId]
           );
         }
       }
