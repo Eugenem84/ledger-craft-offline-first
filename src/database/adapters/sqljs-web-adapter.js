@@ -32,7 +32,7 @@ const dbAdapter = {
         // чтобы приложение могло работать офлайн.
         locateFile: () => '/sql-wasm.wasm'
       })
-      const saved = StorageAdapter.load()
+      const saved = await StorageAdapter.load()
       db = saved ? new SQL.Database(saved) : new SQL.Database()
       logger.log(`[SQLJS] Database initialized${saved ? ' (restored from storage)' : ''}`)
     } catch (err) {

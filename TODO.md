@@ -17,7 +17,7 @@
 ## Сводка фаз
 
 - [x] **Фаза 0** — Гигиена репозитория · 7/7 · *чистая база, lint проходит, меньше шума*
-- [ ] **Фаза 1** — Локальная БД реально персистентная · 2/4 · *данные переживают перезапуск*
+- [ ] **Фаза 1** — Локальная БД реально персистентная · 3/4 · *данные переживают перезапуск*
 - [ ] **Фаза 2** — Схема, миграции, деньги, транзакции · 0/6 · *одна истина в схеме, единые деньги*
 - [ ] **Фаза 3** — Переписать синхронизацию · 0/8 · *связные таблицы синкаются без «двойного прогона»*
 - [ ] **Фаза 4** — Нативный SQLite (Capacitor) для Android · 0/5 · *настоящий SQLite на диске*
@@ -63,9 +63,8 @@
 - [x] **1.2** (P0) Убрать зависимость от CDN
       → `public/sql-wasm.wasm` (скопирован из `node_modules/sql.js/dist/`), `locateFile: () => '/sql-wasm.wasm'`
       → *критерий:* `npm run dev` с выключенным интернетом — приложение стартует
-- [ ] **1.3** (P1) Сделать `StorageAdapter` реальным
-      → реализовать `save(uuid)` / `load()` / `clear()` поверх localStorage с ключом `sqljs_db`
-      (и/или IndexedDB, если файл большой)
+- [x] **1.3** (P1) Сделать `StorageAdapter` реальным
+      → localStorage — основной путь (ключ `sqljs_db`); при переполнении (~5 МБ) — fallback в IndexedDB; `load()` читает оба
       → *критерий:* данные живут между запусками в браузере и в Capacitor WebView
 - [ ] **1.4** (P1) Выбор адаптера по платформе
       → в `src/boot/db.js` выбирать адаптер: native (Capacitor) → `sqlite-capacitor-adapter.js`; иначе → sql.js
@@ -254,6 +253,7 @@
 | Фаза 0.5 дебаг-логи | ✅ сделано | `src/utils/logger.js` (DEV-only); заменены 58 `console.log/table` + 7 `console.warn`; в prod-бандле нет вызовов из src |
 | Фаза 0.6 кириллическая «с» | ✅ сделано | `switсhPaidStatus` → `togglePaidStatus` (OrderDetailsPage.vue:187, 514); кириллических идентификаторов в src нет |
 | Фаза 1.1 персистентность | ✅ сделано | `sqljs-web-adapter.js`: загрузка дампа в `init()`, `persist()` после каждой мутации + `beforeunload`; `storage-adapter.js`: `save()`/`load()`/`clear()` (base64 в localStorage, ключ `sqljs_db`) |
+| Фаза 1.3 storage | ✅ сделано | localStorage (ключ `sqljs_db`) + IndexedDB fallback (`ledgercraft-db`, при переполнении); `load()` асинхронный, читает оба; реальный round-trip и clear проверены в Node |
 | Фаза 1.2 CDN | ✅ сделано | `public/sql-wasm.wasm` (660КБ); `locateFile: () => '/sql-wasm.wasm'`; в прод-бандле нет `sql.js.org`; файл в `dist/spa/` |
 | Фаза 2.1 дубли миграций | ❌ | `010/023`, `012/016`, `013/019/022`; нет 017; `019` не подключена в `migrations/index.js` |
 | Фаза 3.1 двойной вызов | ❌ на месте | `syncService.js` стр. 87–88: `_syncLocalToServer()` дважды |
