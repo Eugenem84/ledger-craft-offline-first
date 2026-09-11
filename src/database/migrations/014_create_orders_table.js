@@ -11,7 +11,7 @@ export default {
         client_server_id INTEGER,
         hours INTEGER,
         minutes INTEGER,
-        total_amount INTEGER, -- Changed from REAL to INTEGER
+        total_amount INTEGER, -- хранится в рублях (SQLite хранит и дробные значения)
         comments TEXT,
         user_id INTEGER,
         user_order_number INTEGER,

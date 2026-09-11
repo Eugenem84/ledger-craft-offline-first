@@ -8,22 +8,14 @@ import { findByServerId as findClientByServerId } from "src/repositories/clients
 import { getById as getModelById } from "src/repositories/modelsRepo.js";
 import { findByServerId as findModelByServerId } from "src/repositories/modelsRepo.js";
 
-// Helper to convert amount from cents to roubles
-const fromCents = (order) => {
-  if (order && order.total_amount) {
-    return { ...order, total_amount: order.total_amount / 100 };
-  }
-  return order;
-};
-
 export async function getAll() {
   const rows =  await dbAdapter.query(queries.getAll)
-  return rows.map(fromCents);
+  return rows;
 }
 
 export async function getBySpecializationId(specializationId) {
   const rows = await dbAdapter.query(queries.getBySpecializationId, [specializationId])
-  return rows.map(fromCents);
+  return rows;
 }
 
 async function getSpecializationData(order) {
@@ -82,7 +74,7 @@ export async function save(order) {
     clientData.server_id,
     order.hours || 0,
     order.minutes || 0,
-    (order.total_amount || 0) * 100, // Convert to cents
+    order.total_amount || 0,
     order.comments || '',
     order.user_id || null,
     order.user_order_number || null,
@@ -126,7 +118,7 @@ export async function update(order) {
     clientData.server_id,
     order.hours || 0,
     order.minutes || 0,
-    (order.total_amount || 0) * 100, // Convert to cents
+    order.total_amount || 0,
     order.comments || '',
     order.user_id || null,
     order.user_order_number || null,
@@ -180,9 +172,9 @@ export async function applyServerRecord(record) {
     SELECT * FROM orders WHERE server_id = ?
   `, [record.id]);
 
-  const recordInCents = {
+  const recordData = {
     ...record,
-    total_amount: (record.total_amount || 0) * 100 // Convert to cents
+    total_amount: record.total_amount || 0
   };
 
   let localModelId = null;
@@ -199,23 +191,23 @@ export async function applyServerRecord(record) {
     const clientData = await getClientData({ client_server_id: record.client_id });
     const params = [
       localId,
-      recordInCents.id,
+      recordData.id,
       specializationData.id,
       specializationData.server_id,
       clientData.id,
       clientData.server_id,
-      recordInCents.hours,
-      recordInCents.minutes,
-      recordInCents.total_amount,
-      recordInCents.comments,
-      recordInCents.user_id,
-      recordInCents.user_order_number,
-      recordInCents.status,
-      recordInCents.paid,
+      recordData.hours,
+      recordData.minutes,
+      recordData.total_amount,
+      recordData.comments,
+      recordData.user_id,
+      recordData.user_order_number,
+      recordData.status,
+      recordData.paid,
       localModelId,
-      recordInCents.share_token,
-      recordInCents.created_at || Math.floor(Date.now() / 1000),
-      recordInCents.updated_at || Math.floor(Date.now() / 1000)
+      recordData.share_token,
+      recordData.created_at || Math.floor(Date.now() / 1000),
+      recordData.updated_at || Math.floor(Date.now() / 1000)
     ];
 
     await dbAdapter.execute(queries.insertFromServer, params);
@@ -223,7 +215,7 @@ export async function applyServerRecord(record) {
   }
 
   const local = existing[0];
-  if (recordInCents.updated_at > local.updated_at) {
+  if (recordData.updated_at > local.updated_at) {
     const specializationData = await getSpecializationData({ specialization_server_id: record.specialization_id });
     const clientData = await getClientData({ client_server_id: record.client_id });
     const updateParams = [
@@ -231,18 +223,18 @@ export async function applyServerRecord(record) {
       specializationData.server_id,
       clientData.id,
       clientData.server_id,
-      recordInCents.hours,
-      recordInCents.minutes,
-      recordInCents.total_amount,
-      recordInCents.comments,
-      recordInCents.user_id,
-      recordInCents.user_order_number,
-      recordInCents.status,
-      recordInCents.paid,
+      recordData.hours,
+      recordData.minutes,
+      recordData.total_amount,
+      recordData.comments,
+      recordData.user_id,
+      recordData.user_order_number,
+      recordData.status,
+      recordData.paid,
       localModelId,
-      recordInCents.share_token,
-      recordInCents.updated_at,
-      recordInCents.id
+      recordData.share_token,
+      recordData.updated_at,
+      recordData.id
     ];
     await dbAdapter.execute(queries.updateFromServer, updateParams);
   }

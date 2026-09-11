@@ -51,7 +51,7 @@
 | name | varchar(255) |
 | description, manufacturer, product_number | TEXT/VARCHAR |
 | weight | REAL |
-| base_sale_price | INTEGER — предполагалась копеечная цена? (не согласовано) |
+| base_sale_price | INTEGER — цена в рублях |
 | product_category_id | TEXT |
 | product_category_server_id | BIGINT |
 
@@ -82,7 +82,7 @@
 | specialization_id / specialization_server_id | TEXT / INTEGER | |
 | client_id / client_server_id | TEXT / INTEGER | |
 | hours, minutes | INTEGER | длительность работ |
-| total_amount | INTEGER | **в копейках** (клиент конвертирует `/100`) |
+| total_amount | INTEGER | **в рублях** (единый стандарт; конверсии нет) |
 | comments | TEXT | |
 | user_id, user_order_number | INTEGER | |
 | status | TEXT | waiting / process / done |
@@ -103,7 +103,7 @@
 ## Таблицы, НЕ участвующие в синхронизации (внимание!)
 
 ### order_product (товары в ордере)
-Создана тремя миграциями (013/019/022), фактически живёт по схеме 013:
+Создана миграцией 013 (дубли 019/022 удалены в задаче 2.1):
 `id, server_id, order_id, product_id, sale_price, quantity, created_at, updated_at, deleted_at`.
 **Не внесена в `syncService.repos`** → создаётся локально, но на сервер уходит без
 трансформации FK (`order_id` = локальный UUID), а с сервера не обновляется.
@@ -118,12 +118,12 @@ material_server_id, price, amount, created_at, updated_at, deleted_at`.
 синхронизируется вовсе** (нет ни в repos, ни в fkTransformationMap).
 
 ### incoming_products (приход товаров)
-Дубли миграций 012/016. В схеме 016: `id, server_id, product_id, product_server_id,
-supplier, quantity, by_price, ...`. Не синкается.
+Создана миграцией 012 (дубль 016 удалён в задаче 2.1). Схема: `id, server_id, product_id,
+supplier, quantity, buy_price, ...`. Не синкается.
 
 ### product_stocks, buy_product_prices, sales_products_prices
-Таблицы-сироты из ранних миграций (008/009/010, дубль 023 для sales_products_prices).
-Ни миграции-«победительницы», ни репозитории, ни синк — фактически не используются.
+Таблицы-сироты из ранних миграций (008/009/010). Ни репозитории, ни синк — фактически
+не используются.
 
 ## Служебные таблицы
 
@@ -147,14 +147,15 @@ UUID (по `findByServerId` в таблице-родителе). ⚠️ Поря
 родители (`specializations`, `categories`, `clients`, `equipment_models`) должны прийти
 раньше детей (`services`, `products`, `orders`, `order_service`).
 
-## Единицы измерения и даты — сводка расхождений
+## Единицы измерения и деньги — единый стандарт
 
-| Сущность | Где рубли | Где копейки | Где непоследовательно |
-|---|---|---|---|
-| orders.total_amount | — | локально и на сервер (+ конвертация /100) | `*Repo` делит/умножает вручную |
-| order_service.sale_price | REAL | — | не приводится к копейкам |
-| products.base_sale_price | INTEGER | — | непонятно, рубли или копейки |
-| материалы/товары в заказе | price (REAL) | — | — |
+**Все денежные поля хранятся и передаются в РУБЛЯХ.** Никаких копеек и конверсий `*100`/`/100`:
+- локальная БД — рубли (`total_amount`, `sale_price`, `price`, `base_sale_price`);
+- сервер (Laravel) — рубли;
+- UI — рубли.
+
+Ранее была путаница (зачатки копеечной схемы); устранена в задаче 2.3: конверсия `*100`/`/100`
+из `ordersRepo` удалена, тип колонок не менялся (SQLite хранит и дробные рубли в `INTEGER`-колонке).
 
 | Поле | Локально | На сервер |
 |---|---|---|
