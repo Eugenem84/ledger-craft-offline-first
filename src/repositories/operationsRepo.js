@@ -1,48 +1,169 @@
 // repositories/operationsRepo.js
+//
+// Очередь операций для синхронизации (outbox).
+//
+// У операции есть статус:
+//   pending — ждёт отправки (её и забирает dequeue);
+//   sending — отправлена, ответ сервера ещё не разобран;
+//   synced  — сервер подтвердил операцию, идёт «примирение» локальной записи.
+//
+// Сбой между отправкой и ответом операцию не теряет: она остаётся в очереди
+// в статусе sending/synced, а следующий sync() возвращает её в работу
+// (recoverInFlight). См. docs/ARCHITECTURE.md §4.1.
 import db from 'src/database/adapters/sqljs-web-adapter';
 
+const STATUS = {
+  PENDING: 'pending',
+  SENDING: 'sending',
+  SYNCED: 'synced',
+};
+
 export default {
+  STATUS,
+
   /**
-   * Добавляет операцию в очередь на синхронизацию.
-   * @param {Array} params - Параметры для SQL-запроса [id, type, table, payload, created_at]
+   * Добавляет операцию в очередь на синхронизацию (статус — pending).
+   * @param {Array} params - Порядок полей как у вызывающих: [id, type, table, payload, created_at]
    */
   async enqueue(params) {
-    await db.execute('INSERT INTO operations (id, type, "table", payload, created_at) VALUES (?, ?, ?, ?, ?)', params);
+    const [id, type, table, payload, createdAt] = params;
+
+    await db.execute(
+      `INSERT INTO operations (id, type, "table", payload, status, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [id, type, table, payload, STATUS.PENDING, createdAt, Date.now()]
+    );
   },
 
+  /**
+   * Отдаёт операции, ждущие отправки. Операции в статусах sending/synced не
+   * отдаются: по ним сетевой вызов уже был (или идёт).
+   */
   async dequeue() {
-    return db.query(`SELECT * FROM operations ORDER BY created_at ASC`);
+    return db.query(
+      `SELECT * FROM operations WHERE status = ? ORDER BY created_at ASC`,
+      [STATUS.PENDING]
+    );
   },
 
-  async markSynced(op, serverRes) {
-    // Удаление операции из очереди и «примирение» локальной записи с ответом
-    // сервера должны быть атомарны: иначе при сбое получим состояние
-    // «операция удалена, но данные не обновлены».
-    await db.transaction(async () => {
-      await db.execute(`
-        DELETE FROM operations WHERE id = ?
-      `, [op.id]);
+  /**
+   * Помечает операции отправленными (in-flight). Вызывается ДО сетевого запроса,
+   * чтобы падение приложения между отправкой и ответом не потеряло операцию.
+   * @param {Array<string>} ids
+   */
+  async markSending(ids) {
+    await this._setStatus(ids, STATUS.SENDING);
+  },
 
-      // если сервер вернул server_id/updated_at — обновим локальную запись
-      // Эта логика важна для "примирения" данных после ответа сервера.
-      if (op.type === 'insert' && serverRes?.id) {
-        // Для операции INSERT сервер возвращает свой ID.
-        // Мы должны обновить локальную запись, чтобы связать временный UUID с постоянным ID сервера.
-        await db.execute(`
-          UPDATE ${op.table}
-          SET server_id = ?, updated_at = ?
-          WHERE id = ?
-        `, [serverRes.id, serverRes.updated_at, op.payload.local_id]);
-      } else if (op.type === 'update' && serverRes?.updated_at) {
-        // Для операции UPDATE сервер может вернуть свежий `updated_at`.
-        // Обновляем его, чтобы избежать будущих конфликтов синхронизации.
-        await db.execute(`
-          UPDATE ${op.table}
-          SET updated_at = ?
-          WHERE id = ?
-        `, [serverRes.updated_at, op.payload.id]);
+  /**
+   * Возвращает операции в pending: сети не было или сервер ответил ошибкой —
+   * попробуем в следующем sync().
+   * @param {Array<string>} ids
+   */
+  async markPending(ids) {
+    await this._setStatus(ids, STATUS.PENDING);
+  },
+
+  async _setStatus(ids, status) {
+    if (!ids || !ids.length) return;
+
+    const placeholders = ids.map(() => '?').join(', ');
+
+    await db.execute(
+      `UPDATE operations SET status = ?, updated_at = ? WHERE id IN (${placeholders})`,
+      [status, Date.now(), ...ids]
+    );
+  },
+
+  /**
+   * Отмечает операцию доставленной: сначала фиксируем факт подтверждения сервером
+   * (отдельным коммитом), затем в одной транзакции удаляем операцию из очереди и
+   * «примиряем» локальную запись с ответом сервера.
+   *
+   * Если приложение упадёт между ответом сервера и «примирением», операция
+   * останется в очереди в статусе synced и не потеряется — см. recoverInFlight().
+   *
+   * @param {object} op - операция из очереди (с распарсенным payload)
+   * @param {object} serverRes - элемент ответа сервера (`{ server_id, updated_at }`)
+   */
+  async markSynced(op, serverRes) {
+    await db.execute(
+      `UPDATE operations SET status = ?, updated_at = ? WHERE id = ?`,
+      [STATUS.SYNCED, Date.now(), op.id]
+    );
+
+    const serverId = serverRes?.server_id ?? serverRes?.id;
+    const localId = op.payload?.local_id;
+    const updatedAt = serverRes?.updated_at;
+
+    await db.transaction(async () => {
+      await db.execute(`DELETE FROM operations WHERE id = ?`, [op.id]);
+
+      // INSERT — запоминаем серверный id, иначе «дети» этой записи не смогут уехать.
+      if (op.type === 'insert' && serverId != null && localId) {
+        await db.execute(
+          `UPDATE ${op.table} SET server_id = ? WHERE id = ?`,
+          [serverId, localId]
+        );
+      }
+
+      // Серверный `updated_at` (задача 3.8) — чтобы не «воскрешать» запись
+      // своей же более старой версией.
+      if (updatedAt != null) {
+        const whereId = op.type === 'insert' ? localId : op.payload?.id;
+
+        if (whereId != null) {
+          await db.execute(
+            `UPDATE ${op.table} SET updated_at = ? WHERE id = ?`,
+            [updatedAt, whereId]
+          );
+        }
       }
     });
+  },
+
+  /**
+   * Возвращает в работу операции, «зависшие» в in-flight статусах после сбоя:
+   *   • sending — неизвестно, дошёл ли запрос до сервера;
+   *   • synced + insert — сервер применил, но `server_id` локально мог не проставиться,
+   *     поэтому операцию нужно отправить заново;
+   *   • synced + update/delete — сервер применил, «примирять» нечего (локальная запись
+   *     уже в нужном состоянии) — операцию убираем.
+   *
+   * Без этого шага очередь бы «застряла»: dequeue() отдаёт только pending.
+   * Повторная отправка может создать дубль на сервере, пока нет серверной
+   * идемпотентности (задача 3.5) — это осознанный выбор в пользу «не потерять данные».
+   *
+   * ⚠️ Восстановление не отличает «свою» in-flight операцию от операции другой вкладки
+   * того же устройства: одновременный sync() в двух вкладках может привести к повторной
+   * отправке. Координация вкладок — вне задачи 3.3 (см. 3.6).
+   *
+   * @returns {Promise<number>} сколько in-flight операций найдено после сбоя
+   *   (update/delete из них снимаются, остальные возвращаются в pending)
+   */
+  async recoverInFlight() {
+    const stuck = await db.query(
+      `SELECT COUNT(*) AS count FROM operations WHERE status IN (?, ?)`,
+      [STATUS.SENDING, STATUS.SYNCED]
+    );
+    const count = stuck.length ? stuck[0].count : 0;
+
+    if (!count) return 0;
+
+    await db.transaction(async () => {
+      // update/delete сервер уже применил — «примирять» нечего, операция лишняя.
+      await db.execute(
+        `DELETE FROM operations WHERE status = ? AND type <> 'insert'`,
+        [STATUS.SYNCED]
+      );
+
+      await db.execute(
+        `UPDATE operations SET status = ?, updated_at = ? WHERE status IN (?, ?)`,
+        [STATUS.PENDING, Date.now(), STATUS.SENDING, STATUS.SYNCED]
+      );
+    });
+
+    return count;
   },
 
   /**
@@ -52,9 +173,14 @@ export default {
    * @param {string} localId - Локальный ID записи
    */
   async removeByLocalId(tableName, localId) {
-    const operations = await db.query('SELECT * FROM operations WHERE "table" = ? AND type = "insert"', [tableName]);
+    const operations = await db.query(
+      `SELECT * FROM operations WHERE "table" = ? AND type = 'insert'`,
+      [tableName]
+    );
+
     for (const op of operations) {
       const payload = JSON.parse(op.payload);
+
       if (payload.local_id === localId) {
         await db.execute('DELETE FROM operations WHERE id = ?', [op.id]);
       }

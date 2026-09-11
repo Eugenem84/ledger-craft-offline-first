@@ -82,14 +82,17 @@ ID и `sale_price`/`quantity`; если `sale_price` не передан, бер
 
 ### `$tables` — какие таблицы принимает синк
 
+Актуальный список (после задачи 0.8):
+
 `clients, specializations, orders, equipment_models, incoming_products, materials, order_product,
 order_service, products, product_categories, product_stocks, categories, services,
-service_categories, by_product_prices, sales_product_prices`
+buy_product_prices, sales_products_prices`
 
-⚠️ Расхождения с реальными таблицами БД сервера (ошибки в списке):
-- `by_product_prices` → таблица называется **`buy_product_prices`**;
-- `sales_product_prices` → таблица называется **`sales_products_prices`**;
-- `service_categories` — такой таблицы **нет** (есть `categories` и `product_categories`), лишнее имя.
+✅ Ранее список был битым (`by_product_prices`, `sales_product_prices`, лишняя `service_categories`) —
+исправлено в задаче 0.8.
+
+⚠️ `order_material` в списке нет и такой таблицы на сервере не существует (см. §4.10); клиент её
+имеет (миграция 021) — по решению D2 новая серверная таблица не создаётся.
 
 ### 2.2. `GET /api/sync-updates` — инкрементальная выгрузка изменений
 
@@ -104,8 +107,11 @@ Headers: X-Sync-ID: <uuid устройства>
 - если таблица не входит в `$tables` → `400 { "error": "Invalid or missing table" }`;
 - фильтр анти-эха: если у таблицы есть колонка `last_sync_id`, сервер исключает записи с
   `last_sync_id == X-Sync-ID` (⚠️ колонок таких нет — фильтр не действует);
-- soft-delete: `whereNull('deleted_at')` применяется только к `clients, products, services, categories`;
-- сортировка по `updated_at`.
+- soft-delete: `whereNull('deleted_at')` применяется только к `clients, products, services, categories`
+  (при этом `deleted_at` есть ещё у `orders`, `equipment_models`, `order_service` — §4.13);
+- сортировка по `updated_at`;
+- ⚠️ роут без auth и без владельца: выдача не фильтруется по пользователю (§4.14);
+- ⚠️ нет `limit`/пагинации — устройство после долгого офлайна получает таблицу целиком (§4.18).
 
 Ответ:
 
@@ -177,9 +183,8 @@ Headers: X-Sync-ID: <uuid устройства>
 
 ## 4. Расхождения фронт ↔ сервер (найдено сверкой кода)
 
-1. **Имена таблиц в `$tables` (сервер):** `by_product_prices` и `sales_product_prices` не
-   совпадают с реальными таблицами `buy_product_prices` / `sales_products_prices` — синк этих
-   таблиц упадёт. `service_categories` — лишнее имя (такой таблицы нет).
+1. ✅ **Имена таблиц в `$tables` (сервер): исправлено** (задача 0.8) — `buy_product_prices`,
+   `sales_products_prices`, `service_categories` убрана. Готово.
 2. **Идемпотентность:** сервер вставляет записи через `insertGetId` без проверки дублей.
    `uuid_id` используется только у `order_service`. Повторная отправка той же операции
    создаст дубли на сервере (риск для требования 3.5).
@@ -196,19 +201,87 @@ Headers: X-Sync-ID: <uuid устройства>
    чего `DB::transaction` **не откатывает** частично применённые операции.
 8. **`order_product` в `$tables`** уже принимается сервером, но фронт его не отправляет и не
    читает (связные таблицы не в синке — задача 3.4).
-9. **Серверный агент-лог:** в `SyncController.php` есть блок `#region agent log`, пишущий в
-   файл фронтового репозитория (`.cursor/debug-c685cd.log`) — аналог задачи 0.3, но на сервере.
+9. ✅ **Серверный агент-лог: убран** (задача 0.9). Готово.
+10. **`order_material` на сервере нет вовсе** — ни таблицы (в `database/migrations`), ни строки в
+    `$tables`. Клиент её имеет (миграция 021) и по плану 3.4 собирался её синкать → операция
+    падала бы с `Invalid operation structure or table.` По решению D2 таблицу не создаём.
+11. **Семантика `materials` расходится:** на клиенте это справочник (`name, specialization_id`),
+    на сервере — **строки материалов заказа** (`order_id NOT NULL, name, price decimal(10,2),
+    amount smallint`). Т.е. серверная `materials` ≈ клиентская `order_material`, а клиентского
+    «справочника материалов» на сервере нет. `LedgerCraftDocker03/docs/DB.md` описывает `materials`
+    неверно (приписывает `specialization_id` и `deleted_at`). Решение — D2, задача 9.6.
+12. **`orders` при insert из синка теряет ещё и `user_id`/`user_order_number`**, не только
+    `status`, `paid`, `model_id`, `share_token` (см. п. 6): заказ с устройства приезжает на сервер
+    **без владельца**, а статистика фильтрует по `status='done'` и `paid=1` — то есть не увидит его.
+13. **Удаления не доезжают до других устройств.** `tableHasSoftDeletes()` знает 4 таблицы, но
+    `deleted_at` реально есть ещё у `orders` (миграция `2026_02_11_133000_add_soft_deletes_to_orders_table`),
+    `equipment_models`, `order_service`. Итог: удаление заказа через `/sync` — hard-delete, а
+    `sync-updates` отдаёт уже удалённые заказы обратно → на втором устройстве фантом навсегда.
+14. **Синк без владельца:** `/sync` и `/sync-updates` — без auth (`routes/api.php:152-153`);
+    `X-Sync-ID` — метка устройства, не авторизация; выдача не фильтруется по пользователю.
+15. **Дубли и мёртвые роуты + IDOR:** `GET /get_orders_by_user` объявлен 3 раза (Laravel берёт
+    первую регистрацию — публичную, она падает в 500 на `Auth::user()->getAuthIdentifier()`, а
+    рабочая sanctum-версия недостижима); `GET /get_orders_by_user/{id}` отдаёт заказы **любого**
+    пользователя; `update_paid_status` и `switch_paid_status` дублируют операцию; `auth:api`
+    (token-guard, у `users` нет `api_token`) — тупик рядом с рабочим `auth:sanctum`;
+    `MaterialController::create` не зароутен и вызывает `createMaterial($data, $orderId)` при
+    сигнатуре `createMaterial($orderId, array $data)`; scaffold `app/Http/Controllers/Auth/*`.
+16. **Три методики «выручки»** в `StatisticRepository`: `SUM(CAST(services.price AS numeric))`,
+    `SUM(order_service.quantity * sale_price)`, `SUM(orders.total_amount)` (последнее — без фильтров
+    `paid/status`) → цифры на одном экране не сойдутся.
+17. **`services.price` — VARCHAR** (`2023_10_03_045859_chenge_price_columne`), поэтому в SQL
+    приходится писать `CAST(... AS numeric)`; `materials.price` — `decimal(10,2)`, суммы заказов —
+    целые. Единый стандарт «рубли целыми» не соблюдён (задача 3.12).
+18. **`fetchUpdates` без `limit`/пагинации** — после долгого офлайна устройство получает таблицу
+    целиком (память/трафик), а курсора на таблицу нет (задача 3.6).
+19. **Склад:** остаток ведётся по товару (`product_stocks.product_id`), но строка дублирует
+    категорию (`product_stocks.product_categories_id` vs `products.product_category_id` —
+    два источника «где лежит»); `buy_product_prices`/`sales_products_prices` не читаются ни в одном
+    расчёте → маржа не считается (задачи 9.3, 9.5).
+20. **Go-сайдкар `sync/`** дублирует контракт с устаревшим списком таблиц
+    (`service_categories`, `by_product_prices`, `sales_product_prices`), `tablesWithLastSyncID` пуст,
+    к nginx/Traefik не подключён → решение D1 (задача 3.11).
+21. **Web-часть бэкенда — второй клиент** (`resources/js/components/*` на Vue 3 + Vite + Bootstrap/
+    Vuetify/jQuery, blade'ы `home/catalog/order/history/statistic` + `order-report`, `Auth::routes()`,
+    session-auth) плюс отдельная раздача HCP (`hcp/chcp.json`, `/download-apk`). Открытый вопрос:
+    продукт это или легаси — влияет на задачу 7.6.
 
-## 5. Серверные задачи
+## 5. Серверные задачи — привязка к трекеру
 
-Актуальный список — в каноническом `LedgerCraftDocker03/docs/API.md` §7. Кратко (для клиента):
+Канонический список живёт в `LedgerCraftDocker03/docs/API.md` §7. Ниже — как эти задачи вплетены
+в `TODO.md` (метки `[BE]` / `[FE+BE]`):
 
-- [x] Исправить `$tables` в `SyncController`: `buy_product_prices`, `sales_products_prices`,
-      убрать `service_categories` (сделано в рамках задачи 2.6/серверной гигиены).
-- [x] Убрать `#region agent log` из `SyncController.php`.
-- [ ] Идемпотентность: не создавать дубли при повторной операции (по `uuid_id`/уникальному ключу).
-      Начать: проверка существования по `uuid_id` там, где колонка есть.
-- [ ] Ввести `last_sync_id` (миграции) либо убрать мёртвый код анти-эха.
-- [ ] Расширить `tableHasSoftDeletes` / унифицировать soft-delete.
-- [ ] Разделить транзакцию `/sync` так, чтобы ошибки не «съедались» (частичный откат).
-- [ ] Синк `orders`: добавить недостающие поля (`status`, `paid`, `model_id`, `share_token`).
+| Задача | Что сделать | Основные файлы |
+|---|---|---|
+| 0.8 ✅ | `$tables` приведён к реальным таблицам | `SyncController` |
+| 0.9 ✅ | убран `#region agent log` | `SyncController` |
+| 3.9 | удаления-«доезжают»: расширить `tableHasSoftDeletes`, отдавать tombstones | `SyncController` |
+| 3.10 | владелец: `/sync` под `auth:sanctum`, сохранять `user_id`, фильтровать выдачу, закрыть IDOR | `routes/api.php`, `SyncController`, `OrderController` |
+| 3.11 | Laravel — единственный синк: перенести SAVEPOINT + вырезание `*_server_id`, вынести Go-сайдкар | `SyncController`, `docker-compose.yaml`, `sync/` |
+| 3.12 | типы денег: `services.price` → целые рубли, убрать `CAST` | миграции, `StatisticRepository` |
+| 3.5 | идемпотентность: `uuid_id` + unique + `updateOrInsert` | миграции, `SyncController` |
+| 3.6 | колонки `last_sync_id` (анти-эхо) | миграции |
+| 3.4 | `order_product` и ручные позиции материалов в синк (по D2) | `SyncController`, миграции |
+| 9.2 | `arrival_product`: явный ответ + идемпотентность | `ProductController` |
+| 9.3 | цены/остатки: убрать дубль `product_stocks.product_categories_id` | `ProductStock*` |
+| 9.5 | маржа: `buy_price` в позициях заказа + расчёт | миграции, `StatisticRepository` |
+| 9.6 | ручные позиции материалов: одна таблица на обеих сторонах | миграции, `Material*`, `docs/DB.md` |
+| 9.1 | свести методику «выручки» к одной | `StatisticRepository` |
+| 7.6 | гигиена API: дубли/мёртвые роуты, scaffold `Auth/*`, `auth:api` | `routes/api.php`, `app/Http/Controllers/Auth/*` |
+| 5.6 | тесты `SyncController` (PHPUnit) | `tests/Feature` |
+
+## 6. Решения (приняты 11.09.2026)
+
+- **D1. Синк — только Laravel.** `/api/sync` + `/api/sync-updates` остаются единственным
+  транспортом; Go-сайдкар `sync/` выносится из `master` в песочницу (эксперимент «ускорение +
+  практика языка» закрыт), но из него переносим в `SyncController` **SAVEPOINT-изоляцию операций**
+  и **вырезание `server_id`/`*_server_id`**. Причина: две реализации одного контракта уже
+  разошлись (§4.20), а узкое место синка — не язык, а идемпотентность, курсор и лимиты выдачи.
+- **D2. Материалы = позиции заказа.** Продуктовый замысел: мастер закупает товар, делает наценку
+  и продаёт клиенту «от себя», а купленное на стороне вписывает вручную. Этому соответствуют две
+  существующие сущности: товар со склада → `order_product` (списание/возврат остатка) и ручная
+  позиция → строки материалов заказа (`order_id, name, price, amount`). В **обе** позиции
+  добавляется `buy_price` (себестоимость) → считается маржа/наценка. Клиентский справочник
+  `materials` (миграция 018) удаляется; **новая таблица `order_material` не создаётся** (её роль
+  выполняет серверная `materials`, предлагается общее имя `order_material` — задача 9.6).
+- **Открыто:** web-часть бэкенда — продукт или легаси (влияет на 7.6 и на судьбу `/order-report`).

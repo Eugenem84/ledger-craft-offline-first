@@ -16,6 +16,7 @@ import m015 from './015_create_equipment_models_table.js'
 import m018 from './018_create_materials_table.js'
 import m020 from './020_create_order_service_table.js'
 import m021 from './021_create_order_material_table.js'
+import m022 from './022_add_operations_status.js'
 
 const migrations = [
   m001,
@@ -36,6 +37,7 @@ const migrations = [
   m018,
   m020,
   m021,
+  m022,
 ]
 
 export default migrations

@@ -8,7 +8,9 @@ export default {
         type TEXT NOT NULL,
         "table" TEXT NOT NULL,
         payload TEXT,
-        created_at INTEGER DEFAULT (strftime('%s','now'))
+        status TEXT NOT NULL DEFAULT 'pending',
+        created_at INTEGER DEFAULT (strftime('%s','now')),
+        updated_at INTEGER
       );
     `);
   },

@@ -18,6 +18,28 @@ import * as modelsRepo from 'src/repositories/modelsRepo';
 
 import { logAllServicesForDebugging } from 'src/repositories/servicesRepo';
 
+// Максимум «волн» отправки за один sync(). Сервер присваивает `server_id` только
+// что вставленным записям, поэтому ребёнок, чей родитель уехал в этой же волне,
+// становится готов только к следующей. Цепочки FK короткие
+// (specialization → category → service, client/equipment_model → order → order_service),
+// 5 волн — с запасом; ограничение защищает от зацикливания на «висячих» FK.
+const MAX_SYNC_WAVES = 5;
+
+// Статический приоритет таблиц — только тай-брейк топологической сортировки.
+// Порядок «родитель → ребёнок» определяется реальными FK-зависимостями
+// (`fkTransformationMap`), а не этим списком.
+const TABLE_ORDER = [
+  'specializations',
+  'categories',
+  'product_categories',
+  'equipment_models',
+  'clients',
+  'services',
+  'products',
+  'orders',
+  'order_service',
+];
+
 class SyncService {
   constructor() {
     this.syncing = false;
@@ -81,11 +103,9 @@ class SyncService {
     this.syncing = true;
 
     try {
-      // Выполняем синхронизацию локальных данных на сервер дважды.
-      // Первый проход отправляет родительские записи (например, orders).
-      // Второй проход отправляет дочерние записи (например, order_service),
-      // которые не могли быть отправлены в первый раз из-за отсутствия server_id у родительских.
-      await this._syncLocalToServer();
+      // Отправляем локальные операции на сервер. Порядок «родитель → ребёнок» и
+      // «дожим» отложенных операций внутри одного прогона — в _syncLocalToServer()
+      // (граф FK-зависимостей + топологическая сортировка, задача 3.2).
       await this._syncLocalToServer();
 
       await this._syncServerToLocal();
@@ -98,151 +118,358 @@ class SyncService {
     }
   }
 
+  /**
+   * Отправляет локальную очередь на сервер.
+   *
+   * За один вызов выполняется несколько «волн». Сервер присваивает `server_id`
+   * только что вставленным записям, поэтому ребёнок, чей родитель уехал в этой же
+   * волне, готов лишь к следующей. Волны повторяются, пока есть прогресс и
+   * готовые операции, — так один `sync()` не оставляет «сирот» в очереди.
+   *
+   * Внутри волны порядок «родитель → ребёнок» задаёт топологическая сортировка
+   * (`_sortByDependencies`), а операция с неготовым FK откладывается точечно —
+   * остальной батч уезжает.
+   */
   async _syncLocalToServer() {
-    const pending = await operationsRepo.dequeue();
+    // Операции, «зависшие» в in-flight статусах после прошлого сбоя, возвращаем в работу:
+    // dequeue() отдаёт только `pending`, иначе они застряли бы в очереди навсегда.
+    const recovered = await operationsRepo.recoverInFlight();
 
-    if (!pending.length) {
-      logger.log('[Sync] Локальная очередь пуста.');
-      return;
+    if (recovered) {
+      logger.warn(`[Sync] Найдено in-flight операций после сбоя: ${recovered} (sending/synced).`);
     }
 
-    logger.log(`[Sync] Найдено ${pending.length} локальных операций для отправки.`);
+    // Операции, по которым сервер уже дал ответ в этом прогоне (успех или ошибка):
+    // серверные ошибки не должны крутиться в цикле — они останутся в очереди
+    // до следующего sync().
+    const answered = new Set();
 
-    // Подготавливаем все операции (парсим payload и трансформируем внешние ключи)
-    const preparedOps = [];
+    for (let wave = 1; wave <= MAX_SYNC_WAVES; wave++) {
+      const pending = (await operationsRepo.dequeue()).filter(op => !answered.has(op.id));
 
-    for (const op of pending) {
-      try {
-        op.payload = op.payload ? JSON.parse(op.payload) : null;
-      } catch (e) {
-        console.error('[SyncService] Не удалось распарсить payload, операция пропущена:', op, e);
-        continue;
+      if (!pending.length) {
+        logger.log('[Sync] Локальная очередь пуста.');
+        break;
       }
 
-      const transformations = this.fkTransformationMap[op.table];
-      let canSend = true;
+      logger.log(`[Sync] Волна ${wave}: в очереди ${pending.length} операций.`);
 
-      if (transformations && (op.type === 'insert' || op.type === 'update')) {
-        for (const fkField in transformations) {
-          // --- ИСПРАВЛЕНИЕ ---
-          // Имя "сигнального" поля, например "product_category_server_id"
-          const serverFkField = fkField.replace(/_id$/, '') + '_server_id';
+      const { prepared, deferred, dependencyGraph } = await this._prepareOperations(pending);
 
-          if (op.payload && Object.prototype.hasOwnProperty.call(op.payload, serverFkField)) {
-            // Если есть "сигнальное" поле, используем его значение
-            op.payload[fkField] = op.payload[serverFkField];
-            // Удаляем "сигнальное" поле, чтобы не отправлять его на сервер
-            delete op.payload[serverFkField];
-            continue; // Переходим к следующему полю, не выполняя стандартное преобразование
-          }
-          // --- КОНЕЦ ИСПРАВЛЕНИЯ ---
+      if (!prepared.length) {
+        // Ни одна операция не готова: у всех не разрешился внешний ключ
+        // (родителя нет в очереди, у родителя ещё нет server_id и т.п.).
+        logger.log(`[Sync] Волна ${wave}: готовых операций нет, отложено ${deferred.length}. Ждём следующего sync().`);
+        break;
+      }
 
-          if (op.payload && op.payload[fkField]) {
-            const targetTable = transformations[fkField];
-            const localFkId = op.payload[fkField];
+      const ordered = this._sortByDependencies(prepared, dependencyGraph);
+      prepared.forEach(op => answered.add(op.id));
 
-            // Если localFkId null или undefined, ничего не делаем
-            if (localFkId == null) continue;
+      const confirmed = await this._sendOperations(ordered);
 
-            const record = await dbAdapter.query(`SELECT server_id FROM ${targetTable} WHERE id = ?`, [localFkId]);
+      logger.log(`[Sync] Волна ${wave}: отправлено ${ordered.length}, подтверждено ${confirmed}, отложено ${deferred.length}.`);
 
-            if (record.length > 0 && record[0].server_id) {
-              op.payload[fkField] = record[0].server_id;
-            } else {
-              // Модель ещё не синхронизирована или не найдена — откладываем операцию до следующей синхронизации
-              logger.warn(`[Sync] Нет server_id для ${fkField} (локальный ID ${localFkId}). Операция будет отложена.`);
+      if (confirmed === 0) {
+        // Прогресса нет — не крутим один и тот же батч.
+        break;
+      }
+    }
+  }
 
-              canSend = false;
-              break;
-            }
-          }
+  /**
+   * Парсит payload'ы операций, применяет «сигнальные» `*_server_id`-поля и
+   * проверяет, разрешимы ли внешние ключи.
+   *
+   * @returns {Promise<{prepared: Array, deferred: Array, dependencyGraph: Map}>}
+   *   prepared — операции, готовые к отправке;
+   *   deferred — операции с неготовой зависимостью (остаются в очереди);
+   *   dependencyGraph — «id операции → id её родителей (в этом же батче)».
+   */
+  async _prepareOperations(pending) {
+    const parsed = [];
+    const prepared = [];
+    const deferred = [];
+    const dependencyGraph = new Map();
+
+    for (const op of pending) {
+      if (this._parsePayload(op) === null) {
+        // Битый payload не удаляем — операция просто останется в очереди.
+        continue;
+      }
+      parsed.push(op);
+    }
+
+    // Индекс INSERT-операций батча: «<таблица>:<локальный id>» → id операции.
+    // Нужен, чтобы связать ребёнка с родителем, который уезжает в этом же батче.
+    const parentIndex = new Map();
+
+    for (const op of parsed) {
+      dependencyGraph.set(op.id, new Set());
+
+      if (op.type !== 'insert') continue;
+
+      const localId = op.payload.local_id ?? op.payload.id;
+      if (localId == null) continue;
+
+      parentIndex.set(`${op.table}:${localId}`, op.id);
+    }
+
+    for (const op of parsed) {
+      const dependencies = this._prepareForeignKeys(op);
+
+      // Рёбра графа: родитель из этого же батча → операция.
+      for (const dep of dependencies) {
+        const parentOpId = parentIndex.get(`${dep.parentTable}:${dep.localId}`);
+        if (parentOpId && parentOpId !== op.id) {
+          dependencyGraph.get(op.id).add(parentOpId);
         }
       }
 
-      if (!canSend) {
+      // Откладываем точечно: только эту операцию, остальной батч уедет.
+      let ready = true;
+      for (const dep of dependencies) {
+        if (!(await this._resolveFkDependency(op, dep))) {
+          ready = false;
+        }
+      }
 
+      if (ready) {
+        prepared.push(op);
+      } else {
+        deferred.push(op);
+      }
+    }
+
+    return { prepared, deferred, dependencyGraph };
+  }
+
+  /**
+   * Разбирает payload операции из TEXT в объект.
+   * @returns {object|null} null — payload битый (операцию не отправляем).
+   */
+  _parsePayload(op) {
+    try {
+      op.payload = op.payload ? JSON.parse(op.payload) : null;
+      return op.payload;
+    } catch (e) {
+      console.error('[SyncService] Не удалось распарсить payload, операция пропущена:', op, e);
+      return null;
+    }
+  }
+
+  /**
+   * Готовит внешние ключи операции к отправке:
+   *  • «сигнальное» поле (`product_category_server_id`) означает, что родитель уже
+   *    на сервере: подставляем серверный id в поле-FK и убираем сигнальное поле,
+   *    чтобы оно не улетело на сервер;
+   *  • остальные FK (`xxx_id`) — локальные UUID, требующие перевода в server_id
+   *    (это делает `_resolveFkDependency`).
+   *
+   * @returns {Array<{fkField: string, parentTable: string, localId: string}>}
+   *   зависимости, которым ещё нужен `server_id` родителя.
+   */
+  _prepareForeignKeys(op) {
+    const dependencies = [];
+    const transformations = this.fkTransformationMap[op.table];
+
+    if (!transformations || !op.payload) return dependencies;
+    if (op.type !== 'insert' && op.type !== 'update') return dependencies;
+
+    for (const fkField in transformations) {
+      const serverFkField = fkField.replace(/_id$/, '') + '_server_id';
+
+      // «Сигнальное» поле: родитель уже уехал, FK разрешён.
+      if (Object.prototype.hasOwnProperty.call(op.payload, serverFkField)) {
+        op.payload[fkField] = op.payload[serverFkField];
+        delete op.payload[serverFkField];
         continue;
       }
 
-      preparedOps.push(op);
+      const localId = op.payload[fkField];
+
+      // null/undefined — связи нет.
+      if (localId == null) continue;
+
+      dependencies.push({
+        fkField,
+        parentTable: transformations[fkField],
+        localId,
+      });
     }
 
-    if (!preparedOps.length) {
-      logger.log('[Sync] После подготовки не осталось операций для отправки.');
-      return;
+    return dependencies;
+  }
+
+  /**
+   * Переводит локальный id родителя в его серверный id прямо в payload операции.
+   * @returns {Promise<boolean>} true — FK разрешён, операцию можно отправлять.
+   */
+  async _resolveFkDependency(op, dep) {
+    const rows = await dbAdapter.query(
+      `SELECT server_id FROM ${dep.parentTable} WHERE id = ?`,
+      [dep.localId]
+    );
+
+    if (rows.length > 0 && rows[0].server_id) {
+      op.payload[dep.fkField] = rows[0].server_id;
+      return true;
     }
 
-    // Сортируем операции по зависимостям таблиц, чтобы сначала отправлять "родительские" записи
-    const tableOrder = [
-      'specializations',
-      'categories',
-      'product_categories',
-      'equipment_models',
-      'clients',
-      'services',
-      'products',
-      'orders',
-      'order_service',
-    ];
+    logger.warn(
+      `[Sync] Нет server_id для ${dep.fkField} (локальный ID ${dep.localId}, таблица ${dep.parentTable}). ` +
+      `Операция ${op.table}/${op.type} отложена до следующей волны.`
+    );
+    return false;
+  }
 
-    const getPriority = (table) => {
-      const idx = tableOrder.indexOf(table);
-      return idx === -1 ? tableOrder.length : idx;
-    };
+  /**
+   * Топологическая сортировка операций (алгоритм Кана): родители идут раньше детей.
+   * Рёбра графа построены по `fkTransformationMap` и локальным id родительских
+   * операций текущего батча (`dependencyGraph`: id операции → id её родителей).
+   */
+  _sortByDependencies(operations, dependencyGraph) {
+    const byId = new Map(operations.map(op => [op.id, op]));
+    const indegree = new Map(operations.map(op => [op.id, 0]));
+    const children = new Map(operations.map(op => [op.id, new Set()]));
 
-    preparedOps.sort((a, b) => getPriority(a.table) - getPriority(b.table));
+    for (const op of operations) {
+      const parents = dependencyGraph.get(op.id) || new Set();
+
+      for (const parentId of parents) {
+        // Родителя может не быть в батче (уже уехал или сам отложен).
+        if (!byId.has(parentId) || parentId === op.id) continue;
+        if (children.get(parentId).has(op.id)) continue;
+
+        children.get(parentId).add(op.id);
+        indegree.set(op.id, indegree.get(op.id) + 1);
+      }
+    }
+
+    const compare = (a, b) =>
+      this._tablePriority(a.table) - this._tablePriority(b.table) ||
+      (a.created_at || 0) - (b.created_at || 0) ||
+      String(a.id).localeCompare(String(b.id));
+
+    const queue = operations.filter(op => indegree.get(op.id) === 0).sort(compare);
+    const ordered = [];
+
+    while (queue.length) {
+      const op = queue.shift();
+      ordered.push(op);
+
+      for (const childId of children.get(op.id)) {
+        const left = indegree.get(childId) - 1;
+        indegree.set(childId, left);
+
+        if (left === 0) {
+          queue.push(byId.get(childId));
+          queue.sort(compare); // детерминированный порядок
+        }
+      }
+    }
+
+    if (ordered.length < operations.length) {
+      // Цикл в зависимостях (схема к нему не располагает, но подстрахуемся):
+      // дописываем оставшиеся по приоритету таблиц, чтобы они не застряли.
+      logger.warn('[Sync] Цикл в зависимостях операций — остаток отправлен по приоритету таблиц.');
+      const rest = operations.filter(op => !ordered.includes(op)).sort(compare);
+      ordered.push(...rest);
+    }
+
+    return ordered;
+  }
+
+  /**
+   * Статический приоритет таблицы — тай-брейк топологической сортировки.
+   */
+  _tablePriority(table) {
+    const idx = TABLE_ORDER.indexOf(table);
+    return idx === -1 ? TABLE_ORDER.length : idx;
+  }
+
+  /**
+   * Ищет результат конкретной операции в ответе сервера.
+   *
+   * Сервер (`SyncController::sync`) отдаёт `{ type, local_id, server_id }`, где
+   * `local_id` — это `payload.uuid_id ?? payload.local_id`, а если их нет — id
+   * самой операции. Для update/delete надёжнее сверять серверный id записи.
+   */
+  _findSyncResult(op, synced) {
+    return synced.find(item => {
+      if (item.local_id != null && (item.local_id === op.payload.local_id || item.local_id === op.id)) {
+        return true;
+      }
+      if (op.type !== 'insert' && op.payload.id != null && item.server_id === op.payload.id) {
+        return true;
+      }
+      return false;
+    });
+  }
+
+  /**
+   * Отправляет батч операций и применяет ответ сервера.
+   *
+   * Перед сетевым запросом операции помечаются `sending` (фиксируется в БД), а при
+   * сетевой/серверной ошибке возвращаются в `pending` — сбой между отправкой и
+   * ответом операцию не теряет (см. operationsRepo.recoverInFlight).
+   *
+   * @returns {Promise<number>} сколько операций сервер подтвердил.
+   */
+  async _sendOperations(operations) {
+    const ids = operations.map(op => op.id);
+
+    await operationsRepo.markSending(ids);
 
     let serverRes;
 
     try {
-      serverRes = await api.send({ operations: preparedOps });
-
-      const synced = Array.isArray(serverRes?.synced) ? serverRes.synced : [];
-      const errors = Array.isArray(serverRes?.errors) ? serverRes.errors : [];
-
-      for (const op of preparedOps) {
-        const findResult = (responseItem) => {
-          if (op.type === 'insert') {
-            return responseItem.local_id === op.payload.local_id;
-          }
-          // Для update и delete ищем по id, который был в payload
-          return responseItem.id === op.payload.id;
-        };
-
-        const syncResult = synced.find(findResult);
-
-        if (syncResult) {
-          if (op.type === 'insert') {
-            const repo = this.repos[op.table];
-            if (repo && typeof repo.updateServerId === 'function') {
-              await repo.updateServerId(op.payload.local_id, syncResult.server_id);
-            }
-          }
-          await operationsRepo.markSynced(op, syncResult);
-          continue;
-        }
-
-        const errorResult = errors.find(e => e.id === op.payload.id || e.local_id === op.payload.local_id);
-
-        if (errorResult) {
-
-          console.error('[SyncService] Ошибка отправки операции. Она останется в очереди.', {
-            operation: op,
-            error: new Error(`Сервер вернул ошибку для операции: ${errorResult.error}`),
-          });
-
-          // Не помечаем как синхронизированную, оставляем в очереди
-          continue;
-        }
-
-        // Если сервер ничего не вернул про эту операцию, считаем, что она уже была применена
-        logger.warn('[Sync] Сервер не вернул результат для отправленной операции, но ответил 200 OK.', op);
-        await operationsRepo.markSynced(op, { status: 'already_applied' });
-      }
+      serverRes = await api.send({ operations });
     } catch (e) {
-
       console.error('[SyncService] Ошибка отправки операций. Они останутся в очереди.', e);
+      // Сеть/сервер недоступны — операции снова станут pending и уедут в следующий sync().
+      await operationsRepo.markPending(ids);
+      return 0;
     }
+
+    const synced = Array.isArray(serverRes?.synced) ? serverRes.synced : [];
+    const errors = Array.isArray(serverRes?.errors) ? serverRes.errors : [];
+    let confirmed = 0;
+
+    for (const op of operations) {
+      const syncResult = this._findSyncResult(op, synced);
+
+      if (syncResult) {
+        // markSynced атомарно удаляет операцию и «примиряет» локальную запись
+        // с ответом сервера (server_id для INSERT) — поэтому «дети» этой записи
+        // смогут уехать уже в следующей волне текущего sync().
+        await operationsRepo.markSynced(op, syncResult);
+        confirmed++;
+        continue;
+      }
+
+      const errorResult = errors.find(
+        e => e.local_id === op.payload.local_id || e.local_id === op.id
+      );
+
+      if (errorResult) {
+        console.error('[SyncService] Ошибка отправки операции. Она останется в очереди.', {
+          operation: op,
+          error: new Error(`Сервер вернул ошибку для операции: ${errorResult.error}`),
+        });
+
+        // Возвращаем в pending: повторим в следующем sync(), не в этой волне.
+        await operationsRepo.markPending([op.id]);
+        continue;
+      }
+
+      // Если сервер ничего не вернул про эту операцию, считаем, что она уже была применена
+      logger.warn('[Sync] Сервер не вернул результат для отправленной операции, но ответил 200 OK.', op);
+      await operationsRepo.markSynced(op, { status: 'already_applied' });
+      confirmed++;
+    }
+
+    return confirmed;
   }
 
   async _syncServerToLocal() {
