@@ -39,11 +39,55 @@ export async function add(orderId, serviceId) {
 }
 
 export async function remove(orderId, serviceId) {
-  await dbAdapter.execute(queries.delete, [orderId, serviceId])
+  const line = await dbAdapter.queryOne(
+    'SELECT * FROM order_service WHERE order_id = ? AND service_id = ?',
+    [orderId, serviceId]
+  )
+
+  if (line) {
+    await removeLine(line)
+  }
 }
 
 export async function removeByOrderId(orderId) {
-  await dbAdapter.execute(queries.deleteByOrderId, [orderId])
+  const lines = await dbAdapter.query(queries.getLinesByOrderId, [orderId])
+
+  for (const line of lines) {
+    await removeLine(line)
+  }
+}
+
+/**
+ * Убирает строку работ из заказа.
+ *
+ * Если строка уже уехала на сервер — ставим операцию `delete` по натуральному
+ * ключу `order_id + service_id` (у связки на сервере нет своего PK, задача 3.5);
+ * иначе отменяем ещё не отправленный INSERT. Затем удаляем строку локально.
+ *
+ * Без этого правка заказа («удалить и добавить заново» в OrderDetailsPage)
+ * оставляла на сервере дубли работ.
+ *
+ * @param {{id: string, order_server_id?: number|null, service_server_id?: number|null}} line
+ */
+async function removeLine(line) {
+  if (line.order_server_id && line.service_server_id) {
+    await operationsRepo.enqueue([
+      uuidv4(),
+      'delete',
+      'order_service',
+      JSON.stringify({
+        local_id: line.id,
+        order_id: line.order_server_id,
+        service_id: line.service_server_id,
+      }),
+      Date.now(),
+    ])
+  } else {
+    // Строка ещё не уезжала — отменяем незавершённый INSERT.
+    await operationsRepo.removeByLocalId('order_service', line.id)
+  }
+
+  await dbAdapter.execute('DELETE FROM order_service WHERE id = ?', [line.id])
 }
 
 export async function applyServerRecord(record) {
@@ -69,10 +113,14 @@ export async function applyServerRecord(record) {
   }
   const localServiceId = services[0].id
 
-  const existing = await dbAdapter.query(
-    'SELECT * FROM order_service WHERE server_id = ?',
-    [record.id]
-  )
+  // Идентичность строки связки на всех устройствах — клиентский UUID: он же `id`
+  // локально и `uuid_id` на сервере (у `order_service` нет собственного PK,
+  // поэтому `server_id` у неё пустой — задача 3.5).
+  const localId = record.uuid_id ?? null
+
+  const existing = localId
+    ? await dbAdapter.query('SELECT * FROM order_service WHERE id = ?', [localId])
+    : await dbAdapter.query('SELECT * FROM order_service WHERE server_id = ?', [record.id ?? null])
 
   const salePrice = record.sale_price ?? null
   const quantity = record.quantity ?? 1
@@ -80,18 +128,17 @@ export async function applyServerRecord(record) {
   const updatedAt = toEpochSeconds(record.updated_at, createdAt)
 
   if (!existing.length) {
-    const localId = uuidv4()
     const params = [
-      localId,         // id (локальный UUID)
-      record.id,       // server_id
-      localOrderId,    // order_id (локальный ID заказа)
-      record.order_id, // order_server_id
-      localServiceId,  // service_id (локальный ID услуги)
-      record.service_id, // service_server_id
-      salePrice,       // sale_price
-      quantity,        // quantity
-      createdAt,       // created_at (UNIX-время в секундах)
-      updatedAt,       // updated_at (UNIX-время в секундах)
+      localId ?? uuidv4(), // id (локальный UUID = клиентский uuid_id)
+      record.id ?? null,   // server_id (у связки отсутствует)
+      localOrderId,        // order_id (локальный ID заказа)
+      record.order_id,     // order_server_id
+      localServiceId,      // service_id (локальный ID услуги)
+      record.service_id,   // service_server_id
+      salePrice,           // sale_price
+      quantity,            // quantity
+      createdAt,           // created_at (UNIX-время в секундах)
+      updatedAt,           // updated_at (UNIX-время в секундах)
     ]
     await dbAdapter.execute(queries.insertFromServer, params)
     return
@@ -110,7 +157,7 @@ export async function applyServerRecord(record) {
     salePrice,        // sale_price
     quantity,         // quantity
     updatedAt,        // updated_at
-    record.id,        // WHERE server_id = ?
+    existing[0].id,   // WHERE id = ? (локальный UUID строки связки)
   ]
   await dbAdapter.execute(queries.updateFromServer, updateParams)
 }

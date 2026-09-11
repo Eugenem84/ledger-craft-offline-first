@@ -5,6 +5,10 @@ export default {
     JOIN order_service os ON s.id = os.service_id
     WHERE os.order_id = ?
   `,
+  // Строки связки как есть (нужны, чтобы поставить delete-операцию перед удалением).
+  getLinesByOrderId: `
+    SELECT * FROM order_service WHERE order_id = ?
+  `,
   insert: `
     INSERT INTO order_service (
       id,
@@ -49,7 +53,7 @@ export default {
       sale_price = ?,
       quantity = ?,
       updated_at = ?
-    WHERE server_id = ?
+    WHERE id = ?
   `,
   updateServerId: `
     UPDATE order_service

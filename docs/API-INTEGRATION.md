@@ -67,11 +67,21 @@ Body:
 Важные детали (по коду сервера):
 - **ответ содержит `server_id`, а не `id`** — клиент по нему обновляет локальную запись;
 - сервер берёт `localId = payload.uuid_id ?? payload.local_id ?? op.id`;
-- поля `id`, `local_id`, `uuid_id` **вырезаются** из payload перед вставкой в БД;
+- поля `id`, `local_id`, `uuid_id`, а также `server_id`/`*_server_id` **вырезаются** из payload
+  перед вставкой в БД;
+- ✅ **ответ приходит по каждой операции** (задача 3.5): `update`/`delete` подтверждаются
+  даже при `affected = 0`, а `update` несуществующей записи → `RECORD_NOT_FOUND`. Клиент считает
+  операцию доставленной **только** по явному ответу, иначе возвращает её в `pending`;
+- ✅ **идемпотентность** (задача 3.5): `insert` — «найти или вставить/обновить» по `uuid_id`
+  (уникальный индекс у всех синкаемых таблиц), у `order_service` — по `order_id + service_id`.
+  Повторная отправка того же батча дублей не создаёт;
+- ✅ **частичный откат** (перенос из Go, задача 3.11): каждая операция в `SAVEPOINT sync_op`,
+  при ошибке — `ROLLBACK TO SAVEPOINT`, остальной батч применяется;
 - неизвестная таблица или битая структура операции → запись в `errors` с `Invalid operation structure or table.`;
 - `MISSING_ID_FOR_UPDATE` / `MISSING_ID_FOR_DELETE` — если в payload нет `id` (серверного);
-- ошибки БД ловятся (`QueryException`) и возвращаются в `errors` — **вся транзакция при этом не откатывается** (используется Laravel `DB::transaction`, а исключения проглатываются внутри цикла — это серверный риск, см. §5);
-- если колонка `last_sync_id` существует, сервер проставляет её значением `X-Sync-ID` (анти-эхо). ⚠️ сейчас такой колонки **нет ни у одной таблицы**, механизм фактически не работает.
+- ошибки БД ловятся (`QueryException`) и возвращаются в `errors`;
+- `last_sync_id` (анти-эхо) проставляется только если колонка существует. ⚠️ таких колонок всё
+  ещё **нет ни у одной таблицы** (задача 3.6).
 
 **Спец-обработка `orders`** (не все поля!): сервер принимает только
 `specialization_id, client_id, hours, minutes, total_amount, comments` — остальное игнорируется.
@@ -79,6 +89,9 @@ Body:
 
 **Спец-обработка `order_service`**: сервер ждёт `order_id`/`service_id` уже как **серверные**
 ID и `sale_price`/`quantity`; если `sale_price` не передан, берётся цена из таблицы `services`.
+✅ `insert` дедуплицируется по `order_id + service_id` (у связки на сервере нет своего PK),
+`delete` — тоже по натуральному ключу (`payload.order_id` + `payload.service_id`); `uuid_id`
+хранит клиентский id строки, по нему клиент сопоставляет запись с серверной (задача 3.5).
 
 ### `$tables` — какие таблицы принимает синк
 
@@ -185,9 +198,11 @@ Headers: X-Sync-ID: <uuid устройства>
 
 1. ✅ **Имена таблиц в `$tables` (сервер): исправлено** (задача 0.8) — `buy_product_prices`,
    `sales_products_prices`, `service_categories` убрана. Готово.
-2. **Идемпотентность:** сервер вставляет записи через `insertGetId` без проверки дублей.
-   `uuid_id` используется только у `order_service`. Повторная отправка той же операции
-   создаст дубли на сервере (риск для требования 3.5).
+2. ✅ **Идемпотентность (задача 3.5): исправлено.** Миграция
+   `2026_09_12_000000_add_uuid_id_to_sync_tables` добавила `uuid_id` (unique) всем синкаемым
+   таблицам; `insert` — «найти или вставить/обновить» по `uuid_id = local_id` (у `order_service` —
+   по `order_id + service_id`). Повторная отправка батча дублей не создаёт. Клиент считает
+   операцию доставленной только по явному ответу сервера (иначе возвращает в `pending`).
 3. **Анти-эхо `last_sync_id`:** код есть, но колонок `last_sync_id` нет ни у одной таблицы →
    механизм не работает (сервер может вернуть клиенту его же записи).
 4. **Soft-delete:** `tableHasSoftDeletes()` учитывает только `clients, products, services,
@@ -197,8 +212,9 @@ Headers: X-Sync-ID: <uuid устройства>
 6. **`orders` при синке:** сервер берёт только часть колонок
    (`specialization_id, client_id, hours, minutes, total_amount, comments`) — поля
    `status, paid, model_id, share_token` при **insert** из синка теряются.
-7. **Транзакция `/sync`:** исключения ловятся внутри цикла и складываются в `errors`, из-за
-   чего `DB::transaction` **не откатывает** частично применённые операции.
+7. ✅ **Частичный откат `/sync` (SAVEPOINT, перенос из Go — задача 3.11):** каждая операция
+   обёрнута в `SAVEPOINT sync_op`, при ошибке — `ROLLBACK TO SAVEPOINT`, поэтому битая операция
+   не «вешает» транзакцию на PostgreSQL и не откатывает остальной батч.
 8. ✅ **`order_product` подключён к синку** (задача 3.4): фронт отправляет строки товаров заказа
    (`order_id`/`product_id` — серверные id, `sale_price`/`quantity`), сервер принимает их generic-путём
    (таблица в `$tables`, timestamps есть), обратная выдача работает через `applyServerRecord`.
@@ -258,9 +274,9 @@ Headers: X-Sync-ID: <uuid устройства>
 | 0.9 ✅ | убран `#region agent log` | `SyncController` |
 | 3.9 | удаления-«доезжают»: расширить `tableHasSoftDeletes`, отдавать tombstones | `SyncController` |
 | 3.10 | владелец: `/sync` под `auth:sanctum`, сохранять `user_id`, фильтровать выдачу, закрыть IDOR | `routes/api.php`, `SyncController`, `OrderController` |
-| 3.11 | Laravel — единственный синк: перенести SAVEPOINT + вырезание `*_server_id`, вынести Go-сайдкар | `SyncController`, `docker-compose.yaml`, `sync/` |
+| 3.11 ⏳ | SAVEPOINT-изоляция + вырезание `server_id`/`*_server_id` ✅ (вместе с 3.5); осталось: вынести Go-сайдкар, убрать сервис `sync` из `docker-compose.yaml` | `SyncController`, `docker-compose.yaml`, `sync/` |
 | 3.12 | типы денег: `services.price` → целые рубли, убрать `CAST` | миграции, `StatisticRepository` |
-| 3.5 | идемпотентность: `uuid_id` + unique + `updateOrInsert` | миграции, `SyncController` |
+| 3.5 ✅ | идемпотентность: `uuid_id` (unique) на синкаемых таблицах + «найти или вставить/обновить»; явный ответ по каждой операции; `order_service` — по `order_id + service_id`; тест `SyncControllerTest` | миграции, `SyncController`, `tests/Feature` |
 | 3.6 | колонки `last_sync_id` (анти-эхо) | миграции |
 | 3.4 ✅ | `order_product` и ручные позиции материалов в синк (по D2) | `SyncController`, миграции — **правок не потребовалось**: обе таблицы уже в `$tables`, timestamps есть, generic-путь insert/update/delete/fetch работает |
 | 9.2 | `arrival_product`: явный ответ + идемпотентность | `ProductController` |
