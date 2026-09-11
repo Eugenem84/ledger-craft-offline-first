@@ -15,29 +15,34 @@ export default {
   },
 
   async markSynced(op, serverRes) {
-    await db.execute(`
-      DELETE FROM operations WHERE id = ?
-    `, [op.id]);
+    // Удаление операции из очереди и «примирение» локальной записи с ответом
+    // сервера должны быть атомарны: иначе при сбое получим состояние
+    // «операция удалена, но данные не обновлены».
+    await db.transaction(async () => {
+      await db.execute(`
+        DELETE FROM operations WHERE id = ?
+      `, [op.id]);
 
-    // если сервер вернул server_id/updated_at — обновим локальную запись
-    // Эта логика важна для "примирения" данных после ответа сервера.
-    if (op.type === 'insert' && serverRes?.id) {
-      // Для операции INSERT сервер возвращает свой ID.
-      // Мы должны обновить локальную запись, чтобы связать временный UUID с постоянным ID сервера.
-      await db.execute(`
-        UPDATE ${op.table}
-        SET server_id = ?, updated_at = ?
-        WHERE id = ?
-      `, [serverRes.id, serverRes.updated_at, op.payload.local_id]);
-    } else if (op.type === 'update' && serverRes?.updated_at) {
-      // Для операции UPDATE сервер может вернуть свежий `updated_at`.
-      // Обновляем его, чтобы избежать будущих конфликтов синхронизации.
-      await db.execute(`
-        UPDATE ${op.table}
-        SET updated_at = ?
-        WHERE id = ?
-      `, [serverRes.updated_at, op.payload.id]);
-    }
+      // если сервер вернул server_id/updated_at — обновим локальную запись
+      // Эта логика важна для "примирения" данных после ответа сервера.
+      if (op.type === 'insert' && serverRes?.id) {
+        // Для операции INSERT сервер возвращает свой ID.
+        // Мы должны обновить локальную запись, чтобы связать временный UUID с постоянным ID сервера.
+        await db.execute(`
+          UPDATE ${op.table}
+          SET server_id = ?, updated_at = ?
+          WHERE id = ?
+        `, [serverRes.id, serverRes.updated_at, op.payload.local_id]);
+      } else if (op.type === 'update' && serverRes?.updated_at) {
+        // Для операции UPDATE сервер может вернуть свежий `updated_at`.
+        // Обновляем его, чтобы избежать будущих конфликтов синхронизации.
+        await db.execute(`
+          UPDATE ${op.table}
+          SET updated_at = ?
+          WHERE id = ?
+        `, [serverRes.updated_at, op.payload.id]);
+      }
+    });
   },
 
   /**
