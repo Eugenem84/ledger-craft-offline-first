@@ -136,12 +136,18 @@
 
 В `syncService.repos` и `fkTransformationMap` **включены**:
 `specializations`, `categories`, `product_categories`, `equipment_models`, `clients`,
-`services`, `products`, `orders`, `order_service`.
+`services`, `products`, `orders`, `order_service`, а также (задача 3.4) `order_product`
+(товары в заказе) и `materials` — **ручные позиции заказа** («купил на стороне»):
+на сервере это таблица `materials` (`order_id, name, price, amount`), решение D2.
 
-**Не включены** (создаются локально, но синком не обрабатываются): `order_product`,
-`order_material`, `materials`, `incoming_products`, `product_stocks`, `buy_product_prices`,
-`sales_products_prices`. У последних четырёх есть назначение (приходы / остатки / цены), но
-офлайн-слой ещё не подключён — см. `docs/DATA-MODEL.md` и задачи 9.2/9.3.
+**Не включены** (создаются локально, но синком не обрабатываются): `incoming_products`,
+`product_stocks`, `buy_product_prices`, `sales_products_prices`. У них есть назначение
+(приходы / остатки / цены), но офлайн-слой ещё не подключён — см. `docs/DATA-MODEL.md`
+и задачи 9.2/9.3.
+
+⚠️ `order_service` на сервере — связка без PK и без timestamps: сервер отвечает
+`server_id: null`, поэтому удалить или обновить строку работ с клиента сейчас нельзя
+(при правке заказа работы остаются на сервере дублями) — задача 3.5.
 
 ## 5. UI и состояние
 

@@ -5,19 +5,34 @@ export default {
     JOIN order_product op ON p.id = op.product_id
     WHERE op.order_id = ?
   `,
+  getLinesByOrderId: `
+    SELECT * FROM order_product WHERE order_id = ?
+  `,
   insert: `
-    INSERT INTO order_product (order_id, product_id, quantity, sale_price)
-    VALUES (?, ?, ?, ?)
+    INSERT INTO order_product (id, order_id, product_id, sale_price, quantity)
+    VALUES (?, ?, ?, ?, ?)
   `,
   update: `
     UPDATE order_product
-    SET quantity = ?, sale_price = ?
-    WHERE order_id = ? AND product_id = ?
+    SET quantity = ?, sale_price = ?, updated_at = strftime('%s','now')
+    WHERE id = ?
   `,
   delete: `
-    DELETE FROM order_product WHERE order_id = ? AND product_id = ?
+    DELETE FROM order_product WHERE id = ?
   `,
   deleteByOrderId: `
     DELETE FROM order_product WHERE order_id = ?
+  `,
+  updateServerId: `
+    UPDATE order_product SET server_id = ? WHERE id = ?
+  `,
+  insertFromServer: `
+    INSERT INTO order_product (id, server_id, order_id, product_id, sale_price, quantity, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `,
+  updateFromServer: `
+    UPDATE order_product
+    SET sale_price = ?, quantity = ?, updated_at = ?
+    WHERE server_id = ?
   `
 };

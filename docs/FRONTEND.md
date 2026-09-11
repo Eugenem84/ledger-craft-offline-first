@@ -20,7 +20,7 @@ src/
 │   │   ├── sqljs-web-adapter.js      # АКТИВНЫЙ адаптер (sql.js, в памяти)
 │   │   ├── sqlite-capacitor-adapter.js # целевой адаптер под Android (Capacitor SQLite), НЕ подключён
 │   │   └── storage-adapter.js        # заглушка-интерфейс + clear()
-│   ├── migrations/               # 18 файлов версий схемы (001…021; 016/019/022/023 удалены в 2.1)
+│   ├── migrations/               # 19 файлов версий схемы (001…023; старые дубли удалены в 2.1)
 │   │   └── index.js              # порядок применения миграций
 │   └── queries/                  # SQL-строки по сущностям (clients, orders, services, …)
 ├── repositories/
@@ -35,8 +35,8 @@ src/
 │   ├── specializationsRepo.js    # ⚠️ использует dbAdapter.enqueueOperation() — заглушку!
 │   ├── modelsRepo.js             # модели техники (equipment_models)
 │   ├── orderServiceRepo.js
-│   ├── orderProductRepo.js       # НЕ подключён к синку
-│   └── orderMaterialRepo.js      # НЕ подключён к синку
+│   ├── orderProductRepo.js       # товары в заказе (order_product)
+│   └── materialsRepo.js          # ручные позиции заказа (таблица `materials`, решение D2)
 ├── stores/                       # Pinia: useOrdersStore, useClientsStore, useCategoriesStore,
 │                                 #   useServicesStore, useProductCategoriesStore,
 │                                 #   useProductsStore, useSpecializationsStore, useModelsStore
@@ -166,10 +166,18 @@ return id;
 - `repo.applyServerRecord(record)`: вставка или обновление по новизне `updated_at`;
 - серверные FK переводятся в локальные UUID.
 
+**Что подключено в 3.4 (решение D2):**
+- `order_product` — строки товаров заказа: `order_id`/`product_id` уходят серверными id,
+  `sale_price`/`quantity` — как на сервере;
+- ручные позиции материала (`materials`) — «купил на стороне»: `order_id, name, price, amount`;
+  клиентский справочник материалов удалён (миграция 023), таблица одна на обеих сторонах.
+
 **Пробелы:**
-- `order_product`, `order_material` — не в `repos` и не в `fkTransformationMap`;
-  их insert улетает с локальным UUID в `order_id`, а обновления с сервера не приходят.
-- `materials` не синкается вовсе, при том что `order_material` ссылается на `materials`.
+- `order_service` нельзя удалить с клиента: у серверной связки нет PK, ответ приходит
+  с `server_id: null` → правка заказа («удалить и добавить заново») оставляет работы
+  на сервере дублями (задача 3.5);
+- `incoming_products` / `product_stocks` / `buy_product_prices` / `sales_products_prices`
+  не подключены к офлайн-слою (задачи 9.2/9.3).
 
 ## 6. Страницы
 
@@ -197,10 +205,12 @@ return id;
    (нет `updateServerId`, а payload insert не содержит `local_id`), поэтому записи с
    `specialization_id` (`clients`, `categories`, `product_categories`, `equipment_models`,
    `orders`) откладываются и висят в очереди — починка в 5.3.
-4. **`order_product` / `order_material` не синхронизируются** ни в одну, ни в другую сторону.
-   По решению **D2** (11.09.2026) `order_product` и ручные позиции материалов синкаются (задача 3.4),
-   а клиентский справочник `materials` (миграция 018) удаляется; новая серверная таблица
-   `order_material` не создаётся.
+4. **`order_product` / ручные позиции материалов** — синхронизируются с 3.4: `order_product`
+   и `materials` (ручные позиции заказа) в `repos`/`fkTransformationMap` + `applyServerRecord`.
+   По решению **D2** (11.09.2026) клиентский справочник `materials` (миграция 018) удалён
+   (миграция 023 переносит уже заведённые позиции), новая серверная таблица `order_material`
+   не создавалась. ⚠️ Осталось: удаление `order_service` (нет PK на сервере → 3.5) и
+   удаления/tombstones для второго устройства (3.9).
 5. **Дубли миграций** — устранены (задача 2.1): по одной миграции на таблицу (013, 012, 010).
 6. **Синхронизация блокирует UI** (`await syncService.sync()` в boot-файле) и вызывается
    только при старте: приложение не «догоняет» изменения без перезапуска.

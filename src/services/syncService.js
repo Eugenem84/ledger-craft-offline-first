@@ -14,6 +14,8 @@ import * as productCategoriesRepo from 'src/repositories/productCategoriesRepo';
 import * as productsRepo from 'src/repositories/productsRepo';
 import * as ordersRepo from 'src/repositories/ordersRepo';
 import * as orderServiceRepo from 'src/repositories/orderServiceRepo.js';
+import * as orderProductRepo from 'src/repositories/orderProductRepo.js';
+import * as materialsRepo from 'src/repositories/materialsRepo.js';
 import * as modelsRepo from 'src/repositories/modelsRepo';
 
 import { logAllServicesForDebugging } from 'src/repositories/servicesRepo';
@@ -38,6 +40,8 @@ const TABLE_ORDER = [
   'products',
   'orders',
   'order_service',
+  'order_product',
+  'materials',
 ];
 
 class SyncService {
@@ -54,6 +58,8 @@ class SyncService {
       products: productsRepo,
       orders: ordersRepo,
       order_service: orderServiceRepo,
+      order_product: orderProductRepo,
+      materials: materialsRepo,
     };
 
     this.fkTransformationMap = {
@@ -80,6 +86,15 @@ class SyncService {
       order_service: {
         order_id: 'orders',
         service_id: 'services'
+      },
+      order_product: {
+        order_id: 'orders',
+        product_id: 'products'
+      },
+      // Ручные позиции заказа: на сервере это таблица `materials` (order_id, name, price, amount) —
+      // решение D2, клиентский справочник материалов удалён (миграция 023).
+      materials: {
+        order_id: 'orders'
       },
       equipment_models: {
         specialization_id: 'specializations'
@@ -279,11 +294,20 @@ class SyncService {
     for (const fkField in transformations) {
       const serverFkField = fkField.replace(/_id$/, '') + '_server_id';
 
-      // «Сигнальное» поле: родитель уже уехал, FK разрешён.
       if (Object.prototype.hasOwnProperty.call(op.payload, serverFkField)) {
-        op.payload[fkField] = op.payload[serverFkField];
+        const serverValue = op.payload[serverFkField];
+
+        // Сигнальное поле в payload оставаться не должно: серверу нужен только `xxx_id`.
         delete op.payload[serverFkField];
-        continue;
+
+        // ⚠️ `null` в сигнальном поле — это НЕ «родитель уже на сервере», а «на момент
+        // создания записи server_id родителя был неизвестен» (так делает, например,
+        // productsRepo: `product_category_server_id: null`). Если принять null за готовый
+        // FK, связь потеряется навсегда — поэтому идём обычным путём: переводим локальный id.
+        if (serverValue != null) {
+          op.payload[fkField] = serverValue;
+          continue;
+        }
       }
 
       const localId = op.payload[fkField];

@@ -10,7 +10,7 @@ import DeleteConfirmPage from "pages/dialogs/DeleteConfirmPage.vue";
 import {useQuasar} from "quasar";
 
 import * as orderServiceRepo from 'src/repositories/orderServiceRepo.js'
-import * as orderMaterialRepo from 'src/repositories/orderMaterialRepo.js'
+import * as materialsRepo from 'src/repositories/materialsRepo.js'
 import * as orderProductRepo from 'src/repositories/orderProductRepo.js'
 import * as clientsRepo from 'src/repositories/clientsRepo.js'
 import * as productCategoriesRepo from 'src/repositories/productCategoriesRepo.js'
@@ -126,7 +126,7 @@ onMounted(async () => {
       }
 
       services.value = await orderServiceRepo.getByOrderId(order.value.id)
-      materials.value = await orderMaterialRepo.getByOrderId(order.value.id)
+      materials.value = await materialsRepo.getByOrderId(order.value.id)
       products.value = await orderProductRepo.getByOrderId(order.value.id)
 
     } else {
@@ -250,7 +250,12 @@ const createOrder = async () => {
     await orderServiceRepo.add(newOrderId, service.id);
   }
   for (const material of materials.value) {
-    await orderMaterialRepo.add(newOrderId, material.id, material.amount, material.price);
+    // Ручная позиция заказа: на сервере это строка таблицы `materials` (name/price/amount)
+    await materialsRepo.add(newOrderId, {
+      name: material.name,
+      price: material.price,
+      amount: material.amount
+    })
   }
   for (const product of products.value) {
     await orderProductRepo.add(newOrderId, product.id, product.amount, product.price);
@@ -274,9 +279,13 @@ const updateOrder = async () => {
     await orderServiceRepo.add(order.value.id, service.id);
   }
 
-  await orderMaterialRepo.removeByOrderId(order.value.id);
+  await materialsRepo.removeByOrderId(order.value.id)
   for (const material of materials.value) {
-    await orderMaterialRepo.add(order.value.id, material.id, material.amount, material.price);
+    await materialsRepo.add(order.value.id, {
+      name: material.name,
+      price: material.price,
+      amount: material.amount
+    })
   }
 
   await orderProductRepo.removeByOrderId(order.value.id);

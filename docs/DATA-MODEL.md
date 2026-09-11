@@ -101,38 +101,41 @@
 | sale_price | REAL — рубли |
 | quantity | INTEGER |
 
+### order_product (товары в ордере) — связная таблица (синкается с 3.4)
+| колонка | тип |
+|---|---|
+| id | TEXT PK |
+| server_id | INTEGER |
+| order_id | TEXT — локальный UUID заказа |
+| product_id | TEXT — локальный UUID товара |
+| sale_price | INTEGER — рубли (серверное имя поля) |
+| quantity | INTEGER — количество (серверное имя поля) |
+
+> Колонок `order_server_id`/`product_server_id` у таблицы нет: серверные id приходят в ответе и
+> живут в родителях (`orders.server_id`, `products.server_id`); на сервер `order_id`/`product_id`
+> уходят серверными id (трансформация в `syncService`), а `applyServerRecord` находит локальные
+> заказ и товар по их `server_id`.
+
+### materials (ручные позиции заказа) — связная таблица (синкается с 3.4, решение D2)
+| колонка | тип |
+|---|---|
+| id | TEXT PK |
+| server_id | INTEGER |
+| order_id / order_server_id | TEXT / INTEGER |
+| name | TEXT — что куплено «на стороне» |
+| price | REAL — рубли |
+| amount | INTEGER |
+
+> Создана миграцией 023: заменила клиентский «справочник материалов» (миграция 018) и строки
+> `order_material` (миграция 021). На сервере — таблица `materials` (`order_id, name, price, amount`),
+> то есть маппинг один-в-один. Поле `buy_price` (себестоимость для маржи) — задачи 9.5/9.6.
+
 ## Таблицы, НЕ участвующие в синхронизации (внимание!)
 
-> По решению **D2** часть этого списка закрывается договорённостью: `order_product` и ручные
-> позиции материалов (`order_material`) подключаются к синку (задача 3.4), клиентский справочник
-> `materials` (миграция 018) удаляется (задача 9.6).
-
-### order_product (товары в ордере)
-Создана миграцией 013 (дубли 019/022 удалены в задаче 2.1):
-`id, server_id, order_id, product_id, sale_price, quantity, created_at, updated_at, deleted_at`.
-**Не внесена в `syncService.repos`** → создаётся локально, но на сервер уходит без
-трансформации FK (`order_id` = локальный UUID), а с сервера не обновляется.
-
-### order_material (материалы в ордере)
-Схема по миграции 021: `id, server_id, order_id, order_server_id, material_id,
-material_server_id, price, amount, created_at, updated_at, deleted_at`.
-**Не внесена в `syncService.repos`** → та же проблема, что у order_product.
-
-⚠️ По решению **D2** это будущая **ручная позиция заказа** («купил на стороне») и одна из двух
-частей модели материалов: поля приводятся к серверным (`order_id, name, price, amount` + `buy_price`
-для маржи), связка `material_id` → справочник уходит вместе с ним. Подключение к синку — задача **3.4**,
-приведение модели — задача **9.6**.
-
-### materials (клиентский «справочник») — ❌ отменён решением D2
-`id, server_id, name, specialization_id, ...` — создаётся миграцией 018, но **не
-синхронизируется вовсе** (нет ни в repos, ни в fkTransformationMap).
-
-⚠️ По решению **D2** этот справочник **удаляется**. Продуктовая модель материалов: мастер закупает
-товар и продаёт с наценкой (это существующий цикл `products`/`product_stocks`/`incoming_products` →
-`order_product`), а купленное на стороне вписывает вручную (ручная позиция заказа). На сервере под
-именем `materials` лежат **именно строки материалов заказа** (`order_id NOT NULL, name,
-price decimal(10,2), amount`) — то есть семантический аналог клиентской `order_material`, а не
-справочник. Задача **9.6** сводит обе стороны к одной таблице (предлагается имя `order_material`).
+> ✅ `order_product` и ручные позиции материалов подключены к синку в задаче **3.4**
+> (см. разделы выше): клиентский справочник `materials` (миграция 018) и строки
+> `order_material` (миграция 021) удалены миграцией **023**, данные перенесены.
+> Ниже — то, что ещё не подключено к офлайн-слою.
 
 ### incoming_products (приход товаров на склад) — запланирована, не подключена к офлайн-слою
 Создана миграцией 012 (дубль 016 удалён в задаче 2.1). Схема: `id, server_id, product_id,
@@ -179,7 +182,12 @@ order_id, sale_price, ...`.
 
 ### operations (очередь синхронизации)
 `id TEXT PK, type TEXT (insert|update|delete), "table" TEXT, payload TEXT (JSON),
-created_at INTEGER DEFAULT strftime('%s','now')`.
+status TEXT (pending|sending|synced), created_at INTEGER, updated_at INTEGER`.
+
+- `status` добавлен в задаче 3.3 (миграция 022 для уже установленных БД): `dequeue` берёт
+  только `pending`, in-flight операции возвращаются в работу при следующем `sync()`
+  (`recoverInFlight`), так что сбой между отправкой и ответом данные не теряет;
+- `created_at`/`updated_at` — миллисекунды (`Date.now()` из репозиториев).
 
 ### meta
 `key TEXT PK, value TEXT` — `last_synced_at` (epoch-мс) и прочие метаданные.
@@ -191,8 +199,13 @@ created_at INTEGER DEFAULT strftime('%s','now')`.
 
 При загрузке (server→local) `applyServerRecord` переводит серверные id обратно в локальные
 UUID (по `findByServerId` в таблице-родителе). ⚠️ Порядок загрузки таблиц в `repos` важен:
-родители (`specializations`, `categories`, `clients`, `equipment_models`) должны прийти
-раньше детей (`services`, `products`, `orders`, `order_service`).
+родители (`specializations`, `categories`, `product_categories`, `clients`, `equipment_models`)
+должны прийти раньше детей (`services`, `products`, `orders`, `order_service`, `order_product`,
+`materials`). У `order_product`/`materials` родители — `orders` (и `products` у строк товара).
+
+⚠️ Timestamps: сервер отдаёт `created_at`/`updated_at` ISO-строками, а локальные колонки —
+целые секунды. Новые репозитории (`order_product`, `materials`) приводят время хелпером
+`src/utils/timestamps.js`; старые пишут как пришло — привести их к тому же виду стоит в 3.8.
 
 ## Единицы измерения и деньги — единый стандарт
 

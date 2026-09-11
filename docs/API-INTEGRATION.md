@@ -199,17 +199,18 @@ Headers: X-Sync-ID: <uuid устройства>
    `status, paid, model_id, share_token` при **insert** из синка теряются.
 7. **Транзакция `/sync`:** исключения ловятся внутри цикла и складываются в `errors`, из-за
    чего `DB::transaction` **не откатывает** частично применённые операции.
-8. **`order_product` в `$tables`** уже принимается сервером, но фронт его не отправляет и не
-   читает (связные таблицы не в синке — задача 3.4).
+8. ✅ **`order_product` подключён к синку** (задача 3.4): фронт отправляет строки товаров заказа
+   (`order_id`/`product_id` — серверные id, `sale_price`/`quantity`), сервер принимает их generic-путём
+   (таблица в `$tables`, timestamps есть), обратная выдача работает через `applyServerRecord`.
 9. ✅ **Серверный агент-лог: убран** (задача 0.9). Готово.
-10. **`order_material` на сервере нет вовсе** — ни таблицы (в `database/migrations`), ни строки в
-    `$tables`. Клиент её имеет (миграция 021) и по плану 3.4 собирался её синкать → операция
-    падала бы с `Invalid operation structure or table.` По решению D2 таблицу не создаём.
-11. **Семантика `materials` расходится:** на клиенте это справочник (`name, specialization_id`),
-    на сервере — **строки материалов заказа** (`order_id NOT NULL, name, price decimal(10,2),
-    amount smallint`). Т.е. серверная `materials` ≈ клиентская `order_material`, а клиентского
-    «справочника материалов» на сервере нет. `LedgerCraftDocker03/docs/DB.md` описывает `materials`
-    неверно (приписывает `specialization_id` и `deleted_at`). Решение — D2, задача 9.6.
+10. ✅ **Ручные позиции материалов** (задача 3.4, решение D2): клиент синкает их в **существующую**
+    серверную таблицу `materials` (`order_id, name, price, amount`) — новая серверная таблица
+    `order_material` не создаётся, клиентский справочник `materials` (миграция 018) и локальная
+    `order_material` (021) удалены миграцией 023. Ранее операция с `table: order_material` падала бы
+    с `Invalid operation structure or table.`
+11. ✅ **Семантика `materials` сведена** (D2, 3.4): и на клиенте, и на сервере под этим именем —
+    **строки материалов заказа**. `LedgerCraftDocker03/docs/DB.md` описывает `materials` верно.
+    Осталось продуктовое расширение (`buy_price` для маржи) — задачи 9.5/9.6.
 12. **`orders` при insert из синка теряет ещё и `user_id`/`user_order_number`**, не только
     `status`, `paid`, `model_id`, `share_token` (см. п. 6): заказ с устройства приезжает на сервер
     **без владельца**, а статистика фильтрует по `status='done'` и `paid=1` — то есть не увидит его.
@@ -261,7 +262,7 @@ Headers: X-Sync-ID: <uuid устройства>
 | 3.12 | типы денег: `services.price` → целые рубли, убрать `CAST` | миграции, `StatisticRepository` |
 | 3.5 | идемпотентность: `uuid_id` + unique + `updateOrInsert` | миграции, `SyncController` |
 | 3.6 | колонки `last_sync_id` (анти-эхо) | миграции |
-| 3.4 | `order_product` и ручные позиции материалов в синк (по D2) | `SyncController`, миграции |
+| 3.4 ✅ | `order_product` и ручные позиции материалов в синк (по D2) | `SyncController`, миграции — **правок не потребовалось**: обе таблицы уже в `$tables`, timestamps есть, generic-путь insert/update/delete/fetch работает |
 | 9.2 | `arrival_product`: явный ответ + идемпотентность | `ProductController` |
 | 9.3 | цены/остатки: убрать дубль `product_stocks.product_categories_id` | `ProductStock*` |
 | 9.5 | маржа: `buy_price` в позициях заказа + расчёт | миграции, `StatisticRepository` |
