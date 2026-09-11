@@ -4,6 +4,10 @@ import StorageAdapter from './storage-adapter.js'
 
 let db = null
 
+// Признак открытой транзакции: SQLite не поддерживает вложенные BEGIN,
+// а persist() не должен сохранять незакоммиченные изменения.
+let inTransaction = false
+
 /**
  * Экспортирует текущую БД и сохраняет дамп в постоянное хранилище.
  * Вызывается после каждой мутации и при beforeunload.
@@ -56,7 +60,8 @@ const dbAdapter = {
       logger.log('[SQLJS] Executing SQL:', sql, 'Params:', params)
       db.run(sql, params)
       logger.log('[SQLJS] Executed successfully')
-      persist()
+      // Внутри транзакции не пишем дамп: сохраним один раз после COMMIT/ROLLBACK.
+      if (!inTransaction) persist()
     } catch (err) {
       console.error('[SQLJS] Execute error:', err, 'SQL:', sql, 'Params:', params)
       throw err
@@ -86,11 +91,31 @@ const dbAdapter = {
   },
 
   transaction: async function(cb) {
+    if (!db) {
+      throw new Error('Database not initialized')
+    }
+
+    // Если транзакция уже открыта (вложенный вызов) — выполняем cb в её рамках,
+    // т.к. SQLite не поддерживает вложенные BEGIN.
+    if (inTransaction) {
+      return cb()
+    }
+
+    inTransaction = true
     try {
-      await cb()
-    } catch (err) {
-      console.error('[SQLJS] Transaction failed:', err)
-      throw err
+      db.run('BEGIN')
+      try {
+        await cb()
+        db.run('COMMIT')
+        persist()
+      } catch (err) {
+        db.run('ROLLBACK')
+        persist() // возвращаем сохранённый дамп к откаченному состоянию
+        console.error('[SQLJS] Transaction rolled back:', err)
+        throw err
+      }
+    } finally {
+      inTransaction = false
     }
   },
 
