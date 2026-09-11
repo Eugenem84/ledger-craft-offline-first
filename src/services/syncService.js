@@ -44,6 +44,10 @@ const TABLE_ORDER = [
   'materials',
 ];
 
+// Паузы после сбоев доступности (backoff): 5с → 15с → 60с → 5мин (дальше — кап).
+// Защищают от «бесконечного цикла отправки одного батча» (задача 3.7).
+const RETRY_DELAYS_MS = [5000, 15000, 60000, 300000];
+
 class SyncService {
   constructor() {
     this.syncing = false;
@@ -105,9 +109,28 @@ class SyncService {
     if (process.env.DEV) {
       window.debugShowServices = servicesRepo.logAllServicesForDebugging;
     }
+
+    // Состояние для UI (задачи 6.2/6.3): доступность сети, пауза после сбоя, размер очереди.
+    this.status = {
+      online: true,
+      syncing: false,
+      lastError: null,
+      consecutiveFailures: 0,
+      nextRetryAt: 0,
+      pendingCount: 0,
+    };
+
+    this._listeners = new Set();
+    this._bindNetworkEvents();
   }
 
-  async sync() {
+  /**
+   * Синхронизация. Повторный вызов безопасен: пока идёт проход — выходим; если сети нет
+   * или действует пауза после сбоя — тоже (backoff, задача 3.7).
+   *
+   * @param {{force?: boolean}} [options] force — игнорировать паузу (ручной повтор из UI)
+   */
+  async sync(options = {}) {
     logger.log('[Sync] start');
 
     if (this.syncing) {
@@ -115,7 +138,23 @@ class SyncService {
       return;
     }
 
+    const online = this._isOnline();
+    this._setStatus({ online });
+
+    if (!online) {
+      logger.log('[Sync] Нет сети — синхронизация отложена, операции останутся в очереди.');
+      return;
+    }
+
+    const waitMs = this.status.nextRetryAt - Date.now();
+
+    if (!options.force && waitMs > 0) {
+      logger.log(`[Sync] Пауза после сбоя: следующая попытка через ${Math.ceil(waitMs / 1000)} с.`);
+      return;
+    }
+
     this.syncing = true;
+    this._setStatus({ syncing: true });
 
     try {
       // Отправляем локальные операции на сервер. Порядок «родитель → ребёнок» и
@@ -129,7 +168,123 @@ class SyncService {
     } finally {
       this.syncing = false;
       logger.log('[Sync] end');
+
+      this._setStatus({ syncing: false, pendingCount: await this._countPending() });
+
       await logAllServicesForDebugging()
+    }
+  }
+
+  // --- Состояние синка для UI (задачи 6.2/6.3) ---------------------------------
+
+  /**
+   * Подписка на изменение состояния синка.
+   * @param {(status: object) => void} listener
+   * @returns {() => void} отписка
+   */
+  subscribe(listener) {
+    this._listeners.add(listener);
+    return () => this._listeners.delete(listener);
+  }
+
+  /** Снимок состояния: `online`, `syncing`, `lastError`, `consecutiveFailures`, `nextRetryAt`, `pendingCount`. */
+  getStatus() {
+    return { ...this.status };
+  }
+
+  _setStatus(patch) {
+    Object.assign(this.status, patch);
+
+    for (const listener of this._listeners) {
+      try {
+        listener(this.getStatus());
+      } catch (e) {
+        console.error('[SyncService] Ошибка подписчика состояния синка:', e);
+      }
+    }
+  }
+
+  /**
+   * Слушаем online/offline браузера: состояние для индикатора, а возвращение сети снимает
+   * паузу после сбоя (сам автоповтор по событию — задача 6.3).
+   */
+  _bindNetworkEvents() {
+    if (typeof window === 'undefined' || typeof window.addEventListener !== 'function') return;
+
+    window.addEventListener('online', () => {
+      logger.log('[Sync] Сеть появилась');
+      this._setStatus({ online: true, nextRetryAt: 0 });
+    });
+
+    window.addEventListener('offline', () => {
+      logger.warn('[Sync] Сеть пропала');
+      this._setStatus({ online: false });
+    });
+  }
+
+  /** Физическая доступность сети. Вне браузера (Node/тесты) считаем, что сеть есть. */
+  _isOnline() {
+    return typeof navigator === 'undefined' || typeof navigator.onLine !== 'boolean'
+      ? true
+      : navigator.onLine;
+  }
+
+  /**
+   * Классификация ошибки отправки:
+   *   network — сервер не ответил (нет соединения, таймаут);
+   *   server  — ответ есть, но это 5xx (сервер недоступен/сломан);
+   *   request — ответ 4xx: ошибка запроса/данных, к доступности отношения не имеет.
+   */
+  _failureKind(error) {
+    if (!error?.response) return 'network';
+
+    return error.response.status >= 500 ? 'server' : 'request';
+  }
+
+  /**
+   * Ошибка отправки: вызывающий уже вернул операции в `pending`; здесь — пауза до
+   * следующей попытки. 4xx паузу не поднимает: иначе один битый payload заблокирует
+   * всю очередь на минуты.
+   */
+  _registerFailure(kind, error) {
+    const message = error?.message || String(error);
+
+    if (kind === 'request') {
+      this._setStatus({ lastError: message });
+      logger.warn(`[Sync] Сервер отклонил батч (${message}). Операции останутся в очереди.`);
+      return;
+    }
+
+    const failures = this.status.consecutiveFailures + 1;
+    const delay = RETRY_DELAYS_MS[Math.min(failures, RETRY_DELAYS_MS.length) - 1];
+
+    this._setStatus({
+      consecutiveFailures: failures,
+      nextRetryAt: Date.now() + delay,
+      lastError: message,
+    });
+
+    logger.warn(
+      `[Sync] Сбой ${kind === 'network' ? 'сети' : 'сервера'} (${failures} подряд). ` +
+      `Следующая попытка через ${Math.round(delay / 1000)} с.`
+    );
+  }
+
+  /** Успешный обмен с сервером: снимаем паузу и счётчик сбоев. */
+  _registerSuccess() {
+    if (!this.status.consecutiveFailures && !this.status.lastError) return;
+
+    this._setStatus({ consecutiveFailures: 0, nextRetryAt: 0, lastError: null });
+    logger.log('[Sync] Связь с сервером восстановлена.');
+  }
+
+  /** Сколько операций ждёт отправки (для индикатора «есть несинхронизированное»). */
+  async _countPending() {
+    try {
+      return await operationsRepo.countPending();
+    } catch (e) {
+      console.error('[SyncService] Не удалось посчитать очередь операций:', e);
+      return this.status.pendingCount;
     }
   }
 
@@ -453,8 +608,12 @@ class SyncService {
       console.error('[SyncService] Ошибка отправки операций. Они останутся в очереди.', e);
       // Сеть/сервер недоступны — операции снова станут pending и уедут в следующий sync().
       await operationsRepo.markPending(ids);
+      this._registerFailure(this._failureKind(e), e);
       return 0;
     }
+
+    // Ответ получен — доступность в порядке: снимаем паузу и счётчик сбоев.
+    this._registerSuccess();
 
     const synced = Array.isArray(serverRes?.synced) ? serverRes.synced : [];
     const errors = Array.isArray(serverRes?.errors) ? serverRes.errors : [];
@@ -531,6 +690,10 @@ class SyncService {
       }
     }
     await metaRepo.resetLastSyncedAt();
+
+    // Сбрасываем и состояние сети: после полного сброса ждём первой попытки без паузы.
+    this._setStatus({ consecutiveFailures: 0, nextRetryAt: 0, lastError: null, pendingCount: 0 });
+
     logger.log('[Sync] Full reset finished');
   }
 

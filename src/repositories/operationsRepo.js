@@ -51,6 +51,17 @@ export default {
    * чтобы падение приложения между отправкой и ответом не потеряло операцию.
    * @param {Array<string>} ids
    */
+  /**
+   * Сколько операций ждёт отправки (для индикатора «есть несинхронизированное» в UI).
+   */
+  async countPending() {
+    const rows = await db.query(
+      `SELECT COUNT(*) AS count FROM operations WHERE status = ?`,
+      [STATUS.PENDING]
+    );
+    return rows.length ? rows[0].count : 0;
+  },
+
   async markSending(ids) {
     await this._setStatus(ids, STATUS.SENDING);
   },

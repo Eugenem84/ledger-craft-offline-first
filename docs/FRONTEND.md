@@ -162,9 +162,16 @@ return id;
   в `pending` — сбой между отправкой и ответом данные не теряет.
 
 **server → local** (`_syncServerToLocal`):
-- `GET /api/sync-updates?table=…&since=last_synced_at` по каждой из 9 таблиц;
+- `GET /api/sync-updates?table=…&since=…` по каждой таблице из `repos`;
 - `repo.applyServerRecord(record)`: вставка или обновление по новизне `updated_at`;
 - серверные FK переводятся в локальные UUID.
+
+**Устойчивость к сети (задача 3.7):**
+- ошибки отправки классифицируются: сеть/таймаут → `network`, 5xx → `server`, 4xx → `request`;
+- backoff `5с → 15с → 60с → 5мин` для `network`/`server` (4xx паузу не ставит);
+- `sync()` пропускается в офлайне (`navigator.onLine`) и в паузе; ручной повтор — `sync({ force: true })`;
+- состояние для индикаторов (6.2/6.3): `syncService.getStatus()` / `subscribe()`
+  (`online`, `syncing`, `lastError`, `consecutiveFailures`, `nextRetryAt`, `pendingCount`).
 
 **Что подключено в 3.4 (решение D2):**
 - `order_product` — строки товаров заказа: `order_id`/`product_id` уходят серверными id,
