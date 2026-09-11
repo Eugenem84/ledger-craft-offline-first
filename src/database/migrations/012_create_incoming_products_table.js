@@ -8,7 +8,7 @@ export default {
         product_id TEXT NOT NULL,
         supplier VARCHAR(255),
         quantity INTEGER NOT NULL,
-        buy_price INTEGER NOT NULL,
+        by_price INTEGER NOT NULL,
         created_at INTEGER DEFAULT (strftime('%s','now')),
         updated_at INTEGER DEFAULT (strftime('%s','now')),
         deleted_at INTEGER

@@ -119,15 +119,15 @@ material_server_id, price, amount, created_at, updated_at, deleted_at`.
 
 ### incoming_products (приход товаров на склад) — запланирована, не подключена к офлайн-слою
 Создана миграцией 012 (дубль 016 удалён в задаче 2.1). Схема: `id, server_id, product_id,
-supplier, quantity, buy_price, created_at, updated_at, deleted_at`.
+supplier, quantity, by_price, created_at, updated_at, deleted_at`.
 
 **Назначение:** оприходование товара от поставщика (приход на склад). UI уже существует —
 `pages/dialogs/ArrivalProductDialogPage.vue` (кнопка «Поступление» в `ProductDialogPage.vue`).
-⚠️ Сейчас приход идёт **прямым `POST /arrival_product`** (поля `product_id`, `by_price`,
-`arrival_quantity`, `base_sale_price`), а не через офлайн-очередь `operations`, и использует
-`boot/axios.js` с фиктивным `baseURL` — фактически не работает. Реализация — задача **9.2**.
-⚠️ Расхождение имён: UI/сервер шлют `by_price`, а миграция 012 определяет `buy_price`
-(удалённая 016 использовала `by_price`). При реализации 9.2 имя колонки нужно согласовать.
+На сервере есть `POST /arrival_product` (`ProductController::arrival`), который обновляет
+`products.base_sale_price`, увеличивает `product_stocks.quantity` и пишет запись сюда.
+⚠️ Сейчас фронт шлёт запрос **напрямую** (`boot/axios.js` с фиктивным `baseURL`), а не через
+офлайн-очередь `operations` — фактически не работает. Реализация — задача **9.2**.
+✅ Имя колонки приведено к серверному: `by_price` (не `buy_price`).
 
 ### product_stocks (остатки товара на складе) — запланирована, не подключена
 Создана миграцией 008. Схема: `id, server_id, product_id, quantity, supplier, ...`.

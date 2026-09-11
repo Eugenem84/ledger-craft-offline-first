@@ -78,6 +78,7 @@
 - [x] **2.1** (P0) Устранить дубли миграций
       → удалены 016 (incoming_products), 019/022 (order_product), 023 (sales_products_prices, битый id '021');
       эталон = первая миграция таблицы (013/012/010); index.js → 18 миграций
+      → *уточнено сверкой с сервером:* `incoming_products.buy_price` → **`by_price`** (совпасть с сервером и UI)
       → *критерий:* на свежей и старой БД схема совпадает с эталоном
 - [x] **2.2** (P0) Убрать конфликт схем `order_product`
       → источник конфликта (дубли 019/022 с `price`/`amount` + `<b>*_server_id</b>`) удалены в 2.1;
@@ -250,6 +251,29 @@
 
 ---
 
+## Серверный репозиторий `LedgerCraftDocker03` (Laravel)
+
+Бэкенд лежит **рядом** с фронтом (`/Users/artem/PhpstormProjects/LedgerCraftDocker03`), обе папки
+в `.code-workspace`. Контракт API теперь описан достоверно в `docs/BACKEND.md` (§1–5).
+
+**Сделано (в рамках сверки с сервером):**
+- [x] `SyncController::$tables`: `by_product_prices` → `buy_product_prices`,
+      `sales_product_prices` → `sales_products_prices`, удалён несуществующий `service_categories`
+- [x] Удалён `#region agent log` из `SyncController.php` (писал в файл фронтового репо)
+- [x] `php -l` — без ошибок
+
+**Остаётся (см. `docs/BACKEND.md` §5):**
+- [ ] Идемпотентность (`insertGetId` без проверки дублей; `uuid_id` только у `order_service`)
+- [ ] `last_sync_id` — колонок нет, анти-эхо не работает
+- [ ] `tableHasSoftDeletes` — расширить/унифицировать
+- [ ] Транзакция `/sync` — ошибки «съедаются», частичного отката нет
+- [ ] Синк `orders` — теряются `status`, `paid`, `model_id`, `share_token`
+
+> Серверные правки — в отдельном git-репозитории (`master`); в нём есть незакоммиченные
+> `docker-compose.yaml` / `sync/`, которые мы **не трогаем**.
+
+---
+
 ## Текущее состояние (снимок от 09.09.2026)
 
 Стартовая точка — **ни одна задача не выполнена полностью**. Проверенные факты:
@@ -272,6 +296,7 @@
 | Фаза 2.4 транзакции | ✅ сделано | реальные `BEGIN/COMMIT/ROLLBACK` в обоих адаптерах (`inTransaction`, persist после commit/rollback); тест реального адаптера: commit/rollback/nested/дамп — OK |
 | Фаза 2.5 markSynced | ✅ сделано | `DELETE operations` + `UPDATE записи` — в одной `db.transaction()`; тест: успех удаляет+обновляет, сбой UPDATE → откат (операция остаётся в очереди). ⚠️ в `syncService` остался избыточный `repo.updateServerId()` перед `markSynced` — разобрать в Фазе 3 |
 | Фаза 2.6 «сироты» | ✅ решено | таблицы НЕ мусор: `incoming_products` (приходы, есть UI `/arrival_product`), `product_stocks` (остатки, `StorePage.quantity`), `buy_product_prices`/`sales_products_prices` (учёт цен). Оставлены + назначение задокументировано (`docs/DATA-MODEL.md`); подключение → 9.2/9.3. Найдены баги: приход через `boot/axios.js` с фиктивным `baseURL`; `by_price` vs `buy_price`; остаток без источника |
+| Сверка с сервером | ✅ сделано | найден бэкенд `LedgerCraftDocker03` (Laravel); `docs/BACKEND.md` переписан по реальному коду; исправлены `$tables` и агент-логи на сервере; `incoming_products.buy_price` → `by_price`; зафиксированы серверные риски (идемпотентность, `last_sync_id`, soft-delete, транзакция, поля orders) |
 | Фаза 3.1 двойной вызов | ❌ на месте | `syncService.js` стр. 87–88: `_syncLocalToServer()` дважды |
 | Фаза 3.4 связные таблицы | ❌ | в `syncService.js` нет `order_product`/`order_material`; есть частичная работа по `order_service` |
 | Фаза 5.1 тест-раннер | ❌ | `"test": "echo \"No test specified\" && exit 0"` |
