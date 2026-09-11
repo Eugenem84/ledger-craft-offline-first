@@ -4,6 +4,7 @@ import dbAdapter from 'src/database/adapters/sqljs-web-adapter'
 import queries from 'src/database/queries/clients'
 import operationsRepo from 'src/repositories/operationsRepo'
 import * as specializationsRepo from 'src/repositories/specializationsRepo'
+import { toEpochSeconds } from 'src/utils/timestamps.js'
 
 //logger.log('queries.insert:', queries.insert)
 logger.log('!!! queries object:', queries)
@@ -159,23 +160,24 @@ export async function applyServerRecord(record) {
       record.specialization_id, // specialization_server_id
       record.name,
       record.phone || '',
-      record.created_at || Math.floor(Date.now() / 1000),
-      record.updated_at || Math.floor(Date.now() / 1000)
+      // Сервер отдаёт ISO-строки, локально храним UNIX-секунды (задача 3.8).
+      toEpochSeconds(record.created_at),
+      toEpochSeconds(record.updated_at)
     ];
 
     await dbAdapter.execute(queries.insertFromServer, params);
     return;
   }
 
-  // Обновление существующей записи
+  // Обновление существующей записи: побеждает более свежий updated_at (last-write-wins).
   const local = existing[0];
-  if (record.updated_at > local.updated_at) {
+  if (toEpochSeconds(record.updated_at) > toEpochSeconds(local.updated_at, 0)) {
     const updateParams = [
       record.name,
       record.phone || '',
       localSpecializationId,
       record.specialization_id, // specialization_server_id
-      record.updated_at,
+      toEpochSeconds(record.updated_at),
       record.id // server_id для WHERE
     ];
     await dbAdapter.execute(queries.updateFromServer, updateParams);

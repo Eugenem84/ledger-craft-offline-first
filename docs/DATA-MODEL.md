@@ -205,9 +205,11 @@ UUID (по `findByServerId` в таблице-родителе). ⚠️ Поря
 должны прийти раньше детей (`services`, `products`, `orders`, `order_service`, `order_product`,
 `materials`). У `order_product`/`materials` родители — `orders` (и `products` у строк товара).
 
-⚠️ Timestamps: сервер отдаёт `created_at`/`updated_at` ISO-строками, а локальные колонки —
-целые секунды. Новые репозитории (`order_product`, `materials`) приводят время хелпером
-`src/utils/timestamps.js`; старые пишут как пришло — привести их к тому же виду стоит в 3.8.
+✅ Timestamps: сервер отдаёт `created_at`/`updated_at` ISO-строками, а локальные колонки —
+целые UNIX-секунды. Все `applyServerRecord` приводят время хелпером `src/utils/timestamps.js`
+(`toEpochSeconds`), поэтому сравнение «чья версия новее» идёт в одних единицах (задача 3.8);
+записи, у которых время случайно оказалось в миллисекундах (старый формат), тоже сравниваются
+корректно. Правило конфликтов — last-write-wins (см. `docs/ARCHITECTURE.md` §4.2).
 
 ## Единицы измерения и деньги — единый стандарт
 

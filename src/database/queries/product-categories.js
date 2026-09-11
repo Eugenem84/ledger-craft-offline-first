@@ -15,11 +15,11 @@ export default {
   updateServerId: 'UPDATE product_categories SET server_id = ? WHERE id = ?',
   insertFromServer: `
     INSERT INTO product_categories (id, server_id, specialization_id, name, created_at, updated_at)
-    VALUES (?, ?, ?, ?, strftime('%s', ?), strftime('%s', ?))
+    VALUES (?, ?, ?, ?, ?, ?)
   `,
   updateFromServer: `
     UPDATE product_categories
-    SET name = ?, updated_at = strftime('%s', ?)
+    SET name = ?, updated_at = ?
     WHERE server_id = ?
   `,
 };

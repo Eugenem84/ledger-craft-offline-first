@@ -4,6 +4,7 @@ import dbAdapter from 'src/database/adapters/sqljs-web-adapter'
 import queries from 'src/database/queries/products'
 import operationsRepo from 'src/repositories/operationsRepo'
 import { getLocalIdByServerId as getCategoryLocalId } from 'src/repositories/productCategoriesRepo.js'
+import { toEpochSeconds } from 'src/utils/timestamps.js'
 
 export async function getAll() {
   const rows = await dbAdapter.query(queries.getAll)
@@ -129,15 +130,15 @@ export async function applyServerRecord(record) {
       record.base_sale_price,
       localCategoryId,
       record.product_category_id,
-      record.created_at || Math.floor(Date.now() / 1000),
-      record.updated_at || Math.floor(Date.now() / 1000)
+      toEpochSeconds(record.created_at),
+      toEpochSeconds(record.updated_at)
     ];
 
     await dbAdapter.execute(queries.insertFromServer, params);
     return;
   }
 
-  if (new Date(record.updated_at) > new Date(existing.updated_at)) {
+  if (toEpochSeconds(record.updated_at) > toEpochSeconds(existing.updated_at, 0)) {
     const updateParams = [
       record.name,
       record.description,
@@ -147,7 +148,7 @@ export async function applyServerRecord(record) {
       record.base_sale_price,
       localCategoryId,
       record.product_category_id,
-      record.updated_at,
+      toEpochSeconds(record.updated_at),
       record.id
     ];
     await dbAdapter.execute(queries.updateFromServer, updateParams);

@@ -4,6 +4,7 @@ import dbAdapter from 'src/database/adapters/sqljs-web-adapter'
 import queries from 'src/database/queries/models'
 import operationsRepo from 'src/repositories/operationsRepo'
 import * as specializationsRepo from 'src/repositories/specializationsRepo'
+import { toEpochSeconds } from 'src/utils/timestamps.js'
 
 export async function getAll() {
   const rows =  await dbAdapter.query(queries.getAll)
@@ -107,8 +108,8 @@ export async function applyServerRecord(record) {
       record.name,
       localSpecializationId,
       record.specialization_id, // specialization_server_id
-      record.created_at || Math.floor(Date.now() / 1000),
-      record.updated_at || Math.floor(Date.now() / 1000)
+      toEpochSeconds(record.created_at),
+      toEpochSeconds(record.updated_at)
     ];
 
     await dbAdapter.execute(queries.insertFromServer, params);
@@ -117,12 +118,12 @@ export async function applyServerRecord(record) {
 
   // Update existing record
   const local = existing[0];
-  if (new Date(record.updated_at) > new Date(local.updated_at)) {
+  if (toEpochSeconds(record.updated_at) > toEpochSeconds(local.updated_at, 0)) {
     const updateParams = [
       record.name,
       localSpecializationId,
       record.specialization_id, // specialization_server_id
-      record.updated_at,
+      toEpochSeconds(record.updated_at),
       record.id // server_id for WHERE
     ];
     await dbAdapter.execute(queries.updateFromServer, updateParams);

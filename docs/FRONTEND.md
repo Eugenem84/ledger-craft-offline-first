@@ -176,6 +176,12 @@ return id;
 - состояние для индикаторов (6.2/6.3): `syncService.getStatus()` / `subscribe()`
   (`online`, `syncing`, `lastError`, `consecutiveFailures`, `nextRetryAt`, `pendingCount`).
 
+**Конфликты и версии (задача 3.8, FE-часть):**
+- время в одном стандарте: локально — целые UNIX-секунды, серверные ISO приводятся
+  `toEpochSeconds` (`src/utils/timestamps.js`) во всех `applyServerRecord`;
+- правило — **last-write-wins** по `updated_at`: более старая версия не применяется
+  (сравнение работает и со «старыми» локальными значениями в миллисекундах).
+
 **Что подключено в 3.4 (решение D2):**
 - `order_product` — строки товаров заказа: `order_id`/`product_id` уходят серверными id,
   `sale_price`/`quantity` — как на сервере;

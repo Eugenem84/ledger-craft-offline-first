@@ -2,6 +2,7 @@ import { v4 as uuidv4 } from 'uuid'
 import dbAdapter from 'src/database/adapters/sqljs-web-adapter'
 import queries from 'src/database/queries/categories'
 import operationsRepo from 'src/repositories/operationsRepo'
+import { toEpochSeconds } from 'src/utils/timestamps.js'
 
 export async function getAll() {
   const rows =  await dbAdapter.query(queries.getAll)
@@ -85,8 +86,8 @@ export async function applyServerRecord(record) {
       record.id,
       record.specialization_id || null,
       record.category_name,
-      record.created_at || Math.floor(Date.now() / 1000),
-      record.updated_at || Math.floor(Date.now() / 1000)
+      toEpochSeconds(record.created_at),
+      toEpochSeconds(record.updated_at)
     ];
 
     await dbAdapter.execute(queries.insertFromServer, params);
@@ -94,10 +95,10 @@ export async function applyServerRecord(record) {
   }
 
   const local = existing[0];
-  if (record.updated_at > local.updated_at) {
+  if (toEpochSeconds(record.updated_at) > toEpochSeconds(local.updated_at, 0)) {
     const updateParams = [
       record.category_name,
-      record.updated_at,
+      toEpochSeconds(record.updated_at),
       record.id
     ];
     await dbAdapter.execute(queries.updateFromServer, updateParams);

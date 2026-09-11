@@ -3,6 +3,7 @@ import { v4 as uuidv4 } from 'uuid'
 import dbAdapter from 'src/database/adapters/sqljs-web-adapter'
 import queries from 'src/database/queries/order_service'
 import operationsRepo from 'src/repositories/operationsRepo'
+import { toEpochSeconds } from 'src/utils/timestamps.js'
 
 export async function getByOrderId(orderId) {
   const rows = await dbAdapter.query(queries.getByOrderId, [orderId])
@@ -75,8 +76,8 @@ export async function applyServerRecord(record) {
 
   const salePrice = record.sale_price ?? null
   const quantity = record.quantity ?? 1
-  const createdAt = record.created_at || Math.floor(Date.now() / 1000)
-  const updatedAt = record.updated_at || createdAt
+  const createdAt = toEpochSeconds(record.created_at)
+  const updatedAt = toEpochSeconds(record.updated_at, createdAt)
 
   if (!existing.length) {
     const localId = uuidv4()
@@ -93,6 +94,11 @@ export async function applyServerRecord(record) {
       updatedAt,       // updated_at (UNIX-время в секундах)
     ]
     await dbAdapter.execute(queries.insertFromServer, params)
+    return
+  }
+
+  // Обновление существующей записи: побеждает более свежий updated_at (last-write-wins).
+  if (updatedAt <= toEpochSeconds(existing[0].updated_at, 0)) {
     return
   }
 

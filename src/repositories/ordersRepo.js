@@ -7,6 +7,7 @@ import { findByServerId as findSpecializationByServerId } from "src/repositories
 import { findByServerId as findClientByServerId } from "src/repositories/clientsRepo.js";
 import { getById as getModelById } from "src/repositories/modelsRepo.js";
 import { findByServerId as findModelByServerId } from "src/repositories/modelsRepo.js";
+import { toEpochSeconds } from 'src/utils/timestamps.js'
 
 export async function getAll() {
   const rows =  await dbAdapter.query(queries.getAll)
@@ -206,8 +207,8 @@ export async function applyServerRecord(record) {
       recordData.paid,
       localModelId,
       recordData.share_token,
-      recordData.created_at || Math.floor(Date.now() / 1000),
-      recordData.updated_at || Math.floor(Date.now() / 1000)
+      toEpochSeconds(recordData.created_at),
+      toEpochSeconds(recordData.updated_at)
     ];
 
     await dbAdapter.execute(queries.insertFromServer, params);
@@ -215,7 +216,7 @@ export async function applyServerRecord(record) {
   }
 
   const local = existing[0];
-  if (recordData.updated_at > local.updated_at) {
+  if (toEpochSeconds(recordData.updated_at) > toEpochSeconds(local.updated_at, 0)) {
     const specializationData = await getSpecializationData({ specialization_server_id: record.specialization_id });
     const clientData = await getClientData({ client_server_id: record.client_id });
     const updateParams = [
@@ -233,7 +234,7 @@ export async function applyServerRecord(record) {
       recordData.paid,
       localModelId,
       recordData.share_token,
-      recordData.updated_at,
+      toEpochSeconds(recordData.updated_at),
       recordData.id
     ];
     await dbAdapter.execute(queries.updateFromServer, updateParams);

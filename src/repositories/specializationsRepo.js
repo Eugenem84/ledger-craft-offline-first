@@ -1,6 +1,7 @@
 import { v4 as uuidv4 } from 'uuid'
 import dbAdapter from 'src/database/adapters/sqljs-web-adapter'
 import queries from 'src/database/queries/specializations' // <-- Убедись, что этот файл существует
+import { toEpochSeconds } from 'src/utils/timestamps.js'
 
 /**
  * Получает все специализации из локальной базы данных.
@@ -85,26 +86,23 @@ export async function applyServerRecord(record) {
   const existing = await dbAdapter.query(queries.findByServerId, [record.id])
 
   if (!existing.length) {
-    // Новая запись с сервера
+    // Новая запись с сервера; время приводим к общему стандарту — UNIX-секунды (задача 3.8).
     const localId = uuidv4()
-    // Приводим даты к timestamp в миллисекундах
-    const createdAt = record.created_at ? new Date(record.created_at).getTime() : Date.now();
-    const updatedAt = record.updated_at ? new Date(record.updated_at).getTime() : Date.now();
 
     const params = [
       localId,
       record.id, // server_id
       record.name,
-      createdAt,
-      updatedAt
+      toEpochSeconds(record.created_at),
+      toEpochSeconds(record.updated_at)
     ]
     await dbAdapter.execute(queries.insertFromServer, params)
   } else {
-    // Обновление существующей записи
+    // Обновление существующей записи: побеждает более свежий updated_at (last-write-wins).
     const local = existing[0]
-    const serverUpdatedAt = new Date(record.updated_at).getTime();
-    if (serverUpdatedAt > local.updated_at) { // Сравниваем timestamp-ы
-      const updateParams = [record.name, serverUpdatedAt, record.id] // WHERE server_id = ?
+
+    if (toEpochSeconds(record.updated_at) > toEpochSeconds(local.updated_at, 0)) {
+      const updateParams = [record.name, toEpochSeconds(record.updated_at), record.id] // WHERE server_id = ?
       await dbAdapter.execute(queries.updateFromServer, updateParams)
     }
   }

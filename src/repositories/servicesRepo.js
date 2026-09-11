@@ -3,6 +3,7 @@ import { v4 as uuidv4 } from 'uuid'
 import dbAdapter from 'src/database/adapters/sqljs-web-adapter'
 import queries from 'src/database/queries/services'
 import operationsRepo from 'src/repositories/operationsRepo'
+import { toEpochSeconds } from 'src/utils/timestamps.js'
 
 export async function getByCategoryId(categoryId) {
   const rows = await dbAdapter.query(queries.getByCategoryId, [categoryId])
@@ -95,8 +96,8 @@ export async function applyServerRecord(record) {
       localCategoryId, // Используем найденный локальный ID
       record.service,
       record.price || '',
-      record.created_at || Math.floor(Date.now() / 1000),
-      record.updated_at || Math.floor(Date.now() / 1000)
+      toEpochSeconds(record.created_at),
+      toEpochSeconds(record.updated_at)
     ];
 
     await dbAdapter.execute(queries.insertFromServer, params);
@@ -104,12 +105,12 @@ export async function applyServerRecord(record) {
   }
 
   const local = existing[0];
-  if (record.updated_at > local.updated_at) {
+  if (toEpochSeconds(record.updated_at) > toEpochSeconds(local.updated_at, 0)) {
     // При обновлении также нужно передавать category_id
     const updateParams = [
       record.service,
       record.price || '',
-      record.updated_at,
+      toEpochSeconds(record.updated_at),
       record.id
     ];
     await dbAdapter.execute(queries.updateFromServer, updateParams);
