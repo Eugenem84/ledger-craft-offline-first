@@ -5,6 +5,7 @@ import dbAdapter from 'src/database/adapters/sqljs-web-adapter';
 import api from 'src/services/api';
 import * as metaRepo from 'src/repositories/metaRepo';
 import operationsRepo from 'src/repositories/operationsRepo';
+import { toEpochMs } from 'src/utils/timestamps.js';
 
 import * as clientsRepo from 'src/repositories/clientsRepo';
 import * as specializationsRepo from 'src/repositories/specializationsRepo';
@@ -655,30 +656,42 @@ class SyncService {
     return confirmed;
   }
 
+  /**
+   * Забирает изменения по каждой таблице. Курсор выдачи — свой у каждой таблицы (задача 3.6):
+   * упавшая таблица сохраняет свой курсор и до-получает изменения в следующий раз, остальные
+   * при этом не страдают.
+   */
   async _syncServerToLocal() {
-    const lastSyncedAt = await metaRepo.getLastSyncedAt();
-
     for (const table of Object.keys(this.repos)) {
       const repo = this.repos[table];
 
       try {
+        const since = await metaRepo.getLastSyncedAt(table);
+
         const response = await api.fetchUpdates({
           table,
-          since: lastSyncedAt
+          since
         });
 
         const records = Array.isArray(response) ? response : (Array.isArray(response?.records) ? response.records : []);
 
+        let maxRecordMs = 0;
+
         for (const record of records) {
+          maxRecordMs = Math.max(maxRecordMs, toEpochMs(record.updated_at, 0));
           await repo.applyServerRecord(record);
         }
+
+        // Курсор двигаем только после того, как всю выдачу таблицы разобрали.
+        // Берём максимум из «нашего сейчас» и времени последней записи: если часы устройства
+        // отстают от серверных, курсор всё равно не «застрянет» на уже полученных записях.
+        await metaRepo.setLastSyncedAt(table, Math.max(Date.now(), maxRecordMs + 1));
       } catch (e) {
         console.error(`[Sync] Ошибка при получении обновлений для таблицы "${table}":`, e);
-        // Не прерываем синхронизацию других таблиц
+        // Курсор этой таблицы не двигаем: следующий sync() до-получит её изменения.
+        // Не прерываем синхронизацию других таблиц.
       }
     }
-
-    await metaRepo.setLastSyncedAt(Date.now());
   }
 
   async fullReset() {

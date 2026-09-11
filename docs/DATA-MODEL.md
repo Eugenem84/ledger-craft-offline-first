@@ -190,7 +190,9 @@ status TEXT (pending|sending|synced), created_at INTEGER, updated_at INTEGER`.
 - `created_at`/`updated_at` — миллисекунды (`Date.now()` из репозиториев).
 
 ### meta
-`key TEXT PK, value TEXT` — `last_synced_at` (epoch-мс) и прочие метаданные.
+`key TEXT PK, value TEXT`. Курсор выдачи ведётся **на таблицу** (задача 3.6): ключ
+`last_synced_at:<table>` (epoch-мс). Старый общий ключ `last_synced_at` читается как начальное
+значение, если у таблицы своего курсора ещё нет — плавный апгрейд без перетягивания всего заново.
 
 ## Маппинг серверных id в FK
 

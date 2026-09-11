@@ -26,3 +26,22 @@ export function toEpochSeconds(value, fallback = Math.floor(Date.now() / 1000)) 
   const ms = Date.parse(String(value));
   return Number.isNaN(ms) ? fallback : Math.floor(ms / 1000);
 }
+
+/**
+ * То же, но в миллисекундах — для курсоров выдачи (`since` в `/sync-updates` в мс).
+ * Нужен, чтобы сравнение с серверным `updated_at` было точным, а не «до секунды».
+ *
+ * @param {unknown} value — ISO-строка, число (секунды/миллисекунды) или null
+ * @param {number} [fallback] — что вернуть, если значения нет
+ * @returns {number} epoch-миллисекунды
+ */
+export function toEpochMs(value, fallback = Date.now()) {
+  if (value == null) return fallback;
+
+  if (typeof value === 'number') {
+    return value > 1e11 ? Math.floor(value) : Math.floor(value * 1000);
+  }
+
+  const ms = Date.parse(String(value));
+  return Number.isNaN(ms) ? fallback : ms;
+}
