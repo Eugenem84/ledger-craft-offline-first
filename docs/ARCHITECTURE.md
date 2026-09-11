@@ -117,9 +117,10 @@
 `specializations`, `categories`, `product_categories`, `equipment_models`, `clients`,
 `services`, `products`, `orders`, `order_service`.
 
-**Не включены** (создаются локально, но синком не обрабатываются):
-`order_product`, `order_material`, `materials`, `incoming_products`, `product_stocks`,
-`buy_product_prices`, `sales_products_prices`.
+**Не включены** (создаются локально, но синком не обрабатываются): `order_product`,
+`order_material`, `materials`, `incoming_products`, `product_stocks`, `buy_product_prices`,
+`sales_products_prices`. У последних четырёх есть назначение (приходы / остатки / цены), но
+офлайн-слой ещё не подключён — см. `docs/DATA-MODEL.md` и задачи 9.2/9.3.
 
 ## 5. UI и состояние
 
