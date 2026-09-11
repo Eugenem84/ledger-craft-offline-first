@@ -44,7 +44,7 @@
 - [x] **Фаза 0** — Гигиена репозитория · FE 7/7 · BE 2/2 · *чистая база, lint проходит, меньше шума*
 - [x] **Фаза 1** — Локальная БД реально персистентная · 4/4 · *данные переживают перезапуск*
 - [x] **Фаза 2** — Схема, миграции, деньги, транзакции · 6/6 · *одна истина в схеме, единые деньги* (серверные типы денег → 3.12)
-- [ ] **Фаза 3** — Переписать синхронизацию · FE 5/8 · BE 0/8 · *связные таблицы синкаются без «двойного прогона»* (+FE-части 3.6 и 3.8 ✅, ждут серверные половины)
+- [ ] **Фаза 3** — Переписать синхронизацию · FE 6/8 · BE 1/8 · *связные таблицы синкаются без «двойного прогона»* (+FE-части 3.6 и 3.8 ✅, ждут серверные половины)
 - [ ] **Фаза 4** — Нативный SQLite (Capacitor) для Android · 0/5 · *настоящий SQLite на диске*
 - [ ] **Фаза 5** — Тесты · FE 0/5 · BE 0/1 · *регрессии ловятся автоматически (особенно по синку)*
 - [ ] **Фаза 6** — UX офлайна и синка · 0/3 · *приложение не блокируется на синке, есть индикатор сети*
@@ -221,15 +221,38 @@
       → ⚠️ найдено при 3.4 (не исправлено, кейс для 3.5/9.x): `ordersRepo.save/update` **всегда**
         удаляет `model_id` из payload («серверу шлём только `model_server_id`»), поэтому заказ,
         созданный с ещё не синхронизированной моделью техники, уезжает без неё — связь теряется молча
-      → ⚠️ найдено при 3.4: удаление `order_service` невозможно — сервер отвечает `server_id: null`
-        (у связки нет PK), а `deleteRecord` требует `id` → правка заказа («удалить и добавить заново»)
-        оставляет дубли работ на сервере (задача 3.5)
-- [ ] **3.5** [FE+BE] (P1) Идемпотентность
-      → BE: `uuid_id`/уникальный ключ на синкаемых таблицах + `updateOrInsert` вместо голого
-      `insertGetId` (у `order_service` PK нет → уникальный ключ `order_id+service_id` или `uuid_id`);
-      сюда же — перенос SAVEPOINT-изоляции из Go (3.11)
-      → FE: операция считается доставленной только при явном ответе сервера по ней
-      → *критерий:* повторная отправка того же батча не создаёт дублей (тест на сервере)
+      → ✅ найдено при 3.4 и исправлено в 3.5: удаление `order_service` (нет PK на сервере) —
+        `orderServiceRepo.remove*` ставит delete-операцию по натуральному ключу
+        `order_server_id + service_server_id`, сервер удаляет по `order_id + service_id`,
+        а строка связки матчится по `uuid_id`; правка заказа больше не оставляет дублей работ
+- [x] **3.5** [FE+BE] (P1) Идемпотентность
+      → BE: миграция `2026_09_12_000000_add_uuid_id_to_sync_tables` добавляет `uuid_id`
+      (nullable + unique) всем синкаемым таблицам (у `order_service` колонка уже была);
+      `insert` — «найти или вставить/обновить» по `uuid_id = local_id`, у `order_service`
+      (PK нет) — по натуральному ключу `order_id + service_id`, им же и `delete`; из payload
+      вырезаются `server_id`/`*_server_id`; каждая операция — в `SAVEPOINT sync_op`
+      (`RELEASE`/`ROLLBACK TO SAVEPOINT`) — перенос из Go (часть 3.11)
+      → BE: каждая операция всегда получает явный ответ — `update`/`delete` подтверждаются
+      даже при `affected = 0`, `update` несуществующей записи → `RECORD_NOT_FOUND`
+      → FE: `_sendOperations` больше не считает «200 OK без ответа по операции» доставкой —
+      такая операция возвращается в `pending`; `orderServiceRepo` ставит `delete` по натуральному
+      ключу (раньше не ставил вовсе) и матчит строку связки по `uuid_id`
+      → *критерий:* повторная отправка того же батча не создаёт дублей (тест на сервере) ✅
+      (BE: `tests/Feature/SyncControllerTest.php` — 10 тестов на **PostgreSQL** в отдельной БД
+      `ledgercraft_test` (docker-compose `db` → `127.0.0.1:5433`): повторный батч не даёт дублей
+      (`orders`/`clients`/`order_service`), повторный INSERT обновляет поля, `update`
+      подтверждается при отсутствии изменений, `update` несуществующей записи → `RECORD_NOT_FOUND`,
+      `delete` идемпотентен, битая операция откатывается SAVEPOINT'ом и **не срывает остальной
+      батч** (критерий 3.11), `server_id`/`*_server_id` вырезаются;
+      FE: 15 рантайм-проверок в Node (esbuild-бандл, подменены только БД/api/очередь) — нет
+      ответа → `markPending` (операция не теряется), явный ответ → `markSynced`, ошибка сервера →
+      `markPending`, удаление `order_service` ставит delete по натуральному ключу и отменяет
+      незаезженный INSERT, `applyServerRecord` матчит по `uuid_id`; `npm run lint` — 0;
+      сборка SPA — проходит)
+      → ⚠️ тестовая БД создаётся один раз вручную (`CREATE DATABASE ledgercraft_test`); тест сам
+      **пропускается**, если в имени БД нет `test` — защита от `migrate:fresh` на рабочей БД
+      → ⚠️ скаффолд `Tests\Feature\ExampleTest` (`GET /`) падает внутри PHPUnit/collision на
+      PHP 8.5 — к 3.5 отношения не имеет (инфраструктура тестов — задача 5.6)
 - [ ] **3.6** [FE+BE] (P1) Курсор `last_synced_at` на таблицу
       → FE ✅ сделано: `metaRepo` ведёт курсор **на таблицу** (`last_synced_at:<table>`) с
       fallback на старый общий ключ `last_synced_at` (плавный апгрейд без перетягивания всего),
@@ -304,6 +327,11 @@
       из `docker-compose.yaml`; обновить `README.md` и `docs/API.md` бэкенда
       → *критерий:* в проекте один роут `/api/sync`; батч из двух операций, где первая битая, —
       вторая применилась, ответ содержит ошибку только по первой
+      → ✅ сделано в 3.5: `SAVEPOINT sync_op` + `RELEASE`/`ROLLBACK TO SAVEPOINT` и вырезание
+      `server_id`/`*_server_id` живут в Laravel `SyncController`; критерий «битая первая —
+      вторая применилась» покрыт тестом `SyncControllerTest::test_broken_operation_does_not_break_the_batch`
+      → ⏳ осталось: вынести Go-код (`sync/`, `_docker/sync/`) из `master` в песочницу и убрать
+      сервис `sync` из `docker-compose.yaml` (не трогаем незакоммиченные файлы до договорённости)
 - [ ] **3.12** [BE] (P1) Типы денег на сервере (продолжение 2.3)
       → `services.price` — VARCHAR (сервер сам кастует `CAST(... AS numeric)`), `materials.price` —
       `decimal(10,2)`, `orders.total_amount`/`order_service.sale_price` — целые рубли
@@ -367,6 +395,10 @@
       → SAVEPOINT-изоляция (битая операция не валит батч), идемпотентность (повтор не даёт дублей),
       порядок «родитель → ребёнок», удаления/tombstones, вырезание `*_server_id`
       → *критерий:* `php artisan test` покрывает критерии задач 3.5, 3.9, 3.11
+      → ⏳ частично: `tests/Feature/SyncControllerTest.php` покрывает 3.5 и SAVEPOINT-часть 3.11
+      (в том числе вырезание `*_server_id`); удаления/tombstones (3.9) и порядок «родитель →
+      ребёнок» ещё нет. Инфра: отдельная тестовая БД `ledgercraft_test` + `phpunit.xml`
+      (пишет `SyncControllerTest`; скаффолд `ExampleTest` на PHP 8.5 падает — см. 3.5)
 
 ---
 
@@ -491,8 +523,9 @@
 
 - Серверные правки — отдельными коммитами в бэкенд-репо (`master`), не смешивая с фронтом.
 - Не трогаем незакоммиченные `docker-compose.yaml`, `sync/`, `_docker/sync/` до решения по 3.11.
-- Уже сделано: `$tables` (0.8), agent log (0.9). Открытый продуктовый вопрос — web-версия
-  (влияет на 7.6).
+- Уже сделано: `$tables` (0.8), agent log (0.9), идемпотентность + SAVEPOINT/вырезание `*_server_id` (3.5,
+  коммит `5dc96fc`), тест `tests/Feature/SyncControllerTest.php` (инфра тестовой БД). Открытый
+  продуктовый вопрос — web-версия (влияет на 7.6).
 
 ---
 
@@ -523,7 +556,7 @@
 | Решения D1/D2 | ✅ зафиксированы | D1 — синк только Laravel (Go → песочница, из него переносим SAVEPOINT-изоляцию + вырезание `*_server_id`) → 3.11; D2 — материалы = `order_product` (склад) + ручная позиция с `buy_price` для маржи; клиентский справочник `materials` (018) удаляется, новая таблица `order_material` не нужна → 9.5/9.6 |
 | Фаза 3.9 удаления | ❌ | `tableHasSoftDeletes` = `clients, products, services, categories`; удаление заказа = hard-delete, `sync-updates` отдаёт удалённые заказы обратно (фантом на втором устройстве) |
 | Фаза 3.10 владелец | ❌ | `/sync`/`/sync-updates` не под auth, `orders.user_id` при синке теряется, выдача не фильтруется по пользователю; `get_orders_by_user/{id}` отдаёт чужие заказы |
-| Фаза 3.11 транспорт | ❌ | Go-сайдкар `sync/` не подключён (порт :8081, «nginx/Traefik не трогаем») и содержит `service_categories`, `by_product_prices`, `sales_product_prices` — те же ошибки, что уже исправлены в Laravel |
+| Фаза 3.11 транспорт | ⏳ частично | Go-сайдкар `sync/` не подключён (порт :8081, «nginx/Traefik не трогаем»); ✅ перенос `SAVEPOINT`-изоляции и вырезания `server_id`/`*_server_id` в Laravel сделан в 3.5 (тест `test_broken_operation_does_not_break_the_batch`); ⏳ осталось вынести Go из `master` и убрать сервис `sync` из `docker-compose.yaml` |
 | Фаза 3.12 типы денег | ❌ | `services.price` — VARCHAR (`2023_10_03_045859`), `CAST(... AS numeric)` в `StatisticRepository`; `materials.price` — `decimal(10,2)` |
 | Фаза 7.6 гигиена API бэка | ❌ | `GET /get_orders_by_user` объявлен 3 раза (публичный падает в 500 на `Auth::user()`); `update_paid_status` + `switch_paid_status` дублируют операцию; `auth:api` без `api_token`; scaffold `app/Http/Controllers/Auth/*`; `MaterialController::create` не зароутен и с перепутанными аргументами |
 | Фаза 3.1 двойной вызов | ✅ сделано | `syncService.js`: в `sync()` остался один вызов `_syncLocalToServer()` (двойной прогон убран); комментарий и docs (`ARCHITECTURE` §4.1, `README`) синхронизированы; `npm run lint` — 0 ошибок; прод-сборка SPA проходит; рантайм-проверка (esbuild-бандл в Node): 1 вызов. ⚠️ до 3.2 дети, чей родитель получил `server_id` в этом же прогоне, дожимаются на следующем `sync()` (в очереди, не теряются) |
@@ -533,17 +566,19 @@
 | Фаза 3.4 связные таблицы | ✅ сделано | `order_product` и `materials` (ручные позиции заказа) добавлены в `syncService.repos`/`fkTransformationMap`/`TABLE_ORDER`; `orderProductRepo` переписан (UUID строки, операция, `applyServerRecord`), `orderMaterialRepo` → `materialsRepo` (таблица `materials`, решение D2); миграции 018/021 удалены, новая 023 переносит ручные позиции (имя из справочника) и создаёт `materials` в серверной семантике, защищена guard'ом по `specialization_id` → идемпотентна; удаление строк ставит delete по `server_id`; добавлен `src/utils/timestamps.js` (ISO → локальные секунды). UI: ручная позиция = `name/price/amount`. Проверка: 5 рантайм-сценариев на sql.js с двумя БД-«устройствами» (А → сервер → Б), lint 0, SPA-сборка ok. BE: правок не потребовалось (обе таблицы уже в `$tables`, timestamps есть, generic-путь ок); живая проверка на dev-сервере не выполнена (недоступен из окружения) |
 | Фаза 3.4 `null` в `*_server_id` | ✅ исправлено | `_prepareForeignKeys`: сигнальное поле со значением `null` больше не считается готовым FK (`productsRepo` отправлял `product_category_server_id: null` → категория товара терялась, товар не приезжал на второе устройство) |
 | Фаза 3.4 `ordersRepo.model_id` | ❌ | найдено при 3.4: `ordersRepo.save/update` всегда удаляет локальный `model_id` из payload → заказ с ещё не синхронизированной моделью техники уезжает без модели (связь теряется молча; кейс для 3.5/9.x) |
-| Фаза 3.5 `order_service` delete | ❌ | найдено при 3.4: сервер отвечает `server_id: null` (у связки нет PK), а `deleteRecord` требует `id` → строку работ нельзя ни удалить, ни обновить с клиента; правка заказа оставляет дубли работ на сервере |
+| Фаза 3.5 `order_service` delete | ✅ исправлено | найдено при 3.4: сервер отвечал `server_id: null` (у связки нет PK), а `deleteRecord` требует `id` → строку работ нельзя было ни удалить, ни обновить. Теперь `orderServiceRepo.remove*` ставит delete-операцию по натуральному ключу `order_server_id + service_server_id`, сервер удаляет по `order_id + service_id` (`deleteRecord`), строка матчится по `uuid_id` (`applyServerRecord`) |
+| Фаза 3.5 идемпотентность (BE) | ✅ сделано | миграция `2026_09_12_000000_add_uuid_id_to_sync_tables`: `uuid_id` (nullable, unique) всем синкаемым таблицам; `SyncController::upsertRecord` — «найти или вставить/обновить» по `uuid_id = local_id` (у `order_service` — по `order_id + service_id`), `created_at` не перезаписывается; `stripClientFields` убирает `server_id`/`*_server_id`; `SAVEPOINT sync_op` + `ROLLBACK TO SAVEPOINT` на операцию; `update`/`delete` подтверждаются всегда, `update` несуществующей записи → `RECORD_NOT_FOUND`. Коммит `5dc96fc` |
+| Фаза 3.5 идемпотентность (FE) | ✅ сделано | `syncService._sendOperations`: «200 OK без ответа по операции» больше не `markSynced`, а `markPending` (операция не теряется, сервер подтверждает каждую); `orderServiceRepo.remove*` ставит delete по натуральному ключу либо отменяет незаезженный INSERT; `applyServerRecord` матчит связку по `uuid_id` (новый запрос `getLinesByOrderId`, `updateFromServer` по `id`). Коммит `aa9b986` |
+| Фаза 5.6 тесты `SyncController` | ⏳ частично | добавлен `tests/Feature/SyncControllerTest.php` (10 тестов, **PostgreSQL**): дубли не создаются, битая операция изолирована SAVEPOINT'ом, `order_service` по натуральному ключу, `server_id` вырезается; инфра — отдельная БД `ledgercraft_test` + `phpunit.xml` (тест пропускается, если в имени БД нет `test`). Осталось: порядок «родитель → ребёнок», удаления/tombstones (3.9) |
 | Фаза 3.6 курсор на таблицу (FE) | ✅ сделано | `metaRepo`: ключ `last_synced_at:<table>` + fallback на старый общий и `resetLastSyncedAt(table?)`; `_syncServerToLocal()` — `since` по таблице, курсор двигается только после успешного разбора её выдачи и не назад (`Math.max(Date.now(), maxRecordMs + 1)` через новый `toEpochMs`). Проверка: 4 рантайм-сценария на sql.js (падение одной таблицы, до-получение с прежнего курсора, legacy-fallback, «только новое» + отставание часов). ⏳ BE-половина (`last_sync_id`) — на серверный проход |
 | Фаза 3.8 время и конфликты (FE) | ✅ сделано | Единый стандарт времени во всех `applyServerRecord` (`toEpochSeconds`): сравнение и запись `created_at/updated_at`; `specializationsRepo` с мс → секунды; `orderServiceRepo` получил LWW-проверку; из SQL убраны `strftime('%s', ?)` (числовые значения в `strftime` трактуются как Julian day — было бы мусорное время). Проверка: 3 рантайм-сценария (старая версия не перетирает новую, новая применяется и хранится в секундах, старые мс-значения сравниваются корректно). ⏳ BE-половина: `updated_at` в ответе `/sync` — на серверный проход |
 | Фаза 3.7 устойчивость к сети | ✅ сделано | `syncService`: классификация ошибок (`network`/`server`/`request`), backoff `5с→15с→60с→5мин` через `status.nextRetryAt`, пропуск `sync()` в офлайне и в паузе, `sync({ force: true })` для ручного повтора, состояние `getStatus()`/`subscribe()` + `operationsRepo.countPending()`; события `online`/`offline` снимают паузу. Проверка: 6 рантайм-сценариев на sql.js (сеть, 4xx, два 5xx, офлайн, `force`, подписка) — в паузе новых попыток нет, 4xx не блокирует очередь, backoff растёт, офлайн не ходит на сервер; lint 0; SPA-сборка ok |
 | Фаза 5.3 `servicesRepo` binding | ❌ | найдено при 3.3: `servicesRepo.save()` передаёт `service.category_id` без `|| null` → при отсутствии категории sql.js падает «tried to bind a value of an unknown type (undefined)»; локальная схема требует `services.category_id NOT NULL`, т.е. услугу без категории создать нельзя |
-| Фаза 3.4 связные таблицы | ❌ | в `syncService.js` нет `order_product` и ручных позиций материалов; есть частичная работа по `order_service`. По решению D2 новая таблица `order_material` не нужна — выравниваем семантику существующих |
 | Фаза 5.1 тест-раннер | ❌ | `"test": "echo \"No test specified\" && exit 0"` |
 | Фаза 6.1 блокирующий синк | ❌ | `await syncService.sync()` в `src/boot/db.js` |
 | Фаза 9.4 `api` без импорта | ⏳ кодовая часть сделана | `apiClient` экспортирован из `api.js` и используется в `generateAndCopyLink` (рамках 0.4); рантайм-проверка ссылки — в Фазе 9 |
 
 Коммиты: `8ba14f0` — Фаза 3 (3.1–3.3), `36cb4b0` — 3.4, `85ab900` — 3.7, `f4dff1f` — 3.6 (FE-часть),
-HEAD — 3.8 (FE-часть) (см. `git log`). Дальше — серверный проход (3.11 → 3.9 → 3.10 → 3.5
+HEAD — 3.8 (FE-часть), 3.5 — FE `aa9b986` + BE `5dc96fc` (`LedgerCraftDocker03`) (см. `git log`). Дальше — серверный проход (3.9 → 3.10 → остаток 3.11 (вынести Go)
 + BE-половины 3.6/3.8) на локальном Laravel. Снимок состояния обновлять при каждом существенном
 изменении.
