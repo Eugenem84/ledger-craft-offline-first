@@ -80,8 +80,8 @@ Body:
 - неизвестная таблица или битая структура операции → запись в `errors` с `Invalid operation structure or table.`;
 - `MISSING_ID_FOR_UPDATE` / `MISSING_ID_FOR_DELETE` — если в payload нет `id` (серверного);
 - ошибки БД ловятся (`QueryException`) и возвращаются в `errors`;
-- `last_sync_id` (анти-эхо) проставляется только если колонка существует. ⚠️ таких колонок всё
-  ещё **нет ни у одной таблицы** (задача 3.6).
+- `last_sync_id` (анти-эхо) проставляется при insert/update/soft-delete — ✅ колонка есть у всех
+  синкаемых таблиц (миграция `2026_09_13_000000_add_last_sync_id_to_sync_tables`, задача 3.6).
 
 **Спец-обработка `orders`** (не все поля!): сервер принимает только
 `specialization_id, client_id, hours, minutes, total_amount, comments` — остальное игнорируется.
@@ -118,8 +118,8 @@ Headers: X-Sync-ID: <uuid устройства>
 
 - `since` — число **миллисекунд** (`Carbon::createFromTimestampMs`);
 - если таблица не входит в `$tables` → `400 { "error": "Invalid or missing table" }`;
-- фильтр анти-эха: если у таблицы есть колонка `last_sync_id`, сервер исключает записи с
-  `last_sync_id == X-Sync-ID` (⚠️ колонок таких нет — фильтр не действует);
+- ✅ фильтр анти-эха (задача 3.6): записи с `last_sync_id == X-Sync-ID` исключаются — устройство
+  не получает свои же изменения; правка чужого устройства вернёт запись автору;
 - soft-delete: `whereNull('deleted_at')` применяется только к `clients, products, services, categories`
   (при этом `deleted_at` есть ещё у `orders`, `equipment_models`, `order_service` — §4.13);
 - сортировка по `updated_at`;
@@ -203,8 +203,11 @@ Headers: X-Sync-ID: <uuid устройства>
    таблицам; `insert` — «найти или вставить/обновить» по `uuid_id = local_id` (у `order_service` —
    по `order_id + service_id`). Повторная отправка батча дублей не создаёт. Клиент считает
    операцию доставленной только по явному ответу сервера (иначе возвращает в `pending`).
-3. **Анти-эхо `last_sync_id`:** код есть, но колонок `last_sync_id` нет ни у одной таблицы →
-   механизм не работает (сервер может вернуть клиенту его же записи).
+3. ✅ **Анти-эхо `last_sync_id` (задача 3.6): исправлено.** Миграция
+   `2026_09_13_000000_add_last_sync_id_to_sync_tables` добавила колонку (nullable + index) всем
+   синкаемым таблицам; сервер проставляет её значением `X-Sync-ID` при insert/update/soft-delete,
+   а `fetchUpdates` отдаёт только записи с чужой меткой (`last_sync_id != X-Sync-ID OR
+   last_sync_id IS NULL`; строки без метки — например заведённые вручную — видны всем).
 4. **Soft-delete:** `tableHasSoftDeletes()` учитывает только `clients, products, services,
    categories`, тогда как фронт ожидает `deleted_at` у многих таблиц (orders, equipment_models…).
 5. **Деньги:** все цены — в **рублях** и на клиенте, и на сервере (`total_amount` без
@@ -250,7 +253,7 @@ Headers: X-Sync-ID: <uuid устройства>
     приходится писать `CAST(... AS numeric)`; `materials.price` — `decimal(10,2)`, суммы заказов —
     целые. Единый стандарт «рубли целыми» не соблюдён (задача 3.12).
 18. **`fetchUpdates` без `limit`/пагинации** — после долгого офлайна устройство получает таблицу
-    целиком (память/трафик), а курсора на таблицу нет (задача 3.6).
+    целиком (память/трафик). Курсор выдачи и анти-эхо уже на месте (задачи 3.6), лимиты — нет.
 19. **Склад:** остаток ведётся по товару (`product_stocks.product_id`), но строка дублирует
     категорию (`product_stocks.product_categories_id` vs `products.product_category_id` —
     два источника «где лежит»); `buy_product_prices`/`sales_products_prices` не читаются ни в одном
@@ -277,7 +280,7 @@ Headers: X-Sync-ID: <uuid устройства>
 | 3.11 ⏳ | SAVEPOINT-изоляция + вырезание `server_id`/`*_server_id` ✅ (вместе с 3.5); осталось: вынести Go-сайдкар, убрать сервис `sync` из `docker-compose.yaml` | `SyncController`, `docker-compose.yaml`, `sync/` |
 | 3.12 | типы денег: `services.price` → целые рубли, убрать `CAST` | миграции, `StatisticRepository` |
 | 3.5 ✅ | идемпотентность: `uuid_id` (unique) на синкаемых таблицах + «найти или вставить/обновить»; явный ответ по каждой операции; `order_service` — по `order_id + service_id`; тест `SyncControllerTest` | миграции, `SyncController`, `tests/Feature` |
-| 3.6 | колонки `last_sync_id` (анти-эхо) | миграции |
+| 3.6 ✅ | колонки `last_sync_id` (анти-эхо) + простановка в `SyncController` (включая `order_service`) | миграции, `SyncController`, тесты |
 | 3.4 ✅ | `order_product` и ручные позиции материалов в синк (по D2) | `SyncController`, миграции — **правок не потребовалось**: обе таблицы уже в `$tables`, timestamps есть, generic-путь insert/update/delete/fetch работает |
 | 9.2 | `arrival_product`: явный ответ + идемпотентность | `ProductController` |
 | 9.3 | цены/остатки: убрать дубль `product_stocks.product_categories_id` | `ProductStock*` |
