@@ -5,15 +5,23 @@
 // Это чистая функция без Vue и Quasar: компонент `SyncStatusBar.vue` остаётся «тонким»,
 // а приоритет состояний проверяется обычным юнит-тестом (`test/sync-status-view.test.js`).
 //
-// Приоритет (сверху вниз): нет интернета → идёт синхронизация → ошибка → очередь не пуста
-// → всё синхронизировано. Так пользователь видит самую важную причину текущего состояния.
+// Приоритет (сверху вниз): требуется вход → нет интернета → идёт синхронизация → ошибка →
+// очередь не пуста → всё синхронизировано. Так пользователь видит самую важную причину
+// текущего состояния.
 
 /**
- * @param {{online?: boolean, syncing?: boolean, lastError?: string|null, pendingCount?: number}} status
+ * @param {{online?: boolean, syncing?: boolean, lastError?: string|null, pendingCount?: number,
+ *   requiresAuth?: boolean}} status
  * @returns {{kind: string, icon: string, color: string, label: string, spin: boolean}}
  */
 export function syncStatusView(status) {
   const s = status || {}
+
+  // Без входа синк невозможен даже при сети (задача 7.4) — это самое важное
+  // состояние, поэтому проверяем его первым.
+  if (s.requiresAuth === true) {
+    return { kind: 'auth', icon: 'lock', color: 'primary', label: 'требуется вход', spin: false }
+  }
 
   if (s.online === false) {
     return { kind: 'offline', icon: 'cloud_off', color: 'deep-orange', label: 'нет интернета', spin: false }

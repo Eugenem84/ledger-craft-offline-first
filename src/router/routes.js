@@ -23,6 +23,12 @@ const routes = [
     name: 'new-order'
   },
 
+  {
+    path: '/login',
+    component: () => import('pages/LoginPage.vue'),
+    // Публичный маршрут (7.5): единственный, куда пускает auth-guard без входа.
+    meta: { hideFooter: true, requiredAuth: false },
+  },
 
   // Always leave this as last one,
   // but you can also remove it

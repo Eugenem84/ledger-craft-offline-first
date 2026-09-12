@@ -2,7 +2,7 @@
 
 import { logger } from 'src/utils/logger'
 import dbAdapter from 'src/database/db.js';
-import api from 'src/services/api';
+import api, { hasAuthToken } from 'src/services/api';
 import * as metaRepo from 'src/repositories/metaRepo';
 import operationsRepo from 'src/repositories/operationsRepo';
 import { toEpochMs } from 'src/utils/timestamps.js';
@@ -132,6 +132,8 @@ class SyncService {
       consecutiveFailures: 0,
       nextRetryAt: 0,
       pendingCount: 0,
+      // «Нужен вход» (задача 7.4): без токена синк недоступен — индикатор это покажет.
+      requiresAuth: false,
     };
 
     this._listeners = new Set();
@@ -159,6 +161,16 @@ class SyncService {
       logger.log('[Sync] Нет сети — синхронизация отложена, операции останутся в очереди.');
       return;
     }
+
+    // Без токена входа сервер отвечает 401 на каждый запрос (задача 7.4): не тратим
+    // сеть впустую, а показываем в индикаторе «требуется вход». Операции копятся.
+    if (!hasAuthToken()) {
+      this._setStatus({ requiresAuth: true });
+      logger.log('[Sync] Нет токена входа — синхронизация недоступна до входа в приложение.');
+      return;
+    }
+
+    this._setStatus({ requiresAuth: false });
 
     const waitMs = this.status.nextRetryAt - Date.now();
 
@@ -213,7 +225,7 @@ class SyncService {
    */
   async refreshStatus() {
     const pendingCount = await this._countPending();
-    this._setStatus({ pendingCount });
+    this._setStatus({ pendingCount, requiresAuth: !hasAuthToken() });
     return this.getStatus();
   }
 
@@ -354,6 +366,11 @@ class SyncService {
   _failureKind(error) {
     if (!error?.response) return 'network';
 
+    // 401 — сервер отверг токен (истёк/отозван). Это не «битый payload» и не
+    // доступность: синк приостанавливаем до повторного входа (задача 7.4), а сам
+    // токен сбрасывает обработчик 401 в `api.js`.
+    if (error.response.status === 401) return 'auth';
+
     return error.response.status >= 500 ? 'server' : 'request';
   }
 
@@ -364,6 +381,14 @@ class SyncService {
    */
   _registerFailure(kind, error) {
     const message = error?.message || String(error);
+
+    // Токен отвергнут сервером: пауза не нужна — без токена `sync()` вообще не пойдёт
+    // в сеть, пока пользователь не войдёт (задача 7.4).
+    if (kind === 'auth') {
+      this._setStatus({ lastError: null, requiresAuth: true });
+      logger.warn('[Sync] Сервер требует вход (401). Синхронизация приостановлена до входа.');
+      return;
+    }
 
     if (kind === 'request') {
       this._setStatus({ lastError: message });

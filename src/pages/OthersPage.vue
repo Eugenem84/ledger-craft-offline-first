@@ -3,11 +3,22 @@ import { logger } from 'src/utils/logger'
 
 import { computed, onMounted, ref } from 'vue'
 import { useQuasar } from 'quasar'
+import { useRouter } from 'vue-router'
 import SyncService from '../services/syncService.js'
 import { createBackup, getLastBackupAt } from 'src/services/backupService.js'
+import { useAuthStore } from 'src/stores/useAuthStore.js'
 import { useSpecializationsStore } from 'src/stores/useSpecializationsStore.js'
 
 const $q = useQuasar()
+const router = useRouter()
+
+// Аккаунт (задача 7.4): видно, под кем работаем, и можно выйти.
+const auth = useAuthStore()
+
+const signOut = async () => {
+  await auth.logout()
+  await router.replace('/login')
+}
 
 // 1. Получаем экземпляр хранилища
 const specializationsStore = useSpecializationsStore()
@@ -141,6 +152,19 @@ const makeBackup = async () => {
         label="Удалить локальную БД"
         color="deep-orange"
         @click="deleteDB"
+      />
+
+      <q-separator dark class="q-my-md" />
+
+      <div class="text-subtitle2">Аккаунт: {{ auth.userName }}</div>
+      <div class="text-caption">
+        {{ auth.hasPin ? 'Вход защищён PIN-кодом' : 'PIN-код не установлен' }}
+      </div>
+      <q-btn
+        label="Выйти"
+        color="negative"
+        outline
+        @click="signOut"
       />
     </div>
   </q-page>

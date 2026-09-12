@@ -15,6 +15,7 @@ export default defineConfig((/* ctx */) => {
       'axios',
       'db',
       'pinia',
+      'auth', // после pinia: читает сессию и связывает 401 с auth-стором (7.4)
     ],
 
     // https://v2.quasar.dev/quasar-cli-vite/quasar-config-file#css

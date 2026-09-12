@@ -7,6 +7,13 @@ import { describe, it, expect } from 'vitest'
 import { syncStatusView } from 'src/utils/syncStatusView.js'
 
 describe('6.2 представление состояния синка', () => {
+  it('требуется вход — важнее офлайна и очереди (7.4)', () => {
+    const view = syncStatusView({ requiresAuth: true, online: false, pendingCount: 4 })
+
+    expect(view).toMatchObject({ kind: 'auth', icon: 'lock' })
+    expect(view.label).toBe('требуется вход')
+  })
+
   it('нет интернета — высший приоритет', () => {
     const view = syncStatusView({
       online: false,

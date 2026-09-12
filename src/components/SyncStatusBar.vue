@@ -8,9 +8,11 @@
 // Живёт в `App.vue`, поэтому виден на всех маршрутах, включая страницу заказа (она
 // рендерится вне `MainLayout`). Состояние берётся из `syncService.getStatus()`/`subscribe()`.
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import syncService from 'src/services/syncService.js'
 import { syncStatusView } from 'src/utils/syncStatusView.js'
 
+const router = useRouter()
 const status = ref(syncService.getStatus())
 const manualSyncing = ref(false)
 
@@ -21,6 +23,9 @@ const details = computed(() => {
   const s = status.value
   const lines = []
 
+  if (s.requiresAuth) {
+    lines.push('Нужен вход в аккаунт — синхронизация недоступна.')
+  }
   if (s.online === false) {
     lines.push('Нет подключения к интернету — изменения сохраняются локально.')
   }
@@ -39,7 +44,11 @@ const details = computed(() => {
     lines.push('Все изменения синхронизированы.')
   }
 
-  lines.push('Нажмите, чтобы синхронизировать сейчас.')
+  if (!s.requiresAuth) {
+    lines.push('Нажмите, чтобы синхронизировать сейчас.')
+  } else {
+    lines.push('Нажмите, чтобы перейти ко входу.')
+  }
   return lines
 })
 
@@ -60,6 +69,12 @@ onBeforeUnmount(() => {
 
 async function syncNow() {
   if (loading.value) return
+
+  // Без входа кнопка ведёт на экран входа, а не «в никуда» (задача 7.4).
+  if (status.value.requiresAuth) {
+    router.push('/login')
+    return
+  }
 
   manualSyncing.value = true
   try {

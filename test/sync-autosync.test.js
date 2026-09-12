@@ -11,6 +11,7 @@ import api from 'src/services/api'
 import syncService from 'src/services/syncService.js'
 import operationsRepo from 'src/repositories/operationsRepo.js'
 import * as clientsRepo from 'src/repositories/clientsRepo.js'
+import storage from 'src/utils/storage.js'
 import { setupTestDb } from './helpers/testDb.js'
 import { createFakeServer } from './helpers/fakeServer.js'
 
@@ -22,6 +23,9 @@ let originalIsOnline
 
 beforeEach(async () => {
   await setupTestDb()
+
+  // Синк требует вход (задача 7.4): без токена он не пойдёт в сеть.
+  storage.setItem('auth_token', 'test-token')
 
   server = createFakeServer()
   vi.spyOn(api, 'send').mockImplementation(payload => server.send(payload))
@@ -37,6 +41,7 @@ beforeEach(async () => {
     consecutiveFailures: 0,
     nextRetryAt: 0,
     pendingCount: 0,
+    requiresAuth: false,
   }
   syncService._listeners = new Set()
   syncService.stopAutoSync()
@@ -45,6 +50,7 @@ beforeEach(async () => {
 afterEach(() => {
   syncService.stopAutoSync()
   syncService._isOnline = originalIsOnline
+  storage.removeItem('auth_token')
   vi.restoreAllMocks()
 })
 
