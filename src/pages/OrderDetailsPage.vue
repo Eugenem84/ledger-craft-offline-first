@@ -21,6 +21,7 @@ import OrderServiceDialog from 'src/components/order/dialogs/OrderServiceDialog.
 import OrderServicesPanel from 'src/components/order/OrderServicesPanel.vue'
 import OrderStoreProductDialog from 'src/components/order/dialogs/OrderStoreProductDialog.vue'
 import { useOrderDraftStore } from 'src/stores/useOrderDraftStore.js'
+import { shareLinkErrorView } from 'src/utils/shareLinkError.js'
 
 const $q = useQuasar()
 const route = useRoute()
@@ -158,20 +159,18 @@ const handleDelete = () => {
 }
 
 const handleShare = async () => {
-  // Ссылка требует онлайн-взаимодействия: без `server_id` сервер её не выдаст (задача 9.4).
-  if (!draft.order?.server_id) {
-    notify('warning', 'Сначала нужно синхронизировать ордер')
-    return
-  }
-
+  // Ссылку выдаёт сервер (задача 9.4): причину неудачи («не синхронизирован»,
+  // «нет интернета», «нужен вход», «не найден») объясняет чистая функция,
+  // поэтому здесь только показ уведомления — без «угадывания» по статусу.
   isLoading.value = true
   try {
     const url = await draft.generateShareLink()
     await navigator.clipboard.writeText(url)
     notify('positive', 'Ссылка скопирована')
   } catch (err) {
-    console.error('Ошибка:', err)
-    notify('negative', 'Ошибка копирования ссылки')
+    console.error('[OrderDetails] Не удалось создать share-ссылку:', err)
+    const view = shareLinkErrorView(err)
+    notify(view.level, view.message)
   } finally {
     isLoading.value = false
   }
@@ -238,6 +237,10 @@ const handleShare = async () => {
           :services-total="servicesTotal"
           :materials-total="materialsTotal"
           :products-total="productsTotal"
+          :cost-total="draft.costTotal"
+          :margin="draft.margin"
+          :markup-percent="draft.markupPercent"
+          :has-unknown-cost="draft.hasUnknownCost"
           @remove-service="draft.removeService($event)"
           @remove-material="draft.removeMaterial($event)"
           @remove-product="draft.removeProduct($event)"

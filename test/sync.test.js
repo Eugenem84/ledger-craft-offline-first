@@ -220,6 +220,43 @@ describe('5.4 повторный прогон (идемпотентность)',
 })
 
 describe('5.4 сервер → локально', () => {
+  it('9.6: ручная позиция с закупкой уезжает офлайн и приезжает на второе устройство', async () => {
+    // Устройство А: заказ и ручная позиция («купил по пути»), закупку ввёл мастер.
+    const orderId = await ordersRepo.save({ total_amount: 400 })
+    await materialsRepo.add(orderId, { name: 'Герметик', price: 200, amount: 2, buy_price: 50 })
+
+    await syncService.sync()
+
+    // На сервер уехала та же одна таблица `materials` (решение D2) и себестоимость в ней.
+    const sent = server.received.find(entry => entry.table === 'materials')
+    expect(sent.payload).toMatchObject({
+      name: 'Герметик',
+      price: 200,
+      amount: 2,
+      buy_price: 50,
+    })
+
+    const serverOrderId = (await db.queryOne('SELECT server_id FROM orders WHERE id = ?', [orderId]))
+      .server_id
+    expect(serverOrderId).not.toBeNull()
+
+    // Устройство Б: чистая БД и тот же сервер — данные приезжают обычной выгрузкой.
+    await setupTestDb()
+    await syncService.sync()
+
+    const order = await db.queryOne('SELECT * FROM orders WHERE server_id = ?', [serverOrderId])
+    expect(order).not.toBeNull()
+
+    const lines = await materialsRepo.getByOrderId(order.id)
+    expect(lines).toHaveLength(1)
+    expect(lines[0]).toMatchObject({
+      name: 'Герметик',
+      price: 200,
+      amount: 2,
+      buy_price: 50,
+    })
+  })
+
   it('applyServerRecord переводит FK серверных записей в локальные UUID', async () => {
     server.seed('product_categories', { id: 3, name: 'Подшипники', specialization_id: null })
     server.seed('products', {

@@ -1,128 +1,133 @@
 <script setup>
+// Поступление товара (задача 9.2).
+//
+// Было: прямой `POST /arrival_product` через `boot/axios.js` с фиктивным `baseURL` —
+// офлайн приход не работал вовсе, а на сервере повтор удваивал остаток. Стало: всё
+// идёт через стор → репозиторий: приход, закупочная цена и остаток пишутся в
+// локальную БД, а на сервер уезжает очередь синка (`useProductsStore.receiveArrival`).
 import { logger } from 'src/utils/logger'
-import {ref} from 'vue'
-import {api} from 'boot/axios.js'
-import DeleteConfirmPage from "pages/dialogs/DeleteConfirmPage.vue";
+import { ref } from 'vue'
+import { useQuasar } from 'quasar'
+import { useProductsStore } from 'stores/useProductsStore.js'
 
-const deleteConfirmPage = ref(null)
+const $q = useQuasar()
+const productsStore = useProductsStore()
 
 const emit = defineEmits(['product-arrival-saved'])
 
 const currentProduct = ref(null)
-
 const showDialog = ref(false)
-
-const name = ref(null)
+const saving = ref(false)
 
 const byPrice = ref(null)
 const arrivalQuantity = ref(null)
-
 const baseSalePrice = ref(null)
 
 const open = (product) => {
   logger.log('открытие диалогового окна поступления товара')
-  currentProduct.value = product ? {...product} : null
-  name.value = product?.name || ''
-  baseSalePrice.value = product?.base_sale_price || ''
+  currentProduct.value = product ? { ...product } : null
+  baseSalePrice.value = product?.base_sale_price ?? ''
+  byPrice.value = ''
+  arrivalQuantity.value = ''
   showDialog.value = true
-  logger.log('product: ', product)
 }
 
 const makeArrivalProduct = async () => {
+  if (!currentProduct.value) return
+
+  saving.value = true
+
   try {
-    //logger.log('currentCategoryId: ', currentCategory.value.id)
-    if (currentProduct.value){
-      logger.log('запрос на поступление товара')
-      await api.post(`/arrival_product`, {
-        product_id: currentProduct.value.id,
-        base_sale_price: baseSalePrice.value,
-        by_price: byPrice.value,
-        arrival_quantity: arrivalQuantity.value
-      })
-      showDialog.value = false
-      emit('product-category-saved')
-    } else {
-      logger.log('currentProduct: ', currentProduct.value)
-    }
-  } catch (err){
-    console.error(err)
-    currentProduct.value = null
-    close()
+    const result = await productsStore.receiveArrival({
+      product: currentProduct.value,
+      byPrice: byPrice.value,
+      arrivalQuantity: arrivalQuantity.value,
+      baseSalePrice: baseSalePrice.value,
+    })
+
+    showDialog.value = false
+    emit('product-arrival-saved', result)
+
+    // Офлайн-первый подход: подсказка «сохранено, остаток N» — это обратная связь
+    // о том, что приход лёг в локальную БД и уедет при первой возможности.
+    $q.notify({
+      type: 'positive',
+      message: `Приход сохранён: +${result.quantity}, остаток ${result.stockQuantity}`,
+      caption: 'уедет на сервер автоматически',
+      position: 'top',
+      timeout: 2500,
+    })
+  } catch (err) {
+    console.error('Ошибка прихода товара:', err)
+    $q.notify({ type: 'negative', message: err.message, position: 'top' })
+  } finally {
+    saving.value = false
   }
 }
 
-defineExpose({open})
-
+defineExpose({ open })
 </script>
 
 <template>
-
   <q-dialog v-model="showDialog" persistent>
     <q-card style="min-width: 400px">
       <q-card-section class="row items-center">
-        <span class="q-ml-sm text-h6">
-          Поступление
-        </span>
+        <span class="q-ml-sm text-h6">Поступление</span>
         <q-space />
         <q-btn icon="close" flat round dense v-close-popup />
       </q-card-section>
 
       <q-card-section>
         <div class="q-gutter-y-md">
-          <q-input v-model="byPrice"
-                   outlined
-                   label="цена закупки"
-                   placeholder="введите цену закупки"
-                   class="q-mb-md"
+          <q-input
+            v-model="byPrice"
+            outlined
+            type="number"
+            label="цена закупки"
+            placeholder="введите цену закупки"
+            class="q-mb-md"
           />
         </div>
       </q-card-section>
 
       <q-card-section>
         <div class="q-gutter-y-md">
-          <q-input v-model="baseSalePrice"
-                   outlined
-                   label="цена продажи"
-                   placeholder="Введите цену продажи"
-                   class="q-mb-md"
+          <q-input
+            v-model="baseSalePrice"
+            outlined
+            type="number"
+            label="цена продажи"
+            placeholder="Введите цену продажи"
+            class="q-mb-md"
           />
         </div>
       </q-card-section>
 
       <q-card-section>
         <div class="q-gutter-y-md">
-          <q-input v-model="arrivalQuantity"
-                   outlined
-                   label="количество поступило"
-                   placeholder="Введите количество поступления"
-                   class="q-mb-md"
+          <q-input
+            v-model="arrivalQuantity"
+            outlined
+            type="number"
+            label="количество поступило"
+            placeholder="Введите количество поступления"
+            class="q-mb-md"
           />
         </div>
       </q-card-section>
 
       <q-card-actions align="right">
+        <q-btn flat label="Отмена" color="yellow" v-close-popup />
 
-        <q-btn flat
-               label="Отмена"
-               color="yellow"
-               v-close-popup
+        <q-btn
+          label="Сохранить"
+          text-color="yellow"
+          :loading="saving"
+          @click="makeArrivalProduct"
         />
-
-        <q-btn label="Сохранить"
-               text-color="yellow"
-               @click="makeArrivalProduct"
-        />
-
       </q-card-actions>
-
-
     </q-card>
   </q-dialog>
-
-  <DeleteConfirmPage ref="deleteConfirmPage" />
-
 </template>
 
-<style scoped>
-
-</style>
+<style scoped></style>

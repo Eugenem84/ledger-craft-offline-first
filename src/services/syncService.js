@@ -17,6 +17,12 @@ import * as ordersRepo from 'src/repositories/ordersRepo';
 import * as orderServiceRepo from 'src/repositories/orderServiceRepo.js';
 import * as orderProductRepo from 'src/repositories/orderProductRepo.js';
 import * as materialsRepo from 'src/repositories/materialsRepo.js';
+// Склад (задача 9.2): приходы и закупочные цены; остаток ведёт сервер.
+import * as incomingProductsRepo from 'src/repositories/incomingProductsRepo.js';
+import * as productStocksRepo from 'src/repositories/productStocksRepo.js';
+import * as buyProductPricesRepo from 'src/repositories/buyProductPricesRepo.js';
+// Цены продажи товаров по заказам (задача 9.3).
+import * as salesProductPricesRepo from 'src/repositories/salesProductPricesRepo.js';
 import * as modelsRepo from 'src/repositories/modelsRepo';
 
 import { logAllServicesForDebugging } from 'src/repositories/servicesRepo';
@@ -39,9 +45,13 @@ const TABLE_ORDER = [
   'clients',
   'services',
   'products',
+  // Склад (задача 9.2): приходы и закупочные цены зависят от товара.
+  'incoming_products',
+  'buy_product_prices',
   'orders',
   'order_service',
   'order_product',
+  'sales_products_prices',
   'materials',
 ];
 
@@ -76,6 +86,14 @@ class SyncService {
       order_service: orderServiceRepo,
       order_product: orderProductRepo,
       materials: materialsRepo,
+      // Склад (задача 9.2). Таблицы в обоих направлениях:
+      //   • `incoming_products`, `buy_product_prices` — клиент пишет приходом (очередь),
+      //   • `product_stocks` — остаток ведёт сервер, клиент только забирает его выгрузкой.
+      incoming_products: incomingProductsRepo,
+      product_stocks: productStocksRepo,
+      buy_product_prices: buyProductPricesRepo,
+      // Цены продажи по заказам (задача 9.3) — пишет клиент вместе с товаром заказа.
+      sales_products_prices: salesProductPricesRepo,
     };
 
     this.fkTransformationMap = {
@@ -111,6 +129,20 @@ class SyncService {
       // решение D2, клиентский справочник материалов удалён (миграция 023).
       materials: {
         order_id: 'orders'
+      },
+      // Склад (задача 9.2): приход и закупочная цена ссылаются на товар.
+      // По `product_stocks` исходящих операций нет — остаток увеличивает сервер
+      // приходом (`IncomingProductRepository::recordArrival`), поэтому и FK здесь не нужен.
+      incoming_products: {
+        product_id: 'products'
+      },
+      buy_product_prices: {
+        product_id: 'products'
+      },
+      // Цены продажи по заказам (задача 9.3): запись привязана к заказу и товару.
+      sales_products_prices: {
+        order_id: 'orders',
+        product_id: 'products'
       },
       equipment_models: {
         specialization_id: 'specializations'

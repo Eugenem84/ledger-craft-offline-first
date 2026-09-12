@@ -29,8 +29,9 @@ src/
 │   ├── mappers/                  # именованные мапперы позиционных SQL-аргументов (8.3):
 │   │   ├── orders.js             #   заказы (insert/update/fromServer)
 │   │   ├── orderLines.js         #   строки заказа: order_service / order_product / materials
-│   │   └── catalog.js            #   клиенты, работы, модели (создаются из формы заказа)
-│   └── queries/                  # SQL-строки по сущностям (clients, orders, services, …)
+│   │   ├── catalog.js            #   клиенты, работы, модели (создаются из формы заказа)
+│   │   └── warehouse.js          #   склад (9.2/9.3): приходы, остатки, закупочные и продажные цены
+│   └── queries/                  # SQL-строки по сущностям (clients, orders, services, analytics, склад, …)
 ├── repositories/
 │   ├── operationsRepo.js         # очередь операций (enqueue/dequeue/markSending/markPending/markSynced/recoverInFlight)
 │   ├── metaRepo.js               # last_synced_at и пр. метаданные
@@ -44,11 +45,17 @@ src/
 │   ├── modelsRepo.js             # модели техники (equipment_models)
 │   ├── orderServiceRepo.js
 │   ├── orderProductRepo.js       # товары в заказе (order_product)
-│   └── materialsRepo.js          # ручные позиции заказа (таблица `materials`, решение D2)
+│   ├── materialsRepo.js          # ручные позиции заказа (таблица `materials`, решение D2)
+│   ├── incomingProductsRepo.js   # приходы товара + «приходуем» офлайн (9.2)
+│   ├── productStocksRepo.js      # остаток: локально оптимистично, источник истины — сервер (9.2)
+│   ├── buyProductPricesRepo.js   # закупочные цены (9.2; маржа — 9.5)
+│   ├── salesProductPricesRepo.js # цены продажи по заказам (9.3)
+│   └── analyticsRepo.js          # аналитика страницы: только SELECT, очередь синка не трогает (9.1)
 ├── stores/                       # Pinia: useOrdersStore, useOrderDraftStore (черновик заказа, 8.1/8.2),
 │                                 #   useClientsStore, useCategoriesStore, useServicesStore,
 │                                 #   useProductCategoriesStore, useProductsStore,
-│                                 #   useSpecializationsStore, useModelsStore, useAuthStore
+│                                 #   useSpecializationsStore, useModelsStore, useAuthStore,
+│                                 #   useAnalyticsStore (аналитика, 9.1)
 ├── components/
 │   ├── SyncStatusBar.vue         # индикатор сети/синка (6.2)
 │   └── order/                    # компоненты страницы заказа (8.1): OrderHeaderActions,
@@ -248,14 +255,38 @@ return id;
 - ручные позиции материала (`materials`) — «купил на стороне»: `order_id, name, price, amount`;
   клиентский справочник материалов удалён (миграция 023), таблица одна на обеих сторонах.
 
+**Что подключено в 9.2 (склад — приход):**
+- `incoming_products` (приходы) и `buy_product_prices` (закупочные цены) ставит в очередь
+  `incomingProductsRepo.receiveArrival()` — «приходуем товар» из `ArrivalProductDialogPage.vue`
+  (раньше диалог стучался в `POST /arrival_product` через `boot/axios.js` с фиктивным `baseURL`
+  и офлайн не работал вовсе);
+- `product_stocks` (остаток) **ведёт сервер**: приход увеличивает склад ровно один раз
+  (идемпотентность по `uuid_id`), клиент обновляет строку оптимистично и принимает серверное
+  значение выгрузкой (`productStocksRepo.applyServerRecord`, ключ — товар). Исходящих операций
+  по остатку нет — иначе двойной учёт;
+- закупочная цена — одна актуальная строка на товар: незаезженный INSERT переписывается, чтобы
+  на сервер ушла последняя цена, а не первая.
+
+**Что подключено в 9.3 (цены продажи, остаток и цены в UI):**
+- `sales_products_prices` — раньше таблицу не заполнял никто: запись создаётся в момент продажи
+  товара (`orderProductRepo.add()` → `salesProductPricesRepo.add()`), снимается вместе со строкой
+  заказа (delete по `server_id` или отмена незаезженного INSERT); таблица в синке
+  (`order_id` → `orders`, `product_id` → `products`);
+- склад показывает **остаток, закупку, цену продажи и последнюю продажу**: `queries/products.js`
+  джойнит `product_stocks` и скалярными подзапросами достаёт `buy_price`/`last_sale_price`
+  (переносимый SQL — работает и на старом SQLite в Android, и в PostgreSQL);
+- дубль «где лежит товар» убран: в остатке больше нет `product_categories_id`.
+
 **Пробелы:**
 - ✅ `order_service` (задача 3.5): `server_id` у связки по-прежнему пустой (на сервере нет PK),
   поэтому идентичность строки — клиентский UUID (`id` локально ↔ `uuid_id` на сервере).
   `orderServiceRepo.remove*` ставит delete-операцию по натуральному ключу
   `order_server_id + service_server_id`, а `applyServerRecord` матчит строку по `uuid_id` —
   правка заказа больше не оставляет дублей работ на сервере;
-- `incoming_products` / `product_stocks` / `buy_product_prices` / `sales_products_prices`
-  не подключены к офлайн-слою (задачи 9.2/9.3).
+- маржа и наценка (по закупке) — задача **9.5**: закупочная цена на складе уже видна, но
+  «прибыль» в отчётах пока не считается;
+- ⚠️ `/api/arrival_product` на сервере ходит без `auth` (web-версия так и вызывает) — отдельная
+  задача безопасности; приложение эту ручку не использует.
 
 ## 6. Страницы
 
@@ -267,11 +298,36 @@ return id;
   диалогов. Форма разбита на компоненты `src/components/order/*` (шапка, селекторы
   клиента/модели, панели «все»/«работы»/«материалы», списки, редакторы, итоги, 5 диалогов),
   данные и запись — в сторе; прямых вызовов `*Repo` из `*.vue` больше нет (8.2).
+  Кнопка share-ссылки (9.4) — `draft.generateShareLink()`: без `server_id` стор бросает
+  `ORDER_NOT_SYNCED`, а причину отказа («нет интернета», «нужен вход», «ордер не найден»)
+  объясняет чистая функция `src/utils/shareLinkError.js` (тест `test/share-link.test.js`).
   Сумму заказа считают геттеры стора (`servicesTotal + materialsTotal + productsTotal`),
   при обновлении — по-прежнему «удалить всё и добавить заново» для связных таблиц;
   `generateAndCopyLink` переехал в стор (`generateShareLink`) и работает через `apiClient`.
-- **StorePage / CatalogPage / OthersPage / AnalyticPage** — работают через сторы и
-  репозитории.
+  Себестоимость позиций (задачи 9.5/9.6): в редакторах материалов/товаров есть колонка «закупка»
+  (у товара она подставляется из последней закупки склада, у ручной позиции — из формы),
+  у строки считается маржа, а `OrderTotals` показывает «закупка / маржа / наценка»
+  (геттеры стора `costTotal`/`margin`/`markupPercent`; `hasUnknownCost` предупреждает, что в части
+  позиций закупка не указана и маржа «частичная»).
+- **StorePage / CatalogPage / OthersPage** — работают через сторы и репозитории.
+  `StorePage` показывает товары категории с колонками «остаток / закупка / продажа / посл. прод.»:
+  `quantity` берётся из `product_stocks`, `buy_price` — из `buy_product_prices`,
+  `last_sale_price` — из `sales_products_prices` (задача 9.3; раньше `product.quantity`
+  не имел источника и колонка была пустой).
+- **AnalyticPage** (задача 9.1) — аналитика считается по **локальной** БД (офлайн-первый подход):
+  `useAnalyticsStore` → `analyticsRepo` → `database/queries/analytics.js`, правила — в
+  `utils/analytics.js`. Единая методика (та же, что в серверном `StatisticRepository`): учтённый
+  заказ = `status = 'done'` + `paid` + не удалён, выручка = позиции (работы + товары + ручные
+  материалы), период — по `orders.updated_at`, средний чек = выручка / число учтённых заказов.
+  Страница показывает выручку за сегодня/неделю/месяц/год (аналог серверного DWMY), итоги
+  выбранного масштаба (30 дней / 15 недель / 12 месяцев / 5 лет), колонки периодов, распределение
+  по статусам («что сейчас в работе») и топы работ/товаров/материалов. С задач 9.5/9.6 в итогах
+  периода и в топах товаров/материалов есть **себестоимость, маржа и наценка**
+  (`orderCost`/`orderMargin`/`marginPercent` в `utils/analytics.js`, `*_cost`/`margin` в
+  `database/queries/analytics.js`); у работ себестоимости нет — это труд мастера. Тесты:
+  `test/analytics.test.js` (правила) и `test/analytics-repo.test.js` (SQL + стор) — контрольная
+  цифра набора совпадает с серверным `tests/Feature/StatisticRepositoryTest.php` (1700 ₽ выручки,
+  740 ₽ закупки, маржа 960 ₽, наценка 130 %).
 
 ## 7. Известные проблемы (полный список)
 
@@ -335,4 +391,42 @@ return id;
 4. Вычистить debug-мусор, починить 9 ошибок lint (сделано в Фазе 0), выделить компоненты из
    OrderDetailsPage (Фаза 8: страница 300 строк + `components/order/*`, данные — в
    `useOrderDraftStore`, позиционные SQL-параметры — в `database/mappers/*`).
+
+## 9. Рабочие профили (мульти-специализация) и адаптация UI — запланировано (Фаза 10)
+
+Решения **D4**/**D5**, задачи **10.1–10.9** (`docs/PLAN.md`, `TODO.md` §Решения). Схему это не
+меняет — меняется только представление.
+
+**Что уже есть в UI.** Единственное место, где специализация видна пользователю, — селект
+«Выберите специализацию» в `pages/OthersPage.vue` (пишет в `useSpecializationsStore.selectedId`).
+От него зависят: список заказов (`useOrdersStore` → `ordersRepo.getBySpecializationId`), клиенты,
+каталог (`categories`/`services`), категории товаров и модели техники, а также создание заказа
+(`useOrderDraftStore.effectiveSpecializationId`). Маршруты и вкладки от специализации **не зависят**:
+`MainLayout.vue` жёстко рисует «ордеры / склад / каталог / аналитика / другие».
+
+**Что планируется:**
+
+- **Лексикон терминов** (10.1) — один словарь слов (`order`, `part`, `model`, `stock`, `catalog`),
+  а не подписи по месту. Масштаб: в `src/` «заказ» встречается ~86 раз, «товар» — ~42,
+  «модель техники» — ~8; подписи вкладок — в `MainLayout.vue`. Новая папка `src/domain/` (лексикон
+  и пресеты) в структуре §1 ещё не числится — она появится вместе с 10.1/10.4.
+- **Акцент и «лицо» профиля** (10.2) — runtime `setCssVar` (Quasar 2) + иконка/бейдж активной
+  специализации; `quasar.variables.scss` не трогаем, полный ре-скин не делаем (тёмная тема
+  `dark: true` — следим за контрастом).
+- **Видимость вкладок** (10.3) — флаги пресета (`features`); прямые переходы по URL ведут на
+  доступный раздел, а не на пустой экран.
+- **Переключатель профиля в шапке** (10.8) — вместо спрятанного селекта в «Другие»; там же
+  добавление/переименование/**архивирование** (физическое удаление запрещено: у серверных
+  `categories`/`product_categories` FK на `specializations` с `onDelete('cascade')`).
+- **Онбординг** (10.4/10.5) — экран «Начать с шаблона» и регистрация с выбором 1..N специализаций.
+  ⚠️ Регистрации в клиенте сейчас нет вовсе: публичный маршрут только `/login` (`router/routes.js`),
+  а на сервере `AuthController::register` создаёт только `users` и **специализацию не создаёт**.
+- **Поля профиля** (10.6) — `preset_key`, `accent`, `features`, `archived`, `template_version`
+  (локальная миграция `024_*` + серверная миграция). Если оставить их локальными, они не переживут
+  `fullReset` и не приедут на второе устройство.
+
+**Почему это не переделка.** Ось специализации уже сквозная: на сервере `User hasMany Specialization`
+(`specializations.user_id`), на клиенте всё привязано к `specialization_id`, синк фильтрует выдачу
+по владельцу (3.10). Фаза 10 — надстройка, а не рефакторинг (детали — `docs/DATA-MODEL.md`,
+раздел «Рабочие профили…»).
 5. Добавить `.env` (VITE_API_URL), продумать auth и неблокирующий синк + индикатор сети.

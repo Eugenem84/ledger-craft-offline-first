@@ -27,7 +27,9 @@ export async function getByOrderId(orderId) {
 /**
  * Добавляет ручную позицию заказа.
  * @param {string} orderId - локальный id заказа
- * @param {{name?: string, price?: number, amount?: number}} line
+ * @param {{name?: string, price?: number, amount?: number, buy_price?: number|null}} line
+ *   `buy_price` — сколько позиция стоила мастеру (задачи 9.5/9.6): для «купленного по пути»
+ *   закупку взять больше неоткуда, её вводит пользователь
  * @returns {Promise<string>} локальный id строки
  */
 export async function add(orderId, line) {
@@ -35,14 +37,18 @@ export async function add(orderId, line) {
   const name = line.name ?? ''
   const price = line.price ?? 0
   const amount = line.amount ?? 1
+  const buyPrice = line.buy_price ?? null
 
-  await dbAdapter.execute(queries.insert, materialLineInsertParams({ id, orderId, name, price, amount }))
+  await dbAdapter.execute(
+    queries.insert,
+    materialLineInsertParams({ id, orderId, name, price, amount, buyPrice })
+  )
 
   await operationsRepo.enqueue([
     uuidv4(),
     'insert',
     TABLE,
-    JSON.stringify({ local_id: id, order_id: orderId, name, price, amount }),
+    JSON.stringify({ local_id: id, order_id: orderId, name, price, amount, buy_price: buyPrice }),
     Date.now(),
   ])
 
@@ -114,6 +120,7 @@ export async function applyServerRecord(record) {
         name: record.name ?? '',
         price: record.price ?? 0,
         amount: record.amount ?? 1,
+        buyPrice: record.buy_price ?? null,
         createdAt,
         updatedAt,
       })
@@ -128,6 +135,7 @@ export async function applyServerRecord(record) {
         name: record.name ?? '',
         price: record.price ?? 0,
         amount: record.amount ?? 1,
+        buyPrice: record.buy_price ?? null,
         updatedAt,
         serverId: record.id,
       })

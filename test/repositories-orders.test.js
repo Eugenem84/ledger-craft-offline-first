@@ -344,13 +344,19 @@ describe('5.3 orderProductRepo', () => {
 describe('5.3 materialsRepo', () => {
   it('add кладёт ручную позицию и INSERT-операцию', async () => {
     const orderId = await ordersRepo.save({ total_amount: 100 })
-    const lineId = await materialsRepo.add(orderId, { name: 'Клей', price: 300, amount: 2 })
+    const lineId = await materialsRepo.add(orderId, {
+      name: 'Клей',
+      price: 300,
+      amount: 2,
+      buy_price: 50,
+    })
 
     expect(await db.queryOne('SELECT * FROM materials WHERE id = ?', [lineId])).toMatchObject({
       order_id: orderId,
       name: 'Клей',
       price: 300,
       amount: 2,
+      buy_price: 50,
       server_id: null,
     })
 
@@ -361,6 +367,7 @@ describe('5.3 materialsRepo', () => {
       name: 'Клей',
       price: 300,
       amount: 2,
+      buy_price: 50,
     })
   })
 

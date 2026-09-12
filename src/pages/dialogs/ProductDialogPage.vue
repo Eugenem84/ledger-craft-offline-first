@@ -93,6 +93,14 @@ const openArrivalProductDialog = () => {
   arrivalConfirmPage.value.open(currentProduct.value)
 }
 
+/**
+ * Приход сохранён офлайн (задача 9.2): просим список товаров перечитаться —
+ * цена продажи могла измениться, а остаток уже лежит в локальной БД.
+ */
+const handleArrivalSaved = () => {
+  emit('product-saved')
+}
+
 defineExpose({ open })
 </script>
 
@@ -132,7 +140,7 @@ defineExpose({ open })
   </q-dialog>
 
   <DeleteConfirmPage ref="deleteConfirmPage" />
-  <ArrivalProductDialogPage ref="arrivalConfirmPage" />
+  <ArrivalProductDialogPage ref="arrivalConfirmPage" @product-arrival-saved="handleArrivalSaved" />
 </template>
 
 <style scoped></style>

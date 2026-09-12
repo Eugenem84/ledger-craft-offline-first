@@ -203,4 +203,69 @@ describe('8.1 useOrderDraftStore', () => {
     expect(draft.model).toMatchObject({ id: created.id, name: 'Kia Rio' })
     expect(draft.models.map(model => model.id)).toContain(created.id)
   })
+
+  it('себестоимость позиций: маржа/наценка заказа и buy_price в очереди синка (9.5/9.6)', async () => {
+    const { clientId, productId } = await seedCatalog()
+
+    const draft = useOrderDraftStore()
+    await draft.init({ create: true })
+    draft.client = { id: clientId, name: 'Иван', phone: '123' }
+
+    // Ручная позиция: закупку вводит мастер (взять её больше неоткуда).
+    draft.addMaterial({ name: 'Герметик', price: 200, amount: 2, buy_price: 50 })
+    // Товар со склада: закупка приезжает из последней закупки (`buy_price`, задача 9.3).
+    draft.selectedStoreProduct = {
+      id: productId,
+      name: 'Фильтр',
+      base_sale_price: 1000,
+      buy_price: 700,
+    }
+    draft.addProductFromStore()
+
+    expect(draft.materialsCost).toBe(100) // 2 × 50
+    expect(draft.productsCost).toBe(700) // 1 × 700
+    expect(draft.costTotal).toBe(800)
+    expect(draft.totalAmount).toBe(1400) // 2×200 + 1×1000
+    expect(draft.margin).toBe(600) // 1400 − 800
+    expect(draft.markupPercent).toBe(75) // 600 / 800
+    expect(draft.hasUnknownCost).toBe(false)
+
+    const orderId = await draft.createOrder()
+
+    // На сервер уезжает себестоимость — иначе маржа там считалась бы как «выручка = прибыль».
+    const operations = await db.query('SELECT * FROM operations')
+    const materialOp = operations.find(op => op.table === 'materials')
+    const productOp = operations.find(op => op.table === 'order_product')
+
+    expect(JSON.parse(materialOp.payload)).toMatchObject({ price: 200, amount: 2, buy_price: 50 })
+    expect(JSON.parse(productOp.payload)).toMatchObject({
+      sale_price: 1000,
+      quantity: 1,
+      buy_price: 700,
+    })
+
+    // И сохраняется локально: маржа видна и после перезагрузки заказа.
+    expect(await db.queryOne('SELECT buy_price FROM materials WHERE order_id = ?', [orderId])).toMatchObject({ buy_price: 50 })
+    expect(await db.queryOne('SELECT buy_price FROM order_product WHERE order_id = ?', [orderId])).toMatchObject({ buy_price: 700 })
+  })
+
+  it('позиция без закупки: маржа равна выручке, наценка не определена (9.5/9.6)', async () => {
+    const { clientId } = await seedCatalog()
+
+    const draft = useOrderDraftStore()
+    await draft.init({ create: true })
+    draft.client = { id: clientId, name: 'Иван', phone: '123' }
+    draft.addMaterial({ name: 'Изолента', price: 100, amount: 1 })
+
+    expect(draft.costTotal).toBe(0)
+    expect(draft.margin).toBe(100)
+    expect(draft.markupPercent).toBeNull()
+    expect(draft.hasUnknownCost).toBe(true)
+
+    // Мастер стёр поле «закупка» в редакторе: это «не знаю», а не «себестоимость 0».
+    draft.updateMaterialLine(0, 'buy_price', '')
+    expect(draft.materials[0].buy_price).toBeNull()
+    expect(draft.hasUnknownCost).toBe(true)
+    expect(draft.markupPercent).toBeNull()
+  })
 })

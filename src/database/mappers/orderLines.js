@@ -101,17 +101,20 @@ export function orderServiceLineUpdateFromServerParams({
 /**
  * `queries.order_product.insert` — товар со склада в заказе.
  *
- * @param {{ id: string, orderId: string, productId: string, salePrice: number, quantity: number }} input
+ * `buyPrice` — себестоимость на момент продажи (задачи 9.5/9.6): `null` значит
+ * «закупка неизвестна» (маржа по строке не считается), а не «закупка 0».
+ *
+ * @param {{ id: string, orderId: string, productId: string, salePrice: number, buyPrice: number|null, quantity: number }} input
  * @returns {Array<string|number|null>}
  */
-export function orderProductLineInsertParams({ id, orderId, productId, salePrice, quantity }) {
-  return [id, orderId, productId, salePrice, quantity]
+export function orderProductLineInsertParams({ id, orderId, productId, salePrice, buyPrice, quantity }) {
+  return [id, orderId, productId, salePrice, quantity, buyPrice ?? null]
 }
 
 /**
  * `queries.order_product.insertFromServer`.
  *
- * @param {{ localId: string, serverId: number, localOrderId: string, localProductId: string, salePrice: number, quantity: number, createdAt: number, updatedAt: number }} input
+ * @param {{ localId: string, serverId: number, localOrderId: string, localProductId: string, salePrice: number, buyPrice: number|null, quantity: number, createdAt: number, updatedAt: number }} input
  * @returns {Array<string|number|null>}
  */
 export function orderProductLineInsertFromServerParams({
@@ -120,37 +123,57 @@ export function orderProductLineInsertFromServerParams({
   localOrderId,
   localProductId,
   salePrice,
+  buyPrice,
   quantity,
   createdAt,
   updatedAt,
 }) {
-  return [localId, serverId, localOrderId, localProductId, salePrice, quantity, createdAt, updatedAt]
+  return [
+    localId,
+    serverId,
+    localOrderId,
+    localProductId,
+    salePrice,
+    quantity,
+    buyPrice ?? null,
+    createdAt,
+    updatedAt,
+  ]
 }
 
 /**
  * `queries.order_product.updateFromServer` (`WHERE server_id = ?` — последний параметр).
  *
- * @param {{ salePrice: number, quantity: number, updatedAt: number, serverId: number }} input
- * @returns {Array<number>}
+ * @param {{ salePrice: number, buyPrice: number|null, quantity: number, updatedAt: number, serverId: number }} input
+ * @returns {Array<number|null>}
  */
-export function orderProductLineUpdateFromServerParams({ salePrice, quantity, updatedAt, serverId }) {
-  return [salePrice, quantity, updatedAt, serverId]
+export function orderProductLineUpdateFromServerParams({
+  salePrice,
+  buyPrice,
+  quantity,
+  updatedAt,
+  serverId,
+}) {
+  return [salePrice, quantity, buyPrice ?? null, updatedAt, serverId]
 }
 
 /**
  * `queries.materials.insert` — ручная позиция заказа (`name/price/amount`).
  *
- * @param {{ id: string, orderId: string, name: string, price: number, amount: number }} input
+ * `buyPrice` — сколько позиция стоила мастеру (задачи 9.5/9.6): вводится в форме,
+ * потому что для «купленного по пути» закупку взять больше неоткуда.
+ *
+ * @param {{ id: string, orderId: string, name: string, price: number, amount: number, buyPrice: number|null }} input
  * @returns {Array<string|number|null>}
  */
-export function materialLineInsertParams({ id, orderId, name, price, amount }) {
-  return [id, orderId, name, price, amount]
+export function materialLineInsertParams({ id, orderId, name, price, amount, buyPrice }) {
+  return [id, orderId, name, price, amount, buyPrice ?? null]
 }
 
 /**
  * `queries.materials.insertFromServer`.
  *
- * @param {{ localId: string, serverId: number, localOrderId: string, orderServerId: number, name: string, price: number, amount: number, createdAt: number, updatedAt: number }} input
+ * @param {{ localId: string, serverId: number, localOrderId: string, orderServerId: number, name: string, price: number, amount: number, buyPrice: number|null, createdAt: number, updatedAt: number }} input
  * @returns {Array<string|number|null>}
  */
 export function materialLineInsertFromServerParams({
@@ -161,18 +184,37 @@ export function materialLineInsertFromServerParams({
   name,
   price,
   amount,
+  buyPrice,
   createdAt,
   updatedAt,
 }) {
-  return [localId, serverId, localOrderId, orderServerId, name, price, amount, createdAt, updatedAt]
+  return [
+    localId,
+    serverId,
+    localOrderId,
+    orderServerId,
+    name,
+    price,
+    amount,
+    buyPrice ?? null,
+    createdAt,
+    updatedAt,
+  ]
 }
 
 /**
  * `queries.materials.updateFromServer` (`WHERE server_id = ?` — последний параметр).
  *
- * @param {{ name: string, price: number, amount: number, updatedAt: number, serverId: number }} input
- * @returns {Array<string|number>}
+ * @param {{ name: string, price: number, amount: number, buyPrice: number|null, updatedAt: number, serverId: number }} input
+ * @returns {Array<string|number|null>}
  */
-export function materialLineUpdateFromServerParams({ name, price, amount, updatedAt, serverId }) {
-  return [name, price, amount, updatedAt, serverId]
+export function materialLineUpdateFromServerParams({
+  name,
+  price,
+  amount,
+  buyPrice,
+  updatedAt,
+  serverId,
+}) {
+  return [name, price, amount, buyPrice ?? null, updatedAt, serverId]
 }

@@ -29,6 +29,7 @@ import * as modelsRepo from 'src/repositories/modelsRepo.js'
 
 import { apiClient } from 'src/services/api.js'
 import { logger } from 'src/utils/logger'
+import { ORDER_NOT_SYNCED } from 'src/utils/shareLinkError.js'
 import { useOrdersStore } from 'src/stores/useOrdersStore.js'
 import { useModelsStore } from 'src/stores/useModelsStore.js'
 import { useCategoriesStore } from 'src/stores/useCategoriesStore.js'
@@ -95,6 +96,38 @@ export const useOrderDraftStore = defineStore('orderDraft', {
     totalAmount() {
       return this.servicesTotal + this.materialsTotal + this.productsTotal
     },
+    /**
+     * Себестоимость позиций заказа (задачи 9.5/9.6): закупка × количество по товарам
+     * со склада и по ручным позициям. У работ себестоимости нет — это труд мастера,
+     * поэтому в стоимость они не входят (так же считает серверный `StatisticRepository`).
+     */
+    materialsCost: state =>
+      state.materials.reduce(
+        (sum, material) => sum + Number(material.buy_price || 0) * Number(material.amount || 0),
+        0
+      ),
+    productsCost: state =>
+      state.products.reduce(
+        (sum, product) => sum + Number(product.buy_price || 0) * Number(product.amount || 0),
+        0
+      ),
+    costTotal() {
+      return this.materialsCost + this.productsCost
+    },
+    /** Маржа заказа = выручка − себестоимость (сходится с суммой позиций). */
+    margin() {
+      return this.totalAmount - this.costTotal
+    },
+    /** Наценка в % к себестоимости; `null` — если себестоимости в заказе нет. */
+    markupPercent() {
+      return this.costTotal > 0 ? Math.round((this.margin / this.costTotal) * 100) : null
+    },
+    /**
+     * Есть ли позиции без закупки: маржа тогда «частичная» (неизвестная себестоимость
+     * считается нулевой), и об этом честнее сказать в итогах, чем показывать цифру как точную.
+     */
+    hasUnknownCost: state =>
+      [...state.materials, ...state.products].some(line => line.buy_price == null),
   },
 
   actions: {
@@ -205,8 +238,12 @@ export const useOrderDraftStore = defineStore('orderDraft', {
       this.services.splice(index, 1)
     },
 
-    addMaterial({ name, price, amount }) {
-      this.materials.push({ id: uuidv4(), name, price, amount })
+    /**
+     * Добавляет ручную позицию в черновик.
+     * @param {{name: string, price: number, amount: number, buy_price?: number|null}} line
+     */
+    addMaterial({ name, price, amount, buy_price }) {
+      this.materials.push({ id: uuidv4(), name, price, amount, buy_price: buy_price ?? null })
     },
 
     removeMaterial(index) {
@@ -215,17 +252,20 @@ export const useOrderDraftStore = defineStore('orderDraft', {
 
     updateMaterialLine(index, field, value) {
       const line = this.materials[index]
-      if (line) line[field] = value
+      if (line) line[field] = this._normalizeLineField(field, value)
     },
 
     addProductFromStore() {
       const product = this.selectedStoreProduct
       if (!product) return
+      // Себестоимость берём из последней закупки товара (склад отдаёт её как `buy_price`,
+      // задача 9.3) — это и есть «закупка на момент продажи» (задачи 9.5/9.6).
       this.products.push({
         ...product,
         product_id: product.id,
         price: product.base_sale_price,
         amount: 1,
+        buy_price: product.buy_price ?? null,
       })
       this.selectedStoreProduct = null
     },
@@ -236,7 +276,20 @@ export const useOrderDraftStore = defineStore('orderDraft', {
 
     updateProductLine(index, field, value) {
       const line = this.products[index]
-      if (line) line[field] = value
+      if (line) line[field] = this._normalizeLineField(field, value)
+    },
+
+    /**
+     * Приводит правку строки к домену: пустое поле «закупка» — это «не знаю» (`null`),
+     * а не 0. Иначе очищенное поле выглядело бы как «себестоимость 0» и маржа заказа
+     * показывалась бы точной (задачи 9.5/9.6).
+     */
+    _normalizeLineField(field, value) {
+      if (field === 'buy_price' && (value === '' || value == null)) {
+        return null
+      }
+
+      return value
     },
 
     // --- Быстрое создание связанных сущностей из формы ---
@@ -310,15 +363,22 @@ export const useOrderDraftStore = defineStore('orderDraft', {
         await orderServiceRepo.add(orderId, service.id)
       }
       for (const material of this.materials) {
-        // Ручная позиция заказа: на сервере это строка `materials` (name/price/amount).
+        // Ручная позиция заказа: на сервере это строка `materials` (name/price/amount/buy_price).
         await materialsRepo.add(orderId, {
           name: material.name,
           price: material.price,
           amount: material.amount,
+          buy_price: material.buy_price ?? null,
         })
       }
       for (const product of this.products) {
-        await orderProductRepo.add(orderId, product.id, product.amount, product.price)
+        await orderProductRepo.add(
+          orderId,
+          product.id,
+          product.amount,
+          product.price,
+          product.buy_price ?? null
+        )
       }
 
       return orderId
@@ -386,10 +446,23 @@ export const useOrderDraftStore = defineStore('orderDraft', {
     },
 
     /**
-     * Публичная share-ссылка на отчёт (задача 9.4): требует онлайн и `server_id`.
+     * Публичная share-ссылка на отчёт (задача 9.4).
+     *
+     * Ссылку выдаёт сервер и только владельцу заказа (маршрут под `auth:sanctum`),
+     * поэтому заказ обязан быть синхронизированным: без `server_id` серверу нечего
+     * открывать. Причина неудачи кодируется (`ORDER_NOT_SYNCED`), а текст для
+     * пользователя и остальные случаи (офлайн/401/404) — в `utils/shareLinkError.js`.
+     *
      * @returns {Promise<string>} url
+     * @throws {Error & { code: string }} `ORDER_NOT_SYNCED` — у заказа ещё нет `server_id`
      */
     async generateShareLink() {
+      if (!this.order?.server_id) {
+        const error = new Error('Ордер ещё не синхронизирован')
+        error.code = ORDER_NOT_SYNCED
+        throw error
+      }
+
       const { data } = await apiClient.post(`/order-report/${this.order.server_id}/share-link`)
       return data.url
     },

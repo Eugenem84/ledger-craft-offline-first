@@ -10,12 +10,15 @@ const props = defineProps({
 
 const emit = defineEmits(['update:modelValue', 'submit', 'invalid'])
 
-const form = ref({ name: '', price: 0, amount: 0 })
+/** Черновик формы: «закупка» — себестоимость ручной позиции (задачи 9.5/9.6, решение D2). */
+const emptyForm = () => ({ name: '', price: 0, amount: 0, buyPrice: 0 })
+
+const form = ref(emptyForm())
 
 watch(
   () => props.modelValue,
   isOpen => {
-    if (isOpen) form.value = { name: '', price: 0, amount: 0 }
+    if (isOpen) form.value = emptyForm()
   }
 )
 
@@ -25,13 +28,21 @@ const submit = () => {
   const name = String(form.value.name || '').trim()
   const price = Number(form.value.price)
   const amount = Number(form.value.amount)
+  const buyPrice = Number(form.value.buyPrice)
 
   if (!name || !(price > 0) || !(amount > 0)) {
     emit('invalid')
     return
   }
 
-  emit('submit', { name, price, amount })
+  // Закупка необязательна: `null` означает «не знаю», и маржа по строке не считается
+  // (это честнее, чем подставить 0 и показать «всё — прибыль»).
+  emit('submit', {
+    name,
+    price,
+    amount,
+    buy_price: buyPrice > 0 ? buyPrice : null,
+  })
   close()
 }
 </script>
@@ -69,6 +80,16 @@ const submit = () => {
           color="yellow"
           type="number"
           outlined
+          class="q-mb-md"
+        />
+        <q-input
+          v-model.number="form.buyPrice"
+          label="Закупка (за 1 шт.)"
+          label-color="yellow"
+          color="yellow"
+          type="number"
+          outlined
+          hint="себестоимость: если оставить 0, маржа по позиции не считается"
         />
       </q-card-section>
       <q-card-actions align="right">

@@ -168,16 +168,35 @@ Headers: X-Sync-ID: <uuid устройства>
 }
 ```
 
-Валидация: `product_id` — обязателен, должен существовать в `product_stocks.product_id`.
-Сервер выполняет **три действия**:
-1. `ProductRepository::arrivalUpdate(productId, baseSalePrice)` — обновляет `products.base_sale_price`;
-2. `ProductStockRepository::arrival(productId, arrivalQuantity)` — увеличивает `product_stocks.quantity`;
-3. `IncomingProductRepository::newIncome(productId, arrivalQuantity, byPrice, supplier)` — пишет в `incoming_products`.
+Валидация: `product_id` — обязателен, должен существовать в `products`
+(строки остатка у товара может ещё не быть — товар мог приехать из синка, задача 9.2);
+`arrival_quantity` — целое ≥ 1.
 
-Возврат: по коду нет явного `return` → Laravel вернёт пустой ответ (200).
+Сервер выполняет всё **в одной транзакции**:
+1. `IncomingProductRepository::recordArrival(...)` — пишет `incoming_products`; если приход
+   с таким `uuid_id` уже есть, строку только правит;
+2. `ProductStockRepository::arrival(...)` — создаёт строку остатка при необходимости и
+   увеличивает `product_stocks.quantity` **ровно один раз** (не при повторе);
+3. `ProductRepository::arrivalUpdate(productId, baseSalePrice)` — если передана цена продажи.
 
-⚠️ На фронте есть UI (`ArrivalProductDialogPage.vue`), но он ходит сюда через `boot/axios.js`
-с фиктивным `baseURL: https://api.example.com` — фактически не работает (задача 9.2).
+Идемпотентность — по `uuid_id` (его присылает приложение; web может не присылать — тогда
+два запроса = два прихода, как и раньше).
+
+Возврат (201 при новом приходе, 200 при повторе):
+
+```json
+{
+  "message": "Приход сохранён",
+  "idempotent": false,
+  "incoming_product_id": 7, "product_id": 12, "quantity": 10, "stock_quantity": 10
+}
+```
+
+✅ Приложение эту ручку **больше не вызывает**: приход сохраняется офлайн
+(`incomingProductsRepo.receiveArrival` → локальные таблицы + очередь синка), а остаток
+считает сервер при обработке операции `incoming_products` (задача 9.2).
+⚠️ Ручка ходит **без `auth`** (как и раньше): web-версия вызывает её без токена, поэтому
+приходовать товар «на удачу» может кто угодно — закрытие вынесено в отдельную задачу.
 
 ### 2.4. Прочие используемые роуты
 
@@ -191,11 +210,24 @@ Headers: X-Sync-ID: <uuid устройства>
 | GET | `/api/get_materials_by_order/{orderId}` | `MaterialController::getMaterialsByOrder` |
 | POST | `/api/order-report/{order}/share-link` | `OrderController::generateShareLink` |
 | GET | `/api/orders_by_specialization/{id}` | `OrderController::getBySpecialization` |
-| GET | `/api/get_total_DWYM/{specializationId}` и др. `/api/get_top_*` | `StatisticController` |
+| GET | `/api/get_total_DWYM/{specializationId}`, `/api/get_top_services/{specializationId}`, `/api/get_top_profit_clients/{specializationId}`, `/api/get_top_products/{specializationId}`, `/api/get_top_materials/{specializationId}`, `/api/get_orders_status/{specializationId}`, `/api/income_by_year/{specializationId}` | `StatisticController` (единая методика — §4.16) |
 | GET | `/api/app-quasar-android-version`, `/api/download-apk`, `/api/hcp/chcp.json` | `AppVersionController` |
 
-`share-link` возвращает `{ "url": "..." }`; используется в `OrderDetailsPage.vue:generateAndCopyLink`
-(раньше — баг с неимпортированной `api`, исправлено в задаче 0.4).
+> Страница аналитики приложения эти ручки **не вызывает**: она считает по локальной БД
+> (`analyticsRepo` + `src/utils/analytics.js`, задача 9.1) — офлайн-первый подход. Серверные
+> отчёты нужны web-версии и сверке цифр: методика на обеих сторонах одна и та же.
+
+`share-link` возвращает `{ "url": "..." }`; вызывается из стора заказа
+(`useOrderDraftStore.generateShareLink`, задача 9.4) — прямых вызовов из `*.vue` нет (8.2).
+Маршрут под `auth:sanctum` и отдаёт ссылку **только владельцу** заказа (на чужой/несуществующий
+заказ — 404: перебор id не должен выдавать чужие отчёты). Повторный запрос возвращает **ту же**
+ссылку (токен создаётся один раз), поэтому ранее отправленные клиенту ссылки не ломаются.
+
+Ссылка открывает **публичную** Blade-страницу `GET /order-report/{order}?token=...`: доступ даёт
+именно `token`, без него или с чужим — 404 (раньше параметр игнорировался и отчёт читался по
+одному `id`). `share_token` — **серверное** поле: из payload синка оно вырезается
+(`SyncController::stripClientFields`), иначе правка заказа с клиента (у него токена нет, он
+прислал бы `null`) затирала бы уже выданную ссылку.
 
 ## 3. Ожидания сервера от клиента (FK по таблицам)
 
@@ -235,7 +267,8 @@ Headers: X-Sync-ID: <uuid устройства>
    конверсии). ✅ согласовано (задача 2.3).
 6. **`orders` при синке:** сервер берёт только часть колонок
    (`specialization_id, client_id, hours, minutes, total_amount, comments`) — поля
-   `status, paid, model_id, share_token` при **insert** из синка теряются.
+   `status, paid, model_id` при **insert** из синка теряются; `share_token` не принимает
+   ни insert, ни update — это сознательно **серверное** поле публичной ссылки (задача 9.4).
 7. ✅ **Частичный откат `/sync` (SAVEPOINT, перенос из Go — задача 3.11):** каждая операция
    обёрнута в `SAVEPOINT sync_op`, при ошибке — `ROLLBACK TO SAVEPOINT`, поэтому битая операция
    не «вешает» транзакцию на PostgreSQL и не откатывает остальной батч.
@@ -250,10 +283,12 @@ Headers: X-Sync-ID: <uuid устройства>
     с `Invalid operation structure or table.`
 11. ✅ **Семантика `materials` сведена** (D2, 3.4): и на клиенте, и на сервере под этим именем —
     **строки материалов заказа**. `LedgerCraftDocker03/docs/DB.md` описывает `materials` верно.
-    Осталось продуктовое расширение (`buy_price` для маржи) — задачи 9.5/9.6.
+    ✅ Продуктовое расширение сделано (9.5/9.6): в обеих позициях заказа (`order_product` и
+    `materials`) есть `buy_price` — себестоимость на момент продажи, из неё считается маржа.
 12. ✅ **Владелец заказа из синка (задача 3.10): исправлено** — `orders.user_id` теперь проставляется
-    из токена. По-прежнему теряются `status`, `paid`, `model_id`, `share_token`, `user_order_number`
-    (см. п. 6) — статистика (`status='done'`, `paid=1`) такие заказы не увидит, это отдельная работа.
+    из токена. По-прежнему теряются `status`, `paid`, `model_id`, `user_order_number`
+    (см. п. 6) — статистика (`status='done'`, `paid=1`) такие заказы не увидит, это отдельная работа;
+    `share_token` — иное: его сервер **не принимает сознательно** (9.4), это его собственное поле.
 13. ✅ **Удаления доезжают (задача 3.9): исправлено.** Soft-delete по схеме + `sync_tombstones`
     для остальных таблиц; `sync-updates` отдаёт `deleted: true`/`deleted_at`, клиент применяет
     удаление и снимает «висящие» операции (удаление заказа убирает его строки каскадом).
@@ -267,9 +302,18 @@ Headers: X-Sync-ID: <uuid устройства>
     нет `api_token`) — тупик рядом с рабочим `auth:sanctum`; `MaterialController::create` не зароутен
     и вызывает `createMaterial($data, $orderId)` при сигнатуре `createMaterial($orderId, array $data)`;
     scaffold `app/Http/Controllers/Auth/*`.
-16. **Три методики «выручки»** в `StatisticRepository`: `SUM(CAST(services.price AS numeric))`,
-    `SUM(order_service.quantity * sale_price)`, `SUM(orders.total_amount)` (последнее — без фильтров
-    `paid/status`) → цифры на одном экране не сойдутся.
+16. ✅ **Три методики «выручки» (задача 9.1): исправлено.** Методика теперь одна и живёт в одном
+    месте — `StatisticRepository::billedOrdersSubquery()`: учитываются только «учтённые» заказы
+    (`status = 'done'`, `paid = true`, `deleted_at IS NULL`), выручка — сумма позиций (работы
+    `order_service.quantity * sale_price` + товары `order_product.quantity * sale_price` + ручные
+    материалы `materials.amount * price`), период — по `orders.updated_at`, цена позиции важнее
+    каталожной `services.price`. Через этот подзапрос считаются DWMY, топы (услуги/клиенты/товары/
+    материалы), `getStatsByPeriod` (теперь ещё и средний чек: выручка / число учтённых заказов) и
+    выручка по дням/неделям/месяцам/году — цифры сходятся между собой. Добавлены ручки
+    `/api/get_top_products`, `/api/get_top_materials`, `/api/get_orders_status`. Тест:
+    `tests/Feature/StatisticRepositoryTest.php`. Клиент считает аналитику **локально** по той же
+    методике (см. §2.4) — `src/utils/analytics.js`, страница `AnalyticPage.vue`,
+    тесты `test/analytics.test.js` + `test/analytics-repo.test.js` (контрольные цифры совпадают).
 17. ✅ **`services.price` (задача 3.12): исправлено.** Миграция
     `2026_09_15_000000_services_price_to_integer` привела колонку к `integer` (нечисловое → 0,
     десятичные округляются), `CAST(... AS numeric)` из `StatisticRepository` убран, payload синка
@@ -277,10 +321,14 @@ Headers: X-Sync-ID: <uuid устройства>
     `integer`: единый стандарт «рубли целыми» соблюдён.
 18. **`fetchUpdates` без `limit`/пагинации** — после долгого офлайна устройство получает таблицу
     целиком (память/трафик). Курсор выдачи и анти-эхо уже на месте (задачи 3.6), лимиты — нет.
-19. **Склад:** остаток ведётся по товару (`product_stocks.product_id`), но строка дублирует
-    категорию (`product_stocks.product_categories_id` vs `products.product_category_id` —
-    два источника «где лежит»); `buy_product_prices`/`sales_products_prices` не читаются ни в одном
-    расчёте → маржа не считается (задачи 9.3, 9.5).
+19. ✅ **Склад (задача 9.3): исправлено.** Дубль источника убран — `product_stocks.product_categories_id`
+    удалён (миграция `2026_09_16_000000`), «где лежит товар» знает только
+    `products.product_category_id`; список склада собирается из товаров (`LEFT JOIN` остатка, товар без
+    строки виден с нулём, soft-deleted исключены). `buy_product_prices` и `sales_products_prices`
+    теперь **читаются**: `/api/get_products/{id}` отдаёт `quantity`, `buy_price`, `last_sale_price`;
+    приложение фиксирует цену продажи в момент продажи товара и показывает на складе
+    остаток/закупку/продажу/последнюю продажу. Остаётся задача 9.5: маржа и наценка по закупке в
+    отчётах пока не считаются.
 20. ✅ **Go-сайдкар `sync/` (задача 3.11): вынесен из проекта** (решение D1). Код (`sync/`,
     `_docker/sync/`) и сервис `sync` из `docker-compose.yaml` удалены, копия — в песочнице
     `../ledger-craft-go-sync-sandbox`. Единственный транспорт — `/api/sync` + `/api/sync-updates`;
@@ -306,11 +354,14 @@ Headers: X-Sync-ID: <uuid устройства>
 | 3.5 ✅ | идемпотентность: `uuid_id` (unique) на синкаемых таблицах + «найти или вставить/обновить»; явный ответ по каждой операции; `order_service` — по `order_id + service_id`; тест `SyncControllerTest` | миграции, `SyncController`, `tests/Feature` |
 | 3.6 ✅ | колонки `last_sync_id` (анти-эхо) + простановка в `SyncController` (включая `order_service`) | миграции, `SyncController`, тесты |
 | 3.4 ✅ | `order_product` и ручные позиции материалов в синк (по D2) | `SyncController`, миграции — **правок не потребовалось**: обе таблицы уже в `$tables`, timestamps есть, generic-путь insert/update/delete/fetch работает |
-| 9.2 | `arrival_product`: явный ответ + идемпотентность | `ProductController` |
-| 9.3 | цены/остатки: убрать дубль `product_stocks.product_categories_id` | `ProductStock*` |
+| 9.2 ✅ | приход: офлайн-очередь на клиенте (`receiveArrival` → `incoming_products` + `buy_product_prices` + цена товара), сервер — явный ответ, транзакция, идемпотентность по `uuid_id`, остаток увеличивается ровно один раз (строка остатка создаётся по требованию), синк-путь закрыт владельцем | `ProductController::arrival`, `IncomingProductRepository`, `ProductStockRepository`, `SyncController` (ветка `incoming_products`), `tests/Feature/ArrivalProductTest.php` |
+| 9.3 ✅ | склад: дубль `product_stocks.product_categories_id` удалён (миграция `2026_09_16_000000`), список категории собирается из товаров, товар из синка получает строку остатка (0), `buy_price`/`last_sale_price` читаются в выдаче товаров; на клиенте `sales_products_prices` пишется при продаже товара и синкается, склад показывает остаток/закупку/продажу | `ProductStockRepository`, `ProductRepository`, `ProductController`, `SyncController`, `tests/Feature/ProductStockTest.php`, `salesProductPricesRepo`, `queries/products.js`, `StorePage.vue` |
 | 9.5 | маржа: `buy_price` в позициях заказа + расчёт | миграции, `StatisticRepository` |
+| 9.4 ✅ | публичная share-ссылка: `share-link` под `auth:sanctum` + владелец (404 на чужой заказ), токен создаётся один раз; `showReport` открывает отчёт **только по `token`** (без/с чужим → 404); `share_token` вырезается из payload синка (серверное поле) | `routes/api.php`, `OrderController`, `SyncController`, `resources/views/order-report.blade.php`, `tests/Feature/OrderShareLinkTest.php` |
+| 9.5 ✅ | маржа/наценка: `buy_price` в `order_product` и `materials` (миграция `2026_09_17_000000`), себестоимость попадает в позицию из payload клиента, иначе подставляется `ProductRepository::lastBuyPrice()` (`buy_product_prices` → приход); деньги нормализуются; маржа/наценка в DWMY, `getStatsByPeriod`, топах (товары/материалы/клиенты); web-путь `OrderRepository` пишет `buy_price` сам | миграция, `SyncController`, `StatisticRepository`, `OrderRepository`, `ProductRepository`, `tests/Feature/{SyncControllerTest,StatisticRepositoryTest}.php` |
+| 9.6 ✅ | одна таблица материалов заказа на обеих сторонах: `materials` (+`buy_price`), клиентский справочник и `order_material` отсутствуют (023/024); сквозная проверка «уезжает офлайн → приезжает на второе устройство» вместе с себестоимостью; попутно исправлено падение применения записи заказа с неполным набором полей (`undefined` в bind) | миграции 023/024 + `2026_09_17_000000`, `mappers/orders.js`, `materialsRepo`, `test/sync.test.js`, `docs/DATA-MODEL.md`, `docs/DB.md` |
 | 9.6 | ручные позиции материалов: одна таблица на обеих сторонах | миграции, `Material*`, `docs/DB.md` |
-| 9.1 | свести методику «выручки» к одной | `StatisticRepository` |
+| 9.1 ✅ | свести методику «выручки» к одной: `billedOrdersSubquery()` — `status='done'` + `paid` + не удалён, выручка = позиции (работы + товары + материалы), средний чек; топы товаров/материалов и распределение по статусам | `StatisticRepository`, `StatisticController`, `routes/api.php`, `tests/Feature/StatisticRepositoryTest.php` |
 | 7.6 | гигиена API: дубли/мёртвые роуты, scaffold `Auth/*`, `auth:api` | `routes/api.php`, `app/Http/Controllers/Auth/*` |
 | 5.6 | тесты `SyncController` (PHPUnit) | `tests/Feature` |
 

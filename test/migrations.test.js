@@ -96,6 +96,53 @@ describe('5.5 Миграции локальной БД', () => {
     expect(columns).not.toContain('price')
   })
 
+  it('buy_price в позициях заказа: обе позиции (9.5/9.6)', async () => {
+    const adapter = await setupTestDb()
+
+    // Себестоимость на момент продажи: у товара со склада и у ручной позиции.
+    // У работ (`order_service`) её нет — это труд мастера, маржа равна цене позиции.
+    expect(await columnNames(adapter, 'order_product')).toContain('buy_price')
+    expect(await columnNames(adapter, 'materials')).toContain('buy_price')
+    expect(await columnNames(adapter, 'order_service')).not.toContain('buy_price')
+  })
+
+  it('миграция 024 идемпотентна на «старой» БД и не портит данные', async () => {
+    const adapter = await createSqlJsAdapter()
+    await adapter.init()
+
+    // Имитируем БД «до 9.5»: те же таблицы, но без `buy_price` (как было до миграции).
+    await adapter.execute(`
+      CREATE TABLE order_product (
+        id TEXT PRIMARY KEY, server_id BIGINT, order_id TEXT NOT NULL, product_id TEXT NOT NULL,
+        sale_price INTEGER NOT NULL, quantity INTEGER NOT NULL, created_at INTEGER, updated_at INTEGER, deleted_at INTEGER
+      )
+    `)
+    await adapter.execute(`
+      CREATE TABLE materials (
+        id TEXT PRIMARY KEY, server_id INTEGER, order_id TEXT, order_server_id INTEGER,
+        name TEXT, price REAL, amount INTEGER, created_at INTEGER, updated_at INTEGER, deleted_at INTEGER
+      )
+    `)
+    await adapter.execute(
+      "INSERT INTO order_product (id, order_id, product_id, sale_price, quantity) VALUES ('op-1', 'o-1', 'p-1', 1000, 2)"
+    )
+    await adapter.execute(
+      "INSERT INTO materials (id, order_id, name, price, amount) VALUES ('m-1', 'o-1', 'Клей', 200, 1)"
+    )
+
+    // Миграцию зовём напрямую: в списке она уже «применена» только на чистой БД.
+    const migration = (await import('src/database/migrations/024_order_lines_buy_price.js')).default
+
+    await migration.up(adapter)
+    await migration.up(adapter) // повтор — колонки уже есть, ошибки быть не должно
+
+    expect(await columnNames(adapter, 'order_product')).toContain('buy_price')
+    expect(await columnNames(adapter, 'materials')).toContain('buy_price')
+    // Данные на месте: закупка пока неизвестна (`NULL`), а не нулевая.
+    const line = await adapter.queryOne('SELECT * FROM order_product WHERE id = ?', ['op-1'])
+    expect(line).toMatchObject({ sale_price: 1000, quantity: 2, buy_price: null })
+  })
+
   it('operations имеет status и updated_at (3.3), версия схемы записана в БД (4.5)', async () => {
     const adapter = await setupTestDb()
     const columns = await columnNames(adapter, 'operations')

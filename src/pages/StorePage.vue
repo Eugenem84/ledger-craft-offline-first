@@ -108,6 +108,17 @@ const handleProductSaved = async () => {
 
   </div>
 
+  <!-- Остаток и цены товаров (задача 9.3): `quantity` — из `product_stocks`,
+       `buy_price` — из `buy_product_prices`, `last_sale_price` — из `sales_products_prices`.
+       Всё это приходит из `queries/products.js` (склад был без источника остатка). -->
+  <div class="row text-caption text-grey-6 q-px-md q-pt-sm">
+    <div class="col-4">товар</div>
+    <div class="col-2 text-center">остаток</div>
+    <div class="col-2 text-right">закупка</div>
+    <div class="col-2 text-right">продажа</div>
+    <div class="col-2 text-right">посл. прод.</div>
+  </div>
+
   <q-list bordered separator>
     <q-item-label header v-if="!products.length && selectedProductCategory">Нет товаров в этой категории</q-item-label>
     <q-item-label header v-if="!selectedProductCategory">Выберите категорию для просмотра товаров</q-item-label>
@@ -120,22 +131,33 @@ const handleProductSaved = async () => {
             v-ripple
             @click="openDetailProductDialog(product)"
     >
-      <q-item-section class="col-8">
-        <q-item-label class="text-left">
+      <q-item-section class="col-4">
+        <q-item-label class="text-left ellipsis">
           {{ product.name }}
         </q-item-label>
       </q-item-section>
 
-
-      <q-item-section class="col-1">
+      <q-item-section class="col-2">
         <q-item-label class="text-center">
           {{ product.quantity }}
         </q-item-label>
       </q-item-section>
 
       <q-item-section class="col-2">
+        <q-item-label class="text-right text-grey-6">
+          {{ product.buy_price ?? '—' }}
+        </q-item-label>
+      </q-item-section>
+
+      <q-item-section class="col-2">
         <q-item-label class="text-right">
-          {{product.base_sale_price}}
+          {{ product.base_sale_price }}
+        </q-item-label>
+      </q-item-section>
+
+      <q-item-section class="col-2">
+        <q-item-label class="text-right text-grey-6">
+          {{ product.last_sale_price ?? '—' }}
         </q-item-label>
       </q-item-section>
 

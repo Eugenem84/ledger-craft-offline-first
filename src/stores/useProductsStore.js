@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 import * as productsRepo from 'src/repositories/productsRepo.js'
+import * as incomingProductsRepo from 'src/repositories/incomingProductsRepo.js'
 
 export const useProductsStore = defineStore('products', {
   state: () => ({
@@ -74,6 +75,41 @@ export const useProductsStore = defineStore('products', {
       } catch (err) {
         this.error = err
         this.items = oldList
+        throw err
+      }
+    },
+
+    /**
+     * Приход товара (задача 9.2).
+     *
+     * Всё офлайн: приход, закупочная цена и остаток пишутся в локальную БД, а на
+     * сервер уезжает только очередь операций (повтор не удваивает остаток —
+     * идемпотентность по `uuid_id` на сервере).
+     *
+     * @param {{ product: object, byPrice: number|string, arrivalQuantity: number|string,
+     *   baseSalePrice?: number|string|null }} input
+     * @returns {Promise<object>} результат прихода (`stockQuantity` — остаток после прихода)
+     */
+    async receiveArrival({ product, byPrice, arrivalQuantity, baseSalePrice }) {
+      this.error = null
+
+      try {
+        const result = await incomingProductsRepo.receiveArrival({
+          product,
+          byPrice,
+          arrivalQuantity,
+          baseSalePrice,
+        })
+
+        // Цена продажи могла измениться приходом — отражаем это в списке склада.
+        const index = this.items.findIndex(item => item.id === product.id)
+        if (index !== -1 && result.baseSalePrice !== null) {
+          this.items[index] = { ...this.items[index], base_sale_price: result.baseSalePrice }
+        }
+
+        return result
+      } catch (err) {
+        this.error = err
         throw err
       }
     }
