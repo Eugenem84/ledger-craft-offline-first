@@ -91,7 +91,7 @@
 - [x] **Фаза 8** — Рефакторинг UI · 3/3 · *OrderDetailsPage 300 строк: форма разбита на компоненты, данные — в сторе*
 - [x] **Фаза 9** — Продукт (аналитика, склад, материалы) · FE 6/6 · BE 6/6 · *аналитика, маржа, ручные позиции*
 - [x] **Фаза 10** — Специализации и пресеты (мульти-профиль) · FE 9/9 · BE 4/4 · *новый юзер получает готовый каталог своей ниши, UI говорит на его языке*
-- [ ] **Фаза 11** — Среды и выкат: dev-VPS → prod-VPS · 0/12 · *новые фичи обкатываем на dev, боевой контур обновляем по чек-листу*
+- [ ] **Фаза 11** — Среды и выкат: dev-VPS → prod-VPS · 1/12 · *новые фичи обкатываем на dev, боевой контур обновляем по чек-листу*
 
 ---
 
@@ -1176,7 +1176,7 @@ BE: миграции полей профиля, `template_key`, `equipment_ident
       пресетов (`content` JSON + `version`), идемпотентно (`updateOrCreate` по `preset_key`)
       → *критерий:* `GET /api/specialization-templates` отдаёт 4 пресета; правка `content` на
       сервере меняет каталог нового пользователя **без релиза приложения** (критерий 10.7)
-- [ ] **11.4** [BE] (P0) Чистая переустановка dev-VPS
+- [x] **11.4** [BE] (P0) Чистая переустановка dev-VPS
       → данные dev-сервера стираются (это и нужно). Порядок:
       ```bash
       docker compose down -v
@@ -1194,9 +1194,32 @@ BE: миграции полей профиля, `template_key`, `equipment_ident
       → *критерий:* `/api/login` и `/api/sync` отвечают; `route:list` содержит `/sync`,
       `/sync-updates`, `/register`, `/login`, `/specialization-templates` и не содержит
       `switch_paid_status` / `api/get_all_specializations`
+      → ✅ **выполнено 12.09.2026** (вход по ключу с рабочей машины: `root@217.114.0.27`, хост
+      `mbmpuqvzic`): код приведён к `master` (`git fetch` + `reset --hard` + `clean` с сохранением
+      `.env` и `letsencrypt/`), том БД снесён, стек собран заново, `composer install`,
+      **63 миграции `Ran`, 0 Pending**. Smoke: `/` → 302, `/login` → 200, `POST /api/sync` → **401**,
+      `POST /api/register` → 422; в `route:list` есть все нужные роуты и нет удалённых
+      → 📌 бэкапы до сноса: `/root/ledgercraft_dev_backup_2026-09-12_1947.sql` (82 КБ; было
+      3 users / 34 orders), `/root/env.backup_2026-09-12_1947`
+      → ⚠️ по ходу живого выката найдены и закрыты 3 дефекта (все записаны в
+      `LedgerCraftDocker03/README.md` §«Грабли»):
+      • в `nginx.conf` не было `index index.php` → `GET /` отдавал 403 «directory index is
+        forbidden» (фикс — BE-коммит `ed43eb0`);
+      • Traefik не подхватил `nginx`-контейнер, поднятый после него → домен отдавал 404
+        (лечится `docker compose restart traefik`; теперь это шаг в инструкции выката);
+      • Blade-шаблоны используют `@vite(...)`, а `public/build` в `.gitignore` → `/login` отдавал
+        500 «Vite manifest not found» (ассеты собираются на сервере одноразовым `node:20-alpine`,
+        в образе `app` Node 16 — для Vite 5 он слишком старый)
 - [ ] **11.5** [FE+BE] (P0) Сквозной живой прогон на dev-VPS (бывший O-2)
-      → собрать клиент под dev (`VITE_API_URL=https://dev.medovf2h.beget.tech/api`), выложить
-      `dist/spa`, пройти чек-лист:
+      → клиент на dev запускается **локально** (`npm run dev` → `http://localhost:9000`; этот origin
+      разрешён в `config/cors.php`), SPA на VPS не хостится — выкладка SPA отдельная задача
+      → ✅ **серверная часть проверена 12.09.2026 через API** (вызовы с рабочей машины):
+      `POST /api/login` выдаёт токен; `POST /api/sync` вставляет `categories` → `server_id=1`,
+      затем `services` с FK = серверный id родителя → `server_id=1` (порядок «родитель → ребёнок»
+      работает на живом сервере, 5.6/3.4); `/sync-updates` отдаёт запись **другому** устройству и
+      **не** отдаёт автору (анти-эхо, 3.6); без токена — 401 (3.10); после выката в БД
+      1 user / 2 specializations (с `user_id` и `preset_key`) / 1 category / 1 service
+      → остаётся **UI-часть** (проверяем локальным клиентом, ниже):
       - [ ] **10.5** регистрация нового email → в БД появились `specializations` (1..N) с `user_id`;
             повторный email → 422
       - [ ] **10.4/10.6/10.7** «Начать с шаблона» → каталог появился, повтор не дублирует; кэш
@@ -1365,6 +1388,7 @@ BE: миграции полей профиля, `template_key`, `equipment_ident
 | Фаза 10 (10.1–10.9) | ✅ сделано | FE: `src/domain/lexicon.js` (+`useLexicon`), `src/domain/presets/{bike,aquarium,hvac,auto}.js` (+`index.js`), `src/domain/presetApply.js` (идемпотентная материализация через репозитории, пометка `template_key`), `src/domain/features.js`, `src/domain/theme.js` (акцент через runtime `setCssVar`), `src/services/presetService.js` (серверный контент + read-only кэш в `meta` + фолбэк на клиентские JSON); миграции `025`–`027` (поля профиля, `template_key`, `equipment_identifier`); лексикон и флаги внедрены в `MainLayout`, `OrdersPage`, `CatalogPage`, `StorePage`, `components/order/*`; шапка с бейджем/переключателем профиля (10.8), `RegisterPage.vue` + маршрут `/register` (10.5), управление профилями и «Начать с шаблона» (10.4), скрытие вкладок + `featureGuard` (10.3). BE: миграции `2026_09_18_*` (поля профиля, `template_key`, `equipment_identifier`, `specialization_templates`), `AuthController::register` создаёт специализации (1..N) и возвращает их, `GET /api/specialization-templates` (10.7); в синке починены `name → specializationName` и дефолт `popularCounter` (без них профиль не получал `server_id`) |
 | Фаза 10 тесты и проверки | ✅ сделано | FE `npm test` → **201 тест** (25 файлов; новые — лексикон, пресеты, применение пресета, сервис пресетов, флаги/`featureGuard`, схема Фазы 10), BE `php artisan test` → **72 passed** (401 assertion; `Phase10OnboardingTest` — 5 тестов: регистрация создаёт специализации, занятый email → 422, синк специализации, endpoint пресетов); `npm run lint` — 0, прод-сборка SPA проходит. ⚠️ живой онлайн-прогон (регистрация/шапка/лексикон/пресеты на dev-VPS) — задачи **11.4/11.5** |
 | Среды и выкат (dev-VPS → prod-VPS) | ✅ зафиксировано | два контура с 12.09.2026: **dev-VPS** `dev.medovf2h.beget.tech` — песочница (обкатка фич, БД не жалко), **prod-VPS** — боевой контур (только проверенное на dev, с бэкапом БД). Описано: FE `README.md` §«Среды и выкат», BE `README.md` §«Среды: dev-VPS и prod-VPS», `docs/ARCHITECTURE.md` §1.1, таблицы Base URL в `docs/API-INTEGRATION.md` и BE `docs/API.md`, `docs/PLAN.md` (Фаза 11), `TODO.md` (правило в «Правилах» + задача 11.1). ⚠️ боевой домен ещё не выбран — вписать по задаче 11.1 |
+| Фаза 11.4 — dev-VPS переустановлен | ✅ сделано (12.09.2026) | вход по SSH-ключу (`dev-vps` → `root@217.114.0.27`); `git fetch`+`reset --hard`+`clean` (сохранены `.env`, `letsencrypt/`), том БД снесён, `up -d --build --remove-orphans`, `composer install`, **63 миграции Ran / 0 Pending**; smoke: `/` 302, `/login` 200, `POST /api/sync` 401, `POST /api/register` 422. Живой API-прогон: регистрация создаёт user + 2 специализации (`user_id`, `preset_key`); sync `categories` → `server_id=1`, затем `services` с FK родителя (порядок «родитель → ребёнок»); `/sync-updates` отдаёт запись другому устройству и не отдаёт автору (анти-эхо). Найдено и закрыто: `index index.php` в nginx (403 на `/`, BE `ed43eb0`), Traefik не подхватывал nginx-контейнер (404; `docker compose restart traefik`), `@vite`-manifest → 500 на `/login` (ассеты собираются на сервере). Бэкап до сноса — `/root/ledgercraft_dev_backup_2026-09-12_1947.sql` |
 
 Коммиты: `8ba14f0` — Фаза 3 (3.1–3.3), `36cb4b0` — 3.4, `85ab900` — 3.7, `f4dff1f` — 3.6 (FE-часть),
 3.5 — FE `aa9b986` + BE `5dc96fc`, 3.6 (BE-часть) — `f21ffd6`, 3.8 — FE `ea3e72c` + BE `e82d435`,
