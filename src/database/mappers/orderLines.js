@@ -1,0 +1,178 @@
+// src/database/mappers/orderLines.js
+//
+// Задача 8.3: именованные мапперы позиционных аргументов SQL для строк заказа —
+// работ (`order_service`), товаров со склада (`order_product`) и ручных позиций
+// (`materials`, решение D2).
+//
+// Как и в `mappers/orders.js`, порядок колонок описан **один раз** здесь и сверяется с
+// `src/database/queries/{order_service,order_product,materials}.js`.
+
+/**
+ * `queries.order_service.insert` — строка «работа в заказе».
+ * У связки нет собственного PK на сервере, поэтому `server_id`/`*_server_id` пустые
+ * (заполняются после синка), `sale_price` сервер берёт из цены услуги (задача 3.12).
+ *
+ * @param {{ id: string, orderId: string, serviceId: string }} input
+ * @returns {Array<string|number|null>}
+ */
+export function orderServiceLineInsertParams({ id, orderId, serviceId }) {
+  return [
+    id, // id (локальный UUID)
+    null, // server_id (у связки его нет)
+    orderId, // order_id (локальный ID заказа)
+    null, // order_server_id
+    serviceId, // service_id (локальный ID услуги)
+    null, // service_server_id
+    null, // sale_price
+    1, // quantity
+  ]
+}
+
+/**
+ * `queries.order_service.insertFromServer`.
+ *
+ * @param {object} input
+ * @param {string} input.localId клиентский UUID строки (он же `uuid_id` на сервере)
+ * @param {number|null} input.serverId
+ * @param {string} input.localOrderId
+ * @param {number} input.orderServerId
+ * @param {string} input.localServiceId
+ * @param {number} input.serviceServerId
+ * @param {number|null} input.salePrice
+ * @param {number} input.quantity
+ * @param {number} input.createdAt UNIX-секунды
+ * @param {number} input.updatedAt UNIX-секунды
+ * @returns {Array<string|number|null>}
+ */
+export function orderServiceLineInsertFromServerParams({
+  localId,
+  serverId,
+  localOrderId,
+  orderServerId,
+  localServiceId,
+  serviceServerId,
+  salePrice,
+  quantity,
+  createdAt,
+  updatedAt,
+}) {
+  return [
+    localId,
+    serverId,
+    localOrderId,
+    orderServerId,
+    localServiceId,
+    serviceServerId,
+    salePrice,
+    quantity,
+    createdAt,
+    updatedAt,
+  ]
+}
+
+/**
+ * `queries.order_service.updateFromServer` (`WHERE id = ?` — последний параметр).
+ *
+ * @param {{ localOrderId: string, orderServerId: number, localServiceId: string, serviceServerId: number, salePrice: number|null, quantity: number, updatedAt: number, localLineId: string }} input
+ * @returns {Array<string|number|null>}
+ */
+export function orderServiceLineUpdateFromServerParams({
+  localOrderId,
+  orderServerId,
+  localServiceId,
+  serviceServerId,
+  salePrice,
+  quantity,
+  updatedAt,
+  localLineId,
+}) {
+  return [
+    localOrderId,
+    orderServerId,
+    localServiceId,
+    serviceServerId,
+    salePrice,
+    quantity,
+    updatedAt,
+    localLineId,
+  ]
+}
+
+/**
+ * `queries.order_product.insert` — товар со склада в заказе.
+ *
+ * @param {{ id: string, orderId: string, productId: string, salePrice: number, quantity: number }} input
+ * @returns {Array<string|number|null>}
+ */
+export function orderProductLineInsertParams({ id, orderId, productId, salePrice, quantity }) {
+  return [id, orderId, productId, salePrice, quantity]
+}
+
+/**
+ * `queries.order_product.insertFromServer`.
+ *
+ * @param {{ localId: string, serverId: number, localOrderId: string, localProductId: string, salePrice: number, quantity: number, createdAt: number, updatedAt: number }} input
+ * @returns {Array<string|number|null>}
+ */
+export function orderProductLineInsertFromServerParams({
+  localId,
+  serverId,
+  localOrderId,
+  localProductId,
+  salePrice,
+  quantity,
+  createdAt,
+  updatedAt,
+}) {
+  return [localId, serverId, localOrderId, localProductId, salePrice, quantity, createdAt, updatedAt]
+}
+
+/**
+ * `queries.order_product.updateFromServer` (`WHERE server_id = ?` — последний параметр).
+ *
+ * @param {{ salePrice: number, quantity: number, updatedAt: number, serverId: number }} input
+ * @returns {Array<number>}
+ */
+export function orderProductLineUpdateFromServerParams({ salePrice, quantity, updatedAt, serverId }) {
+  return [salePrice, quantity, updatedAt, serverId]
+}
+
+/**
+ * `queries.materials.insert` — ручная позиция заказа (`name/price/amount`).
+ *
+ * @param {{ id: string, orderId: string, name: string, price: number, amount: number }} input
+ * @returns {Array<string|number|null>}
+ */
+export function materialLineInsertParams({ id, orderId, name, price, amount }) {
+  return [id, orderId, name, price, amount]
+}
+
+/**
+ * `queries.materials.insertFromServer`.
+ *
+ * @param {{ localId: string, serverId: number, localOrderId: string, orderServerId: number, name: string, price: number, amount: number, createdAt: number, updatedAt: number }} input
+ * @returns {Array<string|number|null>}
+ */
+export function materialLineInsertFromServerParams({
+  localId,
+  serverId,
+  localOrderId,
+  orderServerId,
+  name,
+  price,
+  amount,
+  createdAt,
+  updatedAt,
+}) {
+  return [localId, serverId, localOrderId, orderServerId, name, price, amount, createdAt, updatedAt]
+}
+
+/**
+ * `queries.materials.updateFromServer` (`WHERE server_id = ?` — последний параметр).
+ *
+ * @param {{ name: string, price: number, amount: number, updatedAt: number, serverId: number }} input
+ * @returns {Array<string|number>}
+ */
+export function materialLineUpdateFromServerParams({ name, price, amount, updatedAt, serverId }) {
+  return [name, price, amount, updatedAt, serverId]
+}

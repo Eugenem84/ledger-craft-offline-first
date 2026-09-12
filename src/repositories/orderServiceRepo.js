@@ -4,6 +4,11 @@ import dbAdapter from 'src/database/db.js'
 import queries from 'src/database/queries/order_service'
 import operationsRepo from 'src/repositories/operationsRepo'
 import { toEpochSeconds } from 'src/utils/timestamps.js'
+import {
+  orderServiceLineInsertParams,
+  orderServiceLineInsertFromServerParams,
+  orderServiceLineUpdateFromServerParams,
+} from 'src/database/mappers/orderLines.js'
 
 export async function getByOrderId(orderId) {
   const rows = await dbAdapter.query(queries.getByOrderId, [orderId])
@@ -14,18 +19,8 @@ export async function add(orderId, serviceId) {
   // локальный ID связи используем только в payload для синка
   const id = uuidv4()
 
-  // создаём локальную запись связи в таблице order_service
-  const params = [
-    id,          // id (локальный UUID)
-    null,        // server_id (будет проставлен после синка)
-    orderId,     // order_id (локальный ID заказа)
-    null,        // order_server_id
-    serviceId,   // service_id (локальный ID услуги)
-    null,        // service_server_id
-    null,        // sale_price
-    1,           // quantity
-  ]
-  await dbAdapter.execute(queries.insert, params)
+  // создаём локальную запись связи в таблице order_service (порядок колонок — в маппере, 8.3)
+  await dbAdapter.execute(queries.insert, orderServiceLineInsertParams({ id, orderId, serviceId }))
 
   // кладём операцию INSERT в очередь синхронизации
   const opId = uuidv4()
@@ -128,18 +123,18 @@ export async function applyServerRecord(record) {
   const updatedAt = toEpochSeconds(record.updated_at, createdAt)
 
   if (!existing.length) {
-    const params = [
-      localId ?? uuidv4(), // id (локальный UUID = клиентский uuid_id)
-      record.id ?? null,   // server_id (у связки отсутствует)
-      localOrderId,        // order_id (локальный ID заказа)
-      record.order_id,     // order_server_id
-      localServiceId,      // service_id (локальный ID услуги)
-      record.service_id,   // service_server_id
-      salePrice,           // sale_price
-      quantity,            // quantity
-      createdAt,           // created_at (UNIX-время в секундах)
-      updatedAt,           // updated_at (UNIX-время в секундах)
-    ]
+    const params = orderServiceLineInsertFromServerParams({
+      localId: localId ?? uuidv4(), // локальный UUID = клиентский uuid_id
+      serverId: record.id ?? null, // у связки собственного id на сервере нет
+      localOrderId,
+      orderServerId: record.order_id,
+      localServiceId,
+      serviceServerId: record.service_id,
+      salePrice,
+      quantity,
+      createdAt,
+      updatedAt,
+    })
     await dbAdapter.execute(queries.insertFromServer, params)
     return
   }
@@ -149,16 +144,16 @@ export async function applyServerRecord(record) {
     return
   }
 
-  const updateParams = [
-    localOrderId,     // order_id
-    record.order_id,  // order_server_id
-    localServiceId,   // service_id
-    record.service_id, // service_server_id
-    salePrice,        // sale_price
-    quantity,         // quantity
-    updatedAt,        // updated_at
-    existing[0].id,   // WHERE id = ? (локальный UUID строки связки)
-  ]
+  const updateParams = orderServiceLineUpdateFromServerParams({
+    localOrderId,
+    orderServerId: record.order_id,
+    localServiceId,
+    serviceServerId: record.service_id,
+    salePrice,
+    quantity,
+    updatedAt,
+    localLineId: existing[0].id, // WHERE id = ? (локальный UUID строки связки)
+  })
   await dbAdapter.execute(queries.updateFromServer, updateParams)
 }
 

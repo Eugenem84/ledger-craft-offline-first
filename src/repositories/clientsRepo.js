@@ -5,6 +5,12 @@ import queries from 'src/database/queries/clients'
 import operationsRepo from 'src/repositories/operationsRepo'
 import * as specializationsRepo from 'src/repositories/specializationsRepo'
 import { toEpochSeconds } from 'src/utils/timestamps.js'
+import {
+  clientInsertParams,
+  clientUpdateParams,
+  clientInsertFromServerParams,
+  clientUpdateFromServerParams,
+} from 'src/database/mappers/catalog.js'
 
 //logger.log('queries.insert:', queries.insert)
 logger.log('!!! queries object:', queries)
@@ -33,16 +39,8 @@ export async function save(client) {
   // Если клиент уже имеет id (например, при редактировании), используется существующий.
   const id = client.id || uuidv4()
 
-  // Готовим параметры для SQL-запроса на вставку.
-  // Важно сохранять порядок полей, как в самом запросе.
-  const params = [
-    id,
-    client.server_id || null,
-    client.specialization_id || null,
-    client.specialization_server_id || null,
-    client.name,
-    client.phone || ''
-  ]
+  // Готовим параметры для SQL-запроса на вставку (порядок колонок — в маппере, 8.3).
+  const params = clientInsertParams({ id, client })
 
   // Выполняем SQL-запрос для сохранения клиента в локальной базе данных.
   await dbAdapter.execute(queries.insert, params)
@@ -82,13 +80,7 @@ export async function update(client) {
   const existingClient = await dbAdapter.queryOne(queries.getById, [client.id]);
 
   // 2. Обновляем локальную запись в БД только переданными полями
-  const params = [
-    client.name,
-    client.phone || '',
-    client.specialization_id || null,
-    client.specialization_server_id || null,
-    client.id // для `WHERE id = ?`
-  ];
+  const params = clientUpdateParams({ id: client.id, client });
   await dbAdapter.execute(queries.update, params); // Убедитесь, что queries.update обновляет только нужные поля
 
   // 3. Готовим операцию для сервера
@@ -161,17 +153,17 @@ export async function applyServerRecord(record) {
   if (!existing.length) {
     // Новая запись
     const localId = uuidv4();
-    const params = [
-      localId,           // локальный id
-      record.id,         // server_id
+    const params = clientInsertFromServerParams({
+      localId, // локальный id
+      serverId: record.id,
       localSpecializationId,
-      record.specialization_id, // specialization_server_id
-      record.name,
-      record.phone || '',
+      specializationServerId: record.specialization_id,
+      name: record.name,
+      phone: record.phone || '',
       // Сервер отдаёт ISO-строки, локально храним UNIX-секунды (задача 3.8).
-      toEpochSeconds(record.created_at),
-      toEpochSeconds(record.updated_at)
-    ];
+      createdAt: toEpochSeconds(record.created_at),
+      updatedAt: toEpochSeconds(record.updated_at),
+    });
 
     await dbAdapter.execute(queries.insertFromServer, params);
     return;
@@ -180,14 +172,14 @@ export async function applyServerRecord(record) {
   // Обновление существующей записи: побеждает более свежий updated_at (last-write-wins).
   const local = existing[0];
   if (toEpochSeconds(record.updated_at) > toEpochSeconds(local.updated_at, 0)) {
-    const updateParams = [
-      record.name,
-      record.phone || '',
+    const updateParams = clientUpdateFromServerParams({
+      name: record.name,
+      phone: record.phone || '',
       localSpecializationId,
-      record.specialization_id, // specialization_server_id
-      toEpochSeconds(record.updated_at),
-      record.id // server_id для WHERE
-    ];
+      specializationServerId: record.specialization_id,
+      updatedAt: toEpochSeconds(record.updated_at),
+      serverId: record.id,
+    });
     await dbAdapter.execute(queries.updateFromServer, updateParams);
   }
 }

@@ -5,6 +5,12 @@ import queries from 'src/database/queries/models'
 import operationsRepo from 'src/repositories/operationsRepo'
 import * as specializationsRepo from 'src/repositories/specializationsRepo'
 import { toEpochSeconds } from 'src/utils/timestamps.js'
+import {
+  modelInsertParams,
+  modelUpdateParams,
+  modelInsertFromServerParams,
+  modelUpdateFromServerParams,
+} from 'src/database/mappers/catalog.js'
 
 export async function getAll() {
   const rows =  await dbAdapter.query(queries.getAll)
@@ -24,13 +30,7 @@ export async function getById(id) {
 export async function save(model) {
   const id = model.id || uuidv4()
 
-  const params = [
-    id,
-    model.server_id || null,
-    model.name,
-    model.specialization_id || null,
-    model.specialization_server_id || null,
-  ]
+  const params = modelInsertParams({ id, model })
 
   await dbAdapter.execute(queries.insert, params)
 
@@ -48,12 +48,7 @@ export async function save(model) {
 export async function update(model) {
   const existingModel = await dbAdapter.queryOne(queries.getById, [model.id]);
 
-  const params = [
-    model.name,
-    model.specialization_id || null,
-    model.specialization_server_id || null,
-    model.id // for `WHERE id = ?`
-  ];
+  const params = modelUpdateParams(model);
   await dbAdapter.execute(queries.update, params);
 
   if (existingModel && existingModel.server_id) {
@@ -102,15 +97,15 @@ export async function applyServerRecord(record) {
   if (!existing.length) {
     // New record
     const localId = uuidv4();
-    const params = [
-      localId,           // local id
-      record.id,         // server_id
-      record.name,
+    const params = modelInsertFromServerParams({
+      localId, // local id
+      serverId: record.id,
+      name: record.name,
       localSpecializationId,
-      record.specialization_id, // specialization_server_id
-      toEpochSeconds(record.created_at),
-      toEpochSeconds(record.updated_at)
-    ];
+      specializationServerId: record.specialization_id,
+      createdAt: toEpochSeconds(record.created_at),
+      updatedAt: toEpochSeconds(record.updated_at),
+    });
 
     await dbAdapter.execute(queries.insertFromServer, params);
     return;
@@ -119,13 +114,13 @@ export async function applyServerRecord(record) {
   // Update existing record
   const local = existing[0];
   if (toEpochSeconds(record.updated_at) > toEpochSeconds(local.updated_at, 0)) {
-    const updateParams = [
-      record.name,
+    const updateParams = modelUpdateFromServerParams({
+      name: record.name,
       localSpecializationId,
-      record.specialization_id, // specialization_server_id
-      toEpochSeconds(record.updated_at),
-      record.id // server_id for WHERE
-    ];
+      specializationServerId: record.specialization_id,
+      updatedAt: toEpochSeconds(record.updated_at),
+      serverId: record.id,
+    });
     await dbAdapter.execute(queries.updateFromServer, updateParams);
   }
 }

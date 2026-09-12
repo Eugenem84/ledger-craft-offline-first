@@ -4,6 +4,12 @@ import dbAdapter from 'src/database/db.js'
 import queries from 'src/database/queries/services'
 import operationsRepo from 'src/repositories/operationsRepo'
 import { toEpochSeconds } from 'src/utils/timestamps.js'
+import {
+  serviceInsertParams,
+  serviceUpdateParams,
+  serviceInsertFromServerParams,
+  serviceUpdateFromServerParams,
+} from 'src/database/mappers/catalog.js'
 
 export async function getByCategoryId(categoryId) {
   const rows = await dbAdapter.query(queries.getByCategoryId, [categoryId])
@@ -13,17 +19,11 @@ export async function getByCategoryId(categoryId) {
 export async function save(service) {
   const id = service.id || uuidv4()
 
-  const params = [
-    id,
-    service.server_id || null,
-    // ⚠️ `|| null`, а не просто `service.category_id`: если категории нет,
-    // sql.js падает на биндинге `undefined` («tried to bind a value of an unknown
-    // type») — непонятной ошибкой. С null сработает понятное ограничение схемы
-    // (`services.category_id NOT NULL`), а тест 5.3 фиксирует это поведение.
-    service.category_id || null,
-    service.service,
-    service.price || ''
-  ]
+  // Задача 8.3: порядок колонок — в маппере (`serviceInsertParams`), в том числе
+  // `|| null` для `category_id`: если категории нет, sql.js падает на биндинге `undefined`
+  // («tried to bind a value of an unknown type») — непонятной ошибкой. С null сработает
+  // понятное ограничение схемы (`services.category_id NOT NULL`), тест 5.3 это фиксирует.
+  const params = serviceInsertParams({ id, service })
 
   await dbAdapter.execute(queries.insert, params)
 
@@ -41,11 +41,7 @@ export async function save(service) {
 export async function update(service) {
   const existingService = await dbAdapter.queryOne(queries.getById, [service.id]);
 
-  const params = [
-    service.service,
-    service.price || '',
-    service.id
-  ];
+  const params = serviceUpdateParams(service);
   await dbAdapter.execute(queries.update, params);
 
   if (existingService && existingService.server_id) {
@@ -94,15 +90,15 @@ export async function applyServerRecord(record) {
   `, [record.id]);
 
   if (!existing.length) {
-    const params = [
-      uuidv4(),
-      record.id,
+    const params = serviceInsertFromServerParams({
+      localId: uuidv4(),
+      serverId: record.id,
       localCategoryId, // Используем найденный локальный ID
-      record.service,
-      record.price || '',
-      toEpochSeconds(record.created_at),
-      toEpochSeconds(record.updated_at)
-    ];
+      service: record.service,
+      price: record.price,
+      createdAt: toEpochSeconds(record.created_at),
+      updatedAt: toEpochSeconds(record.updated_at),
+    });
 
     await dbAdapter.execute(queries.insertFromServer, params);
     return;
@@ -110,13 +106,16 @@ export async function applyServerRecord(record) {
 
   const local = existing[0];
   if (toEpochSeconds(record.updated_at) > toEpochSeconds(local.updated_at, 0)) {
-    // При обновлении также нужно передавать category_id
-    const updateParams = [
-      record.service,
-      record.price || '',
-      toEpochSeconds(record.updated_at),
-      record.id
-    ];
+    // При обновлении также передаём category_id: запрос `queries.updateFromServer`
+    // обновляет его четвёртым параметром. Раньше значение не передавалось вовсе —
+    // запрос падал на нехватке аргументов (найдено при 8.3).
+    const updateParams = serviceUpdateFromServerParams({
+      localCategoryId,
+      service: record.service,
+      price: record.price,
+      updatedAt: toEpochSeconds(record.updated_at),
+      serverId: record.id,
+    });
     await dbAdapter.execute(queries.updateFromServer, updateParams);
   }
 }

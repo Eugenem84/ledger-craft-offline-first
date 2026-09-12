@@ -26,6 +26,10 @@ src/
 │   │   └── storage-adapter.js         # дамп sql.js в localStorage/IndexedDB
 │   ├── migrations/               # 18 версий схемы (001…023; дубли удалены в 2.1)
 │   │   └── index.js              # порядок применения миграций
+│   ├── mappers/                  # именованные мапперы позиционных SQL-аргументов (8.3):
+│   │   ├── orders.js             #   заказы (insert/update/fromServer)
+│   │   ├── orderLines.js         #   строки заказа: order_service / order_product / materials
+│   │   └── catalog.js            #   клиенты, работы, модели (создаются из формы заказа)
 │   └── queries/                  # SQL-строки по сущностям (clients, orders, services, …)
 ├── repositories/
 │   ├── operationsRepo.js         # очередь операций (enqueue/dequeue/markSending/markPending/markSynced/recoverInFlight)
@@ -36,24 +40,31 @@ src/
 │   ├── productsRepo.js
 │   ├── categoriesRepo.js
 │   ├── productCategoriesRepo.js
-│   ├── specializationsRepo.js    # ⚠️ использует dbAdapter.enqueueOperation() — заглушку!
+│   ├── specializationsRepo.js
 │   ├── modelsRepo.js             # модели техники (equipment_models)
 │   ├── orderServiceRepo.js
 │   ├── orderProductRepo.js       # товары в заказе (order_product)
 │   └── materialsRepo.js          # ручные позиции заказа (таблица `materials`, решение D2)
-├── stores/                       # Pinia: useOrdersStore, useClientsStore, useCategoriesStore,
-│                                 #   useServicesStore, useProductCategoriesStore,
-│                                 #   useProductsStore, useSpecializationsStore, useModelsStore
-│                                 #   (+ example-store.js — мусор шаблона)
+├── stores/                       # Pinia: useOrdersStore, useOrderDraftStore (черновик заказа, 8.1/8.2),
+│                                 #   useClientsStore, useCategoriesStore, useServicesStore,
+│                                 #   useProductCategoriesStore, useProductsStore,
+│                                 #   useSpecializationsStore, useModelsStore, useAuthStore
+├── components/
+│   ├── SyncStatusBar.vue         # индикатор сети/синка (6.2)
+│   └── order/                    # компоненты страницы заказа (8.1): OrderHeaderActions,
+│                                 #   OrderPartySelectors, OrderOverviewPanel, OrderServicesPanel,
+│                                 #   OrderMaterialsPanel, OrderServicesBlock, OrderMaterialsBlock,
+│                                 #   OrderProductsBlock, OrderMaterialsEditor, OrderProductsEditor,
+│                                 #   OrderTotals, dialogs/* (5 диалогов)
 ├── pages/
 │   ├── OrdersPage.vue            # список ордеров
-│   ├── OrderDetailsPage.vue      # 1042 строки: создание/редактирование ордера + работа с услугами,
-│                                 #   материалами, товарами, диалоги
+│   ├── OrderDetailsPage.vue      # 300 строк: «клей» страницы заказа (стор + уведомления + диалоги);
+│                                 #   форма разбита на `components/order/*`, данные — в useOrderDraftStore
 │   ├── StorePage.vue             # склад
 │   ├── CatalogPage.vue           # каталог товаров/работ
 │   ├── AnalyticPage.vue          # аналитика
 │   ├── OthersPage.vue            # «другие» (настройки сервисов и т.п.)
-│   ├── IndexPage.vue             # мусор шаблона (не используется)
+│   ├── LoginPage.vue             # вход/разблокировка по PIN (7.4)
 │   ├── ErrorNotFound.vue
 │   └── dialogs/                  # NewClientDialogPage, ProductDialogPage,
 │                                 #   ArrivalProductDialogPage, ProductCategoryDialogPage,
@@ -251,11 +262,14 @@ return id;
 - **OrdersPage**: список ордеров, фильтр «показывать готовые и оплаченные», статусы
   (waiting/process/done), переход в детали. Условие фильтра сомнительное:
   `(filterDone || status !== 'done') || paid === false`.
-- **OrderDetailsPage** (1042 строки): и создание, и редактирование, и все диалоги внутри
-  файла; подгружает услуги/материалы/товары по локальному `order_id`; сумму ордера считает
-  на лету (`totalSumServices + totalSumMaterials + totalSumProducts`); при обновлении —
-  «удалить всё и добавить заново» для связных таблиц; `generateAndCopyLink` вызывает
-  неимпортированный `api` (переменная не определена → ошибка eslint).
+- **OrderDetailsPage** (300 строк после Фазы 8): страница оставляет себе только «клей» —
+  инициализацию (`useOrderDraftStore.init`), уведомления Quasar, навигацию и видимость
+  диалогов. Форма разбита на компоненты `src/components/order/*` (шапка, селекторы
+  клиента/модели, панели «все»/«работы»/«материалы», списки, редакторы, итоги, 5 диалогов),
+  данные и запись — в сторе; прямых вызовов `*Repo` из `*.vue` больше нет (8.2).
+  Сумму заказа считают геттеры стора (`servicesTotal + materialsTotal + productsTotal`),
+  при обновлении — по-прежнему «удалить всё и добавить заново» для связных таблиц;
+  `generateAndCopyLink` переехал в стор (`generateShareLink`) и работает через `apiClient`.
 - **StorePage / CatalogPage / OthersPage / AnalyticPage** — работают через сторы и
   репозитории.
 
@@ -318,5 +332,7 @@ return id;
 3. Переписать sync: топологическая сортировка операций, подключить `order_product` и ручные
    позиции материалов (решение D2: справочник `materials` удаляется), убрать двойной прогон,
    затем серверная часть — savepoints, идемпотентность, удаления, владелец (задачи 3.9–3.12).
-4. Вычистить debug-мусор, починить 9 ошибок lint, выделить компоненты из OrderDetailsPage.
+4. Вычистить debug-мусор, починить 9 ошибок lint (сделано в Фазе 0), выделить компоненты из
+   OrderDetailsPage (Фаза 8: страница 300 строк + `components/order/*`, данные — в
+   `useOrderDraftStore`, позиционные SQL-параметры — в `database/mappers/*`).
 5. Добавить `.env` (VITE_API_URL), продумать auth и неблокирующий синк + индикатор сети.

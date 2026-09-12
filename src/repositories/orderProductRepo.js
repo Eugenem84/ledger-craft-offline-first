@@ -13,6 +13,11 @@ import dbAdapter from 'src/database/db.js'
 import queries from 'src/database/queries/order_product.js'
 import operationsRepo from 'src/repositories/operationsRepo'
 import { toEpochSeconds } from 'src/utils/timestamps.js'
+import {
+  orderProductLineInsertParams,
+  orderProductLineInsertFromServerParams,
+  orderProductLineUpdateFromServerParams,
+} from 'src/database/mappers/orderLines.js'
 
 const TABLE = 'order_product'
 
@@ -33,7 +38,10 @@ export async function add(orderId, productId, amount, price) {
   const quantity = amount ?? 1
   const salePrice = price ?? 0
 
-  await dbAdapter.execute(queries.insert, [id, orderId, productId, salePrice, quantity])
+  await dbAdapter.execute(
+    queries.insert,
+    orderProductLineInsertParams({ id, orderId, productId, salePrice, quantity })
+  )
 
   await operationsRepo.enqueue([
     uuidv4(),
@@ -117,26 +125,32 @@ export async function applyServerRecord(record) {
   const updatedAt = toEpochSeconds(record.updated_at)
 
   if (!existing) {
-    await dbAdapter.execute(queries.insertFromServer, [
-      uuidv4(),            // id (локальный UUID)
-      record.id,           // server_id
-      order.id,            // order_id (локальный id заказа)
-      product.id,          // product_id (локальный id товара)
-      record.sale_price ?? 0,
-      record.quantity ?? 1,
-      createdAt,
-      updatedAt,
-    ])
+    await dbAdapter.execute(
+      queries.insertFromServer,
+      orderProductLineInsertFromServerParams({
+        localId: uuidv4(), // локальный UUID строки
+        serverId: record.id,
+        localOrderId: order.id,
+        localProductId: product.id,
+        salePrice: record.sale_price ?? 0,
+        quantity: record.quantity ?? 1,
+        createdAt,
+        updatedAt,
+      })
+    )
     return
   }
 
   if (updatedAt > existing.updated_at) {
-    await dbAdapter.execute(queries.updateFromServer, [
-      record.sale_price ?? 0,
-      record.quantity ?? 1,
-      updatedAt,
-      record.id, // WHERE server_id = ?
-    ])
+    await dbAdapter.execute(
+      queries.updateFromServer,
+      orderProductLineUpdateFromServerParams({
+        salePrice: record.sale_price ?? 0,
+        quantity: record.quantity ?? 1,
+        updatedAt,
+        serverId: record.id,
+      })
+    )
   }
 }
 

@@ -12,6 +12,11 @@ import dbAdapter from 'src/database/db.js'
 import queries from 'src/database/queries/materials.js'
 import operationsRepo from 'src/repositories/operationsRepo'
 import { toEpochSeconds } from 'src/utils/timestamps.js'
+import {
+  materialLineInsertParams,
+  materialLineInsertFromServerParams,
+  materialLineUpdateFromServerParams,
+} from 'src/database/mappers/orderLines.js'
 
 const TABLE = 'materials'
 
@@ -31,7 +36,7 @@ export async function add(orderId, line) {
   const price = line.price ?? 0
   const amount = line.amount ?? 1
 
-  await dbAdapter.execute(queries.insert, [id, orderId, name, price, amount])
+  await dbAdapter.execute(queries.insert, materialLineInsertParams({ id, orderId, name, price, amount }))
 
   await operationsRepo.enqueue([
     uuidv4(),
@@ -99,28 +104,34 @@ export async function applyServerRecord(record) {
   const updatedAt = toEpochSeconds(record.updated_at)
 
   if (!existing) {
-    await dbAdapter.execute(queries.insertFromServer, [
-      uuidv4(),          // id (локальный UUID)
-      record.id,         // server_id
-      order.id,          // order_id (локальный id заказа)
-      record.order_id,   // order_server_id
-      record.name ?? '',
-      record.price ?? 0,
-      record.amount ?? 1,
-      createdAt,
-      updatedAt,
-    ])
+    await dbAdapter.execute(
+      queries.insertFromServer,
+      materialLineInsertFromServerParams({
+        localId: uuidv4(),
+        serverId: record.id,
+        localOrderId: order.id,
+        orderServerId: record.order_id,
+        name: record.name ?? '',
+        price: record.price ?? 0,
+        amount: record.amount ?? 1,
+        createdAt,
+        updatedAt,
+      })
+    )
     return
   }
 
   if (updatedAt > existing.updated_at) {
-    await dbAdapter.execute(queries.updateFromServer, [
-      record.name ?? '',
-      record.price ?? 0,
-      record.amount ?? 1,
-      updatedAt,
-      record.id, // WHERE server_id = ?
-    ])
+    await dbAdapter.execute(
+      queries.updateFromServer,
+      materialLineUpdateFromServerParams({
+        name: record.name ?? '',
+        price: record.price ?? 0,
+        amount: record.amount ?? 1,
+        updatedAt,
+        serverId: record.id,
+      })
+    )
   }
 }
 
