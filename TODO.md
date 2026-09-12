@@ -91,7 +91,7 @@
 - [x] **Фаза 8** — Рефакторинг UI · 3/3 · *OrderDetailsPage 300 строк: форма разбита на компоненты, данные — в сторе*
 - [x] **Фаза 9** — Продукт (аналитика, склад, материалы) · FE 6/6 · BE 6/6 · *аналитика, маржа, ручные позиции*
 - [x] **Фаза 10** — Специализации и пресеты (мульти-профиль) · FE 9/9 · BE 4/4 · *новый юзер получает готовый каталог своей ниши, UI говорит на его языке*
-- [ ] **Фаза 11** — Среды и выкат: dev-VPS → prod-VPS · 3/12 · *новые фичи обкатываем на dev, боевой контур обновляем по чек-листу*
+- [ ] **Фаза 11** — Среды и выкат: dev-VPS → prod-VPS · 4/12 · *новые фичи обкатываем на dev, боевой контур обновляем по чек-листу*
 
 ---
 
@@ -1200,11 +1200,29 @@ BE: миграции полей профиля, `template_key`, `equipment_ident
       `test_order_insert_keeps_model_status_paid_and_user_order_number`; `php artisan test` →
       **73 passed**. Живая проверка на dev-VPS (клиент → модель → заказ → выдача второму
       устройству): заказ приходит с `model_id = 1` — связь на месте (до фикса был `null`)
-- [ ] **11.3** [BE] (P1) Сид пресетов `specialization_templates` (бывший O-7)
+- [x] **11.3** [BE] (P1) Сид пресетов `specialization_templates` (бывший O-7)
       → seeder/команда на 4 строки (`bike`/`aquarium`/`hvac`/`auto`) с контентом в формате клиентских
       пресетов (`content` JSON + `version`), идемпотентно (`updateOrCreate` по `preset_key`)
       → *критерий:* `GET /api/specialization-templates` отдаёт 4 пресета; правка `content` на
       сервере меняет каталог нового пользователя **без релиза приложения** (критерий 10.7)
+      → ✅ **сделано 12.09.2026** (BE `821c209`): `database/seeders/SpecializationTemplateSeeder.php` —
+      4 пресета, контент **сверен байт-в-байт** с клиентскими JSON (`src/domain/presets/*`):
+      19 категорий работ / 54 услуги с ценами / 14 категорий товаров / 18 моделей; в `content`
+      только каталог (`categories` → `services[].name/price`, `productCategories`, `models`),
+      а метаданные UI (лексикон, акцент, флаги) остаются на клиенте — так их читает
+      `presetService.mergePreset()` (решение D5). `version` = 1, `updateOrCreate(['preset_key' => …])`
+      → повторный запуск не плодит дубли и **освежает** контент (правка без релиза клиента)
+      → сид подключён в `DatabaseSeeder`, поэтому работает и `db:seed`, и точечно
+      `php artisan db:seed --class=SpecializationTemplateSeeder --force` (шаг добавлен в процедуры
+      выката dev/prod — `docs/ENVIRONMENTS.md` §4/§5/§6/§8); документация: BE `README.md`,
+      `docs/DB.md`, `docs/API.md`
+      → проверено: BE `tests/Feature/SpecializationTemplateSeederTest.php` (4 теста на PostgreSQL:
+      создаются все 4 пресета с непустым каталогом и целыми ценами; повторный запуск идемпотентен
+      и **перезаписывает устаревший контент** (строка `bike` с версией 99 и пустым каталогом →
+      версия 1 и «Колёса»); `DatabaseSeeder` действительно тянет пресеты; endpoint под `auth:sanctum`
+      отдаёт 4 пресета) — `php artisan test` → **77 passed** (607 assertions), exit 0; живьём
+      на тестовой БД: `db:seed --class=SpecializationTemplateSeeder --force` дважды → 4 строки,
+      `json_array_length(content->'categories')` = 5/5/5/4.
 - [x] **11.4** [BE] (P0) Чистая переустановка dev-VPS
       → данные dev-сервера стираются (это и нужно). Порядок:
       ```bash
@@ -1253,6 +1271,8 @@ BE: миграции полей профиля, `template_key`, `equipment_ident
             повторный email → 422
       - [ ] **10.4/10.6/10.7** «Начать с шаблона» → каталог появился, повтор не дублирует; кэш
             пресетов в `meta`, офлайн работает из кэша
+            ⚠️ перед проверкой прогнать на dev `php artisan db:seed --class=SpecializationTemplateSeeder --force`
+            (11.3): после переустановки 11.4 таблица пустая, и endpoint отдаёт `[]`
       - [ ] **10.1–10.3/10.8** переключение профиля в шапке меняет слова/акцент/вкладки;
             архивированная специализация не удалена и её история цела
       - [ ] **10.9** `equipment_identifier` виден у `auto`/`hvac` и синкается на второе устройство
@@ -1323,8 +1343,10 @@ BE: миграции полей профиля, `template_key`, `equipment_ident
   (`ArrivalProductTest` — 8, 9.2), склад/цены (`ProductStockTest` — 5, 9.3), статистика
   (`StatisticRepositoryTest` — 8, 9.1 + маржа 9.5), публичная share-ссылка (`OrderShareLinkTest` —
   9 тестов, 9.4), онбординг/мульти-профиль Фазы 10 (`Phase10OnboardingTest` — 5 тестов:
-регистрация создаёт специализации, занятый email → 422, синк специализации, endpoint пресетов).
-`php artisan test` → `72 passed`, 401 assertions, exit 0 (2 теста помечены
+регистрация создаёт специализации, занятый email → 422, синк специализации, endpoint пресетов),
+сид пресетов (`SpecializationTemplateSeederTest` — 4 теста: 4 пресета с каталогом, идемпотентность
+и перезапись устаревшего контента, `DatabaseSeeder` тянет пресеты, endpoint отдаёт 4 пресета — 11.3).
+`php artisan test` → `77 passed`, 607 assertions, exit 0 (2 теста помечены
   «deprecated» — шум PHP 8.5 + vendor, не падения). Продуктовый вопрос по web-версии решён —
   **D3: web-часть признана продуктом**, поэтому удаляли только мёртвое/дублирующее.
 
@@ -1420,6 +1442,7 @@ BE: миграции полей профиля, `template_key`, `equipment_ident
 | Фаза 11.4 — dev-VPS переустановлен | ✅ сделано (12.09.2026) | вход по SSH-ключу (`dev-vps` → `root@217.114.0.27`); `git fetch`+`reset --hard`+`clean` (сохранены `.env`, `letsencrypt/`), том БД снесён, `up -d --build --remove-orphans`, `composer install`, **63 миграции Ran / 0 Pending**; smoke: `/` 302, `/login` 200, `POST /api/sync` 401, `POST /api/register` 422. Живой API-прогон: регистрация создаёт user + 2 специализации (`user_id`, `preset_key`); sync `categories` → `server_id=1`, затем `services` с FK родителя (порядок «родитель → ребёнок»); `/sync-updates` отдаёт запись другому устройству и не отдаёт автору (анти-эхо). Найдено и закрыто: `index index.php` в nginx (403 на `/`, BE `ed43eb0`), Traefik не подхватывал nginx-контейнер (404; `docker compose restart traefik`), `@vite`-manifest → 500 на `/login` (ассеты собираются на сервере). Бэкап до сноса — `/root/ledgercraft_dev_backup_2026-09-12_1947.sql` |
 | Фаза 11.2 — модель техники в заказе | ✅ сделано (12.09.2026) | FE `47c90bb`: `ordersRepo` не вырезает локальный `model_id`, а отдаёт сигнальное `model_server_id` (даже `null` = «модель ещё не на сервере»), `syncService` строит ребро и подставляет серверный id; закрыта пара `orders.model_id`+`orders.model_server_id` (колонка была в 014, но не заполнялась) — 4 SQL-запроса + 4 маппера + `getModelData`. Тест поймал и закрыл ещё один дефект: `modelsRepo.applyServerRecord` биндил `undefined` в `specializationServerId` → модель с сервера не применялась вовсе (глушилось per-table `catch`). Тест: «11.2: заказ с новой моделью техники уезжает одним `sync()` и сохраняет связь»; `npm test` → **202 теста**, lint 0, SPA-сборка ok. Серверная часть — BE `05dac8b`: «белый список» колонок при вставке заказа не содержал `model_id` (терялись и `status`/`paid`/`user_order_number`), теперь их принимают; BE-тест `test_order_insert_keeps_model_status_paid_and_user_order_number` (`php artisan test` → 73 passed). Живой прогон на dev: второй девайс получает заказ с `model_id = 1` (до фикса — `null`) |
 | Фаза 11.1 — среды в документации | ✅ сделано (12.09.2026) | канон — BE `docs/ENVIRONMENTS.md` (FE `b007110` + BE `f5e4455`): контуры dev/prod, где прописан домен (Traefik `Host(...)`, `APP_URL`, `VITE_API_URL`, `config/cors.php`), CORS и его симптомы, доступ к dev-VPS по ключу, что где лежит на машине, проверенные команды выката dev/prod, smoke, «грабли», чек-лист поднятия prod. Клиентский раздел README переписан (env-файлы `.env`/`.env.local`/`.env.prod`, локальный dev на `:9000`, CORS-предупреждение); `docs/ARCHITECTURE.md` §1.1 ссылается на канон; в README бэкенда поправлено «53 миграции» → 63. Боевой домен пока заглушка `<prod-домен>` (задача 11.12) |
+| Фаза 11.3 — сид пресетов | ✅ сделано (12.09.2026) | BE `821c209`: `database/seeders/SpecializationTemplateSeeder.php` — 4 ниши v1 (`bike`/`aquarium`/`hvac`/`auto`), `content` сверен **байт-в-байт** с клиентскими JSON (19 категорий / 54 услуги с ценами / 14 категорий товаров / 18 моделей), в `content` только каталог — метаданные UI остаются на клиенте (их читает `presetService.mergePreset()`, D5). Идемпотентно `updateOrCreate(['preset_key' => …])`: повтор не плодит дубли и освежает контент (правка без релиза клиента, критерий 10.7). Сид подключён в `DatabaseSeeder`; шаг `db:seed --class=SpecializationTemplateSeeder --force` добавлен в выкат dev/prod (`docs/ENVIRONMENTS.md` §4/§5/§6/§8). Проверено: `SpecializationTemplateSeederTest` — 4 теста (каталог, идемпотентность + перезапись устаревшего контента, `DatabaseSeeder`, endpoint отдаёт 4 пресета под `auth:sanctum`), `php artisan test` → **77 passed**, 607 assertions; живьём на тестовой БД повторный `db:seed` → 4 строки |
 
 Коммиты: `8ba14f0` — Фаза 3 (3.1–3.3), `36cb4b0` — 3.4, `85ab900` — 3.7, `f4dff1f` — 3.6 (FE-часть),
 3.5 — FE `aa9b986` + BE `5dc96fc`, 3.6 (BE-часть) — `f21ffd6`, 3.8 — FE `ea3e72c` + BE `e82d435`,
@@ -1431,11 +1454,12 @@ FE `d002264` (7.4–7.5), BE `bf5a738` (7.4-тест) + BE `753c4bd` (7.6), Фа
 `5f60606` + BE `3657933` (гигиена `.DS_Store` — BE `593bf53`), Фаза 11 (среды и выкат: доки) — FE
 `cad31d7` + BE `b7fcb2e`, Фаза 11.1 (среды в доках) — FE `b007110` + BE `f5e4455`, Фаза 11.2 —
 FE `47c90bb` + BE `05dac8b`, Фаза 11.4 (dev-VPS + фикс nginx) — BE
-`ed43eb0` + `b92fc8a` (`LedgerCraftDocker03`), TODO — FE `—` (этот коммит) (см. `git log`).
+`ed43eb0` + `b92fc8a`, Фаза 11.3 (сид пресетов) — BE `821c209` (все три —
+`LedgerCraftDocker03`), TODO — FE `—` (этот коммит) (см. `git log`).
 **Фазы 3–10 закрыты** — vitest (**201 тест** в 25 файлах: миграции, репозитории, синк,
 автосинк, индикатор, storage, DEV-моки, вход/PIN, guard, стор заказа, аналитика, приход товара,
 склад/цены, share-ссылка, маржа, лексикон/пресеты/флаги Фазы 10) + PHPUnit в бэкенде
-(`php artisan test` → `72 passed`, 401 assertion, exit 0);
+(`php artisan test` → `77 passed`, 607 assertions, exit 0);
 `npm run lint` — 0, прод-сборка SPA проходит, `npm run dev` → HTTP 200 (`.env` подхватывается).
 Тесты 5.3/5.4 нашли и закрыли 4 дефекта (см. таблицу), тесты 7.x закрывают конфиг, storage,
 вход/токен и guard, тесты 8.x — стор заказа, тесты 9.1 — единую методику выручки (клиент и сервер

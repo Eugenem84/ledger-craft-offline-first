@@ -216,7 +216,7 @@ Headers: X-Sync-ID: <uuid устройства>
 | GET | `/api/get_service/{categoryId}` | `ServiceController::getByCategory` |
 | GET | `/api/get_materials_by_order/{orderId}` | `MaterialController::getMaterialsByOrder` |
 | POST | `/api/order-report/{order}/share-link` | `OrderController::generateShareLink` |
-| GET | `/api/specialization-templates` (sanctum) | `SpecializationTemplateController::index` (пресеты, 10.7) |
+| GET | `/api/specialization-templates` (sanctum) | `SpecializationTemplateController::index` (пресеты, 10.7; контент наполняется сидом `SpecializationTemplateSeeder`, 11.3) |
 | GET | `/api/orders_by_specialization/{id}` | `OrderController::getBySpecialization` |
 | GET | `/api/get_total_DWYM/{specializationId}`, `/api/get_top_services/{specializationId}`, `/api/get_top_profit_clients/{specializationId}`, `/api/get_top_products/{specializationId}`, `/api/get_top_materials/{specializationId}`, `/api/get_orders_status/{specializationId}`, `/api/income_by_year/{specializationId}` | `StatisticController` (единая методика — §4.16) |
 | GET | `/api/app-quasar-android-version`, `/api/download-apk`, `/api/hcp/chcp.json` | `AppVersionController` |
