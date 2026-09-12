@@ -16,7 +16,11 @@ export async function save(service) {
   const params = [
     id,
     service.server_id || null,
-    service.category_id,
+    // ⚠️ `|| null`, а не просто `service.category_id`: если категории нет,
+    // sql.js падает на биндинге `undefined` («tried to bind a value of an unknown
+    // type») — непонятной ошибкой. С null сработает понятное ограничение схемы
+    // (`services.category_id NOT NULL`), а тест 5.3 фиксирует это поведение.
+    service.category_id || null,
     service.service,
     service.price || ''
   ]

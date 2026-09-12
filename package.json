@@ -7,9 +7,10 @@
   "type": "module",
   "private": true,
   "scripts": {
-    "lint": "eslint -c ./eslint.config.js \"./src*/**/*.{js,cjs,mjs,vue}\"",
+    "lint": "eslint -c ./eslint.config.js \"./src*/**/*.{js,cjs,mjs,vue}\" \"./test/**/*.js\" \"./vitest.config.js\"",
     "format": "prettier --write \"**/*.{js,vue,scss,html,md,json}\" --ignore-path .gitignore",
-    "test": "echo \"No test specified\" && exit 0",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "dev": "quasar dev",
     "build": "quasar build",
     "postinstall": "quasar prepare"
@@ -41,6 +42,7 @@
     "postcss": "^8.4.14",
     "prettier": "^3.3.3",
     "vite-plugin-checker": "^0.11.0",
+    "vitest": "^5.0.0",
     "vue-eslint-parser": "^10.2.0"
   },
   "engines": {

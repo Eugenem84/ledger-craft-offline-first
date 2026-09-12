@@ -19,6 +19,17 @@ const STATUS = {
   SYNCED: 'synced',
 };
 
+/**
+ * Связки без собственного PK: сервер не возвращает `server_id`, но локально
+ * нужно запомнить серверные id родителей — по ним `orderServiceRepo.remove`
+ * ставит delete по натуральному ключу (задача 3.5). Без этого удаление работы
+ * на устройстве-авторе не доезжало до сервера: строка оставалась там навсегда
+ * (найдено тестами 5.4).
+ */
+const RECONCILE_PARENT_IDS = {
+  order_service: { order_server_id: 'order_id', service_server_id: 'service_id' },
+};
+
 export default {
   STATUS,
 
@@ -116,6 +127,20 @@ export default {
         await db.execute(
           `UPDATE ${op.table} SET server_id = ? WHERE id = ?`,
           [serverId, localId]
+        );
+      }
+
+      // Связки без своего PK (`order_service`): запоминаем серверные id родителей,
+      // чтобы удаление строки ушло по натуральному ключу, а не «потерялось».
+      const parentIds = RECONCILE_PARENT_IDS[op.table];
+
+      if (op.type === 'insert' && localId && parentIds) {
+        const columns = Object.keys(parentIds);
+        const values = columns.map(column => op.payload?.[parentIds[column]] ?? null);
+
+        await db.execute(
+          `UPDATE ${op.table} SET ${columns.map(column => `${column} = ?`).join(', ')} WHERE id = ?`,
+          [...values, localId]
         );
       }
 

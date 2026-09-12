@@ -1,6 +1,7 @@
 import { v4 as uuidv4 } from 'uuid'
 import dbAdapter from 'src/database/db.js'
 import queries from 'src/database/queries/specializations' // <-- Убедись, что этот файл существует
+import operationsRepo from 'src/repositories/operationsRepo'
 import { toEpochSeconds } from 'src/utils/timestamps.js'
 
 /**
@@ -11,6 +12,11 @@ export async function getAll() {
   return await dbAdapter.query(queries.getAll)
 }
 
+export async function getById(id) {
+  const result = await dbAdapter.query(queries.getById, [id]);
+  return result.length > 0 ? result[0] : null;
+}
+
 export async function findByServerId(serverId) {
   const result = await dbAdapter.query(queries.findByServerId, [serverId]);
   return result.length > 0 ? result[0] : null;
@@ -18,6 +24,14 @@ export async function findByServerId(serverId) {
 
 /**
  * Сохраняет новую специализацию в локальной базе и добавляет операцию в очередь.
+ *
+ * ⚠️ До 5.3 репозиторий клал операцию через `dbAdapter.enqueueOperation()` —
+ * это заглушка адаптера (ничего не делает), поэтому у специальности никогда не
+ * появлялся `server_id`, а все записи с `specialization_id` (клиенты, категории,
+ * товарные категории, модели техники, заказы) висели в очереди навсегда.
+ * Теперь операция ставится так же, как у остальных репозиториев — через
+ * `operationsRepo.enqueue`, а локальный id лежит в payload под `local_id`.
+ *
  * @param {object} specialization - Объект специализации. Должен содержать 'name'.
  * @returns {Promise<string>} - Локальный UUID созданной записи.
  */
@@ -32,11 +46,13 @@ export async function save(specialization) {
 
   await dbAdapter.execute(queries.insert, params)
 
+  const payloadForServer = { ...specialization };
+  delete payloadForServer.id;
   const opId = uuidv4();
-  const opPayload = JSON.stringify({ id, ...specialization });
+  const opPayload = JSON.stringify({ local_id: id, ...payloadForServer });
   const opParams = [opId, 'insert', 'specializations', opPayload, Date.now()];
 
-  await dbAdapter.enqueueOperation('insert', opParams);
+  await operationsRepo.enqueue(opParams);
   return id
 }
 
@@ -45,14 +61,20 @@ export async function save(specialization) {
  * @param {object} specialization - Объект специализации. Должен содержать 'id' и 'name'.
  */
 export async function update(specialization) {
+  const existing = await dbAdapter.queryOne(queries.getById, [specialization.id])
+
   const params = [specialization.name, specialization.id]
   await dbAdapter.execute(queries.update, params)
 
-  await dbAdapter.enqueueOperation({
-    type: 'update',
-    table: 'specializations',
-    payload: specialization
-  })
+  if (existing && existing.server_id) {
+    await operationsRepo.enqueue([
+      uuidv4(),
+      'update',
+      'specializations',
+      JSON.stringify({ id: existing.server_id, name: specialization.name }),
+      Date.now(),
+    ]);
+  }
 }
 
 /**
@@ -60,13 +82,32 @@ export async function update(specialization) {
  * @param {string} id - Локальный ID специализации для удаления.
  */
 export async function remove(id) {
-  await dbAdapter.execute(queries.delete, [id])
+  const existing = await dbAdapter.queryOne(queries.getById, [id])
 
-  await dbAdapter.enqueueOperation({
-    type: 'delete',
-    table: 'specializations',
-    payload: { id }
-  })
+  if (existing && existing.server_id) {
+    await operationsRepo.enqueue([
+      uuidv4(),
+      'delete',
+      'specializations',
+      JSON.stringify({ id: existing.server_id }),
+      Date.now(),
+    ]);
+  } else if (existing) {
+    // Запись ещё не уезжала — отменяем незавершённый INSERT.
+    await operationsRepo.removeByLocalId('specializations', id);
+  }
+
+  await dbAdapter.execute(queries.delete, [id])
+}
+
+
+/**
+ * Проставляет серверный id после успешного INSERT (нужно, чтобы «дети» этой
+ * специальности — клиенты, категории, товарные категории, модели, заказы —
+ * смогли уехать: syncService переводит их локальные FK в server_id).
+ */
+export async function updateServerId(localId, serverId) {
+  await dbAdapter.execute('UPDATE specializations SET server_id = ? WHERE id = ?', [serverId, localId]);
 }
 
 /**

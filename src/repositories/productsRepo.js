@@ -19,19 +19,24 @@ export async function getByCategoryId(categoryId) {
 export async function save(product) {
   const id = product.id || uuidv4()
 
-  const category = await dbAdapter.queryOne('SELECT server_id FROM product_categories WHERE id = ?', [product.product_category_id]);
+  // ⚠️ Необязательные поля приводим к null/'': sql.js падает на bind-параметре
+  // `undefined` («tried to bind a value of an unknown type»), а вызвать save
+  // можно и с «частичным» объектом (найдено тестами 5.3).
+  const category = product.product_category_id
+    ? await dbAdapter.queryOne('SELECT server_id FROM product_categories WHERE id = ?', [product.product_category_id])
+    : null;
   const categoryServerId = category ? category.server_id : null;
 
   const params = [
     id,
     product.server_id || null,
     product.name,
-    product.description,
-    product.manufacturer,
-    product.product_number,
-    product.weight,
-    product.base_sale_price,
-    product.product_category_id,
+    product.description ?? '',
+    product.manufacturer ?? '',
+    product.product_number ?? '',
+    product.weight ?? null,
+    product.base_sale_price ?? null,
+    product.product_category_id ?? null,
     categoryServerId
   ]
 
@@ -56,17 +61,19 @@ export async function save(product) {
 }
 
 export async function update(product) {
-  const category = await dbAdapter.queryOne('SELECT server_id FROM product_categories WHERE id = ?', [product.product_category_id]);
+  const category = product.product_category_id
+    ? await dbAdapter.queryOne('SELECT server_id FROM product_categories WHERE id = ?', [product.product_category_id])
+    : null;
   const categoryServerId = category ? category.server_id : null;
 
   const params = [
     product.name,
-    product.description,
-    product.manufacturer,
-    product.product_number,
-    product.weight,
-    product.base_sale_price,
-    product.product_category_id,
+    product.description ?? '',
+    product.manufacturer ?? '',
+    product.product_number ?? '',
+    product.weight ?? null,
+    product.base_sale_price ?? null,
+    product.product_category_id ?? null,
     categoryServerId,
     product.id
   ];

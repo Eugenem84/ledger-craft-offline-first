@@ -107,7 +107,9 @@ class SyncService {
     };
 
     // --- [DEBUG] Добавляем отладочную функцию в консоль ---
-    if (process.env.DEV) {
+    // `import.meta.env.DEV` — как в `logger`; `typeof window` — потому что модуль
+    // импортируется и вне браузера (тесты, сборка), где `window` не существует.
+    if (import.meta.env?.DEV && typeof window !== 'undefined') {
       window.debugShowServices = servicesRepo.logAllServicesForDebugging;
     }
 
@@ -387,6 +389,10 @@ class SyncService {
     }
 
     for (const op of parsed) {
+      // Имена полей, которые на сервере называются иначе, приводим до отправки
+      // (специальности — `name` → `specializationName`).
+      this._adaptPayloadForServer(op)
+
       const dependencies = this._prepareForeignKeys(op);
 
       // Рёбра графа: родитель из этого же батча → операция.
@@ -427,6 +433,36 @@ class SyncService {
       console.error('[SyncService] Не удалось распарсить payload, операция пропущена:', op, e);
       return null;
     }
+  }
+
+  /**
+   * Приводит payload операции к именам полей сервера — там, где локальная и
+   * серверная схема расходятся (как `by_price`/`buy_price` в 2.1).
+   *
+   * `specializations`: локально поле называется `name`, на сервере —
+   * `specializationName`, плюс есть обязательный `popularCounter`. Обратный
+   * маппинг уже есть в `api.js` при получении выдачи. Без этого специальность
+   * не уезжала вовсе: `/sync` отвечал `DATABASE_ERROR` на отсутствующие колонки
+   * (найдено тестами 5.3 вместе с заглушкой очереди в `specializationsRepo`).
+   *
+   * @param {object} op операция с уже распарсенным payload
+   * @returns {object} та же операция
+   */
+  _adaptPayloadForServer(op) {
+    if (!op.payload) return op
+
+    if (op.table === 'specializations') {
+      if (Object.prototype.hasOwnProperty.call(op.payload, 'name')) {
+        op.payload.specializationName = op.payload.name
+        delete op.payload.name
+      }
+
+      if (op.type === 'insert' && op.payload.popularCounter == null) {
+        op.payload.popularCounter = 0
+      }
+    }
+
+    return op
   }
 
   /**

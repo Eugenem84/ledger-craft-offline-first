@@ -50,8 +50,35 @@
 npm install        # или yarn
 npm run dev        # разработка в браузере (http://localhost:8080)
 npm run lint       # eslint
+npm test           # vitest (тесты локальной БД, репозиториев и синка)
 npm run format     # prettier
 npm run build      # production web-сборка в dist/
+```
+
+## Тесты
+
+Фронт — **vitest** (`npm test`, режим наблюдения — `npm run test:watch`). Тесты не
+поднимают браузер и не ходят в сеть:
+
+- локальная БД — **настоящий sql.js в памяти** с тем же интерфейсом, что у адаптера
+  (`test/helpers/testDb.js`), прогоняются реальные миграции Фазы 2;
+- сеть — фейковый сервер синка по контракту `SyncController`
+  (`test/helpers/fakeServer.js`); браузерные API (`localStorage`, `navigator`) —
+  минимальные заглушки в `test/setup.js`.
+
+| Файл | Что покрыто |
+|---|---|
+| `test/migrations.test.js` | все миграции на чистой БД, идемпотентный повтор, отсутствие конфликтов колонок, версия схемы (5.5) |
+| `test/repositories-catalog.test.js` | каталог: `save`/`update`/`remove` пишут запись **и** операцию в очередь, `applyServerRecord` (5.3) |
+| `test/repositories-orders.test.js` | клиенты, заказы и строки заказа (товары, работы, ручные позиции) (5.3) |
+| `test/repositories-infra.test.js` | очередь операций (статусы, атомарный `markSynced`, `recoverInFlight`) и курсоры синка (5.3) |
+| `test/sync.test.js` | порядок «родитель → ребёнок», волны, отложенные операции, идемпотентность, `applyServerRecord` с FK, удаления/tombstones, сбои сети и сервера (5.4) |
+
+Бэкенд — PHPUnit в `LedgerCraftDocker03`. Тесты идут на **отдельной** тестовой БД
+`ledgercraft_test` (подробности — в `phpunit.xml` бэкенда):
+
+```bash
+cd ../LedgerCraftDocker03 && php artisan test
 ```
 
 ## Мобильная сборка под Android
