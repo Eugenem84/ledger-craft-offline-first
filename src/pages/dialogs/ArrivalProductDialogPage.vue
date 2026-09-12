@@ -9,6 +9,7 @@ import { logger } from 'src/utils/logger'
 import { ref } from 'vue'
 import { useQuasar } from 'quasar'
 import { useProductsStore } from 'stores/useProductsStore.js'
+import LcDialogShell from 'src/components/ui/LcDialogShell.vue'
 
 const $q = useQuasar()
 const productsStore = useProductsStore()
@@ -69,65 +70,50 @@ defineExpose({ open })
 </script>
 
 <template>
-  <q-dialog v-model="showDialog" persistent>
-    <q-card style="min-width: 400px">
-      <q-card-section class="row items-center">
-        <span class="q-ml-sm text-h6">Поступление</span>
-        <q-space />
-        <q-btn icon="close" flat round dense v-close-popup />
-      </q-card-section>
-
-      <q-card-section>
-        <div class="q-gutter-y-md">
+  <LcDialogShell
+    :model-value="showDialog"
+    title="Поступление товара"
+    :subtitle="currentProduct?.name"
+    confirm-label="Сохранить"
+    :loading="saving"
+    @update:model-value="showDialog = $event"
+    @confirm="makeArrivalProduct"
+  >
+    <div class="q-gutter-y-md">
+      <div class="row q-col-gutter-md">
+        <div class="col">
           <q-input
             v-model="byPrice"
             outlined
+            dense
             type="number"
-            label="цена закупки"
-            placeholder="введите цену закупки"
-            class="q-mb-md"
+            label="Цена закупки, р"
+            placeholder="за 1 шт."
+            autofocus
           />
         </div>
-      </q-card-section>
-
-      <q-card-section>
-        <div class="q-gutter-y-md">
-          <q-input
-            v-model="baseSalePrice"
-            outlined
-            type="number"
-            label="цена продажи"
-            placeholder="Введите цену продажи"
-            class="q-mb-md"
-          />
-        </div>
-      </q-card-section>
-
-      <q-card-section>
-        <div class="q-gutter-y-md">
+        <div class="col">
           <q-input
             v-model="arrivalQuantity"
             outlined
+            dense
             type="number"
-            label="количество поступило"
-            placeholder="Введите количество поступления"
-            class="q-mb-md"
+            label="Количество"
+            placeholder="+ шт."
           />
         </div>
-      </q-card-section>
+      </div>
 
-      <q-card-actions align="right">
-        <q-btn flat label="Отмена" color="yellow" v-close-popup />
-
-        <q-btn
-          label="Сохранить"
-          text-color="yellow"
-          :loading="saving"
-          @click="makeArrivalProduct"
-        />
-      </q-card-actions>
-    </q-card>
-  </q-dialog>
+      <q-input
+        v-model="baseSalePrice"
+        outlined
+        dense
+        type="number"
+        label="Цена продажи, р"
+        hint="Если изменить — товар на складе продаётся по новой цене"
+      />
+    </div>
+  </LcDialogShell>
 </template>
 
 <style scoped></style>

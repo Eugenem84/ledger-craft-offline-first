@@ -65,6 +65,9 @@ src/
 │                                 #   useAnalyticsStore (аналитика, 9.1)
 ├── components/
 │   ├── SyncStatusBar.vue         # индикатор сети/синка (6.2)
+│   ├── ui/                       # общие элементы дизайн-системы (см. docs/UI.md):
+│   │                             #   LcPageHeader, LcSectionCard, LcStatusChip, LcEmptyState,
+│   │                             #   LcFab, LcDialogShell, AuthShell
 │   └── order/                    # компоненты страницы заказа (8.1): OrderHeaderActions,
 │                                 #   OrderPartySelectors, OrderOverviewPanel, OrderServicesPanel,
 │                                 #   OrderMaterialsPanel, OrderServicesBlock, OrderMaterialsBlock,
@@ -91,7 +94,7 @@ src/
 ├── mocks/
 │   ├── clients.json              # мок-данные для USE_MOCK=true
 │   └── specializations.json
-└── css/ app.scss, quasar.variables.scss
+└── css/ app.scss (дизайн-токены + утилиты), quasar.variables.scss (палитра)
 ```
 
 ## 2. Маршруты

@@ -19,6 +19,9 @@ const manualSyncing = ref(false)
 const view = computed(() => syncStatusView(status.value))
 const loading = computed(() => status.value.syncing || manualSyncing.value)
 
+/** На светлом жёлто/янтарном фоне читается чёрный текст, на остальных — белый. */
+const textColor = computed(() => (['secondary', 'warning'].includes(view.value.color) ? 'black' : 'white'))
+
 const details = computed(() => {
   const s = status.value
   const lines = []
@@ -92,9 +95,9 @@ async function syncNow() {
       no-caps
       unelevated
       size="sm"
-      class="text-caption"
-      text-color="white"
+      class="lc-sync-chip text-caption"
       :color="view.color"
+      :text-color="textColor"
       :icon="view.icon"
       :label="view.label"
       :loading="loading"
@@ -108,11 +111,11 @@ async function syncNow() {
 </template>
 
 <style scoped>
-/* Над футером с табами (~48px) и вне плавающих кнопок справа. */
+/* Над таббаром (~56px) и с учётом safe-area; не мешает FAB справа. */
 .sync-status {
   position: fixed;
-  left: 8px;
-  bottom: 60px;
+  left: 10px;
+  bottom: calc(72px + env(safe-area-inset-bottom, 0px));
   z-index: 1900;
 }
 </style>

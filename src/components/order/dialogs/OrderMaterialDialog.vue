@@ -2,7 +2,9 @@
 // Диалог «добавить ручную позицию» (Фаза 8, задача 8.1).
 // Валидация переехала сюда: `submit` уходит только с корректными данными,
 // иначе компонент сообщает `invalid` — страница показывает предупреждение.
+// Оболочка — общая `LcDialogShell`.
 import { ref, watch } from 'vue'
+import LcDialogShell from 'src/components/ui/LcDialogShell.vue'
 
 const props = defineProps({
   modelValue: { type: Boolean, default: false },
@@ -48,54 +50,40 @@ const submit = () => {
 </script>
 
 <template>
-  <q-dialog
+  <LcDialogShell
     :model-value="props.modelValue"
-    persistent
+    title="Новый материал"
+    subtitle="Позиция, купленная «по пути» и не учтённая на складе"
+    confirm-label="Добавить"
     @update:model-value="value => emit('update:modelValue', value)"
+    @confirm="submit"
   >
-    <q-card>
-      <q-card-section>
-        <div class="text-h6">Добавление материала</div>
-        <q-input
-          v-model="form.name"
-          label-color="yellow"
-          color="yellow"
-          label="Название"
-          outlined
-          class="q-mb-md"
-        />
-        <q-input
-          v-model.number="form.price"
-          label="Цена"
-          label-color="yellow"
-          color="yellow"
-          type="number"
-          outlined
-          class="q-mb-md"
-        />
-        <q-input
-          v-model.number="form.amount"
-          label="Количество"
-          label-color="yellow"
-          color="yellow"
-          type="number"
-          outlined
-          class="q-mb-md"
-        />
-        <q-input
-          v-model.number="form.buyPrice"
-          label="Закупка (за 1 шт.)"
-          label-color="yellow"
-          color="yellow"
-          type="number"
-          outlined
-          hint="себестоимость: если оставить 0, маржа по позиции не считается"
-        />
-      </q-card-section>
-      <q-card-actions align="right">
-        <q-btn flat label="Отмена" color="yellow" @click="close" />
-        <q-btn flat label="Добавить" color="yellow" @click="submit" />
-      </q-card-actions>
-    </q-card>
-  </q-dialog>
+    <div class="q-gutter-y-md">
+      <q-input v-model="form.name" label="Название" outlined dense autofocus />
+
+      <div class="row q-col-gutter-md">
+        <div class="col">
+          <q-input v-model.number="form.price" label="Цена, р" type="number" outlined dense />
+        </div>
+        <div class="col">
+          <q-input
+            v-model.number="form.amount"
+            label="Количество"
+            type="number"
+            outlined dense
+          />
+        </div>
+      </div>
+
+      <q-input
+        v-model.number="form.buyPrice"
+        label="Закупка за 1 шт., р"
+        type="number"
+        outlined
+        dense
+        hint="Необязательно: если оставить пусто/0, маржа по позиции не считается"
+      />
+    </div>
+  </LcDialogShell>
 </template>
+

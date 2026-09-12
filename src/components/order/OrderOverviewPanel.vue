@@ -37,74 +37,69 @@ const emit = defineEmits([
 </script>
 
 <template>
-  <q-tab-panel name="all" style="padding: 0">
-    <div>
-      <div class="text-center text-grey">работы:</div>
+  <q-tab-panel name="all" class="q-pa-none">
+    <OrderServicesBlock
+      :services="props.services"
+      :edit-mode="props.editMode"
+      @remove="index => emit('remove-service', index)"
+    />
 
-      <OrderServicesBlock
-        :services="props.services"
-        :edit-mode="props.editMode"
-        @remove="index => emit('remove-service', index)"
-      />
-
-      <div class="text-grey text-left" v-show="props.servicesTotal > 0">
-        всего по работе : {{ props.servicesTotal }}р
-      </div>
-
-      <div
-        v-if="props.products.length > 0 || props.materials.length > 0"
-        class="text-center text-grey"
-      >
-        материалы:
-      </div>
-
-      <OrderMaterialsBlock
-        :materials="props.materials"
-        :edit-mode="props.editMode"
-        @remove="index => emit('remove-material', index)"
-      />
-
-      <OrderProductsBlock
-        :products="props.products"
-        :edit-mode="props.editMode"
-        @remove="index => emit('remove-product', index)"
-      />
-
-      <OrderTotals
-        :services-total="props.servicesTotal"
-        :materials-total="props.materialsTotal"
-        :products-total="props.productsTotal"
-        :cost-total="props.costTotal"
-        :margin="props.margin"
-        :markup-percent="props.markupPercent"
-        :has-unknown-cost="props.hasUnknownCost"
-      />
+    <div
+      v-if="props.servicesTotal > 0"
+      class="row items-baseline justify-between q-px-md q-pt-sm text-caption lc-mute"
+    >
+      <span>итого по работам</span>
+      <span class="lc-money">{{ props.servicesTotal }} р</span>
     </div>
 
-    <q-input
-      type="textarea"
-      :model-value="props.comments"
-      @update:model-value="value => emit('update:comments', value)"
-      label="комментарии"
-      label-color="yellow"
-      color="yellow"
-      autogrow
-      placeholder="Коментариев нет"
-      :disable="!props.editMode"
+    <OrderMaterialsBlock
+      :materials="props.materials"
+      :edit-mode="props.editMode"
+      @remove="index => emit('remove-material', index)"
     />
 
-    <!-- Универсальный идентификатор объекта (задача 10.9): VIN / серийник рамы /
-         адрес объекта. Подпись и показ поля зависят от активного профиля. -->
-    <q-input
-      v-if="props.showEquipmentIdentifier"
-      :model-value="props.equipmentIdentifier"
-      @update:model-value="value => emit('update:equipmentIdentifier', value)"
-      :label="props.equipmentLabel"
-      label-color="yellow"
-      color="yellow"
-      outlined
-      class="q-mt-md"
-      :disable="!props.editMode"
+    <OrderProductsBlock
+      :products="props.products"
+      :edit-mode="props.editMode"
+      @remove="index => emit('remove-product', index)"
     />
+
+    <q-separator dark class="q-my-sm" />
+
+    <OrderTotals
+      :services-total="props.servicesTotal"
+      :materials-total="props.materialsTotal"
+      :products-total="props.productsTotal"
+      :cost-total="props.costTotal"
+      :margin="props.margin"
+      :markup-percent="props.markupPercent"
+      :has-unknown-cost="props.hasUnknownCost"
+    />
+
+    <div class="q-px-md q-pb-md q-gutter-y-md">
+      <q-input
+        type="textarea"
+        :model-value="props.comments"
+        @update:model-value="value => emit('update:comments', value)"
+        label="комментарии"
+        color="secondary"
+        autogrow
+        outlined
+        placeholder="например: «клиент просил перезвонить в среду»"
+        :disable="!props.editMode"
+      />
+
+      <!-- Универсальный идентификатор объекта (задача 10.9): VIN / серийник рамы /
+           адрес объекта. Подпись и показ поля зависят от активного профиля. -->
+      <q-input
+        v-if="props.showEquipmentIdentifier"
+        :model-value="props.equipmentIdentifier"
+        @update:model-value="value => emit('update:equipmentIdentifier', value)"
+        :label="props.equipmentLabel"
+        color="secondary"
+        outlined
+        :disable="!props.editMode"
+      />
+    </div>
   </q-tab-panel>
 </template>

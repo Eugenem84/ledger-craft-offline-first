@@ -10,6 +10,9 @@ import { computed, onMounted } from 'vue'
 
 import { useAnalyticsStore } from 'src/stores/useAnalyticsStore.js'
 import { useSpecializationsStore } from 'src/stores/useSpecializationsStore.js'
+// Общие UI-элементы (переработка интерфейса).
+import LcEmptyState from 'src/components/ui/LcEmptyState.vue'
+import LcPageHeader from 'src/components/ui/LcPageHeader.vue'
 
 const analytics = useAnalyticsStore()
 const specializations = useSpecializationsStore()
@@ -38,30 +41,33 @@ onMounted(() => analytics.load())
 </script>
 
 <template>
-  <q-page padding class="bg-dark text-white">
-    <div class="row items-center justify-between q-mb-sm">
-      <div>
-        <div class="text-subtitle1">аналитика</div>
-        <div class="text-caption text-grey">{{ specializationName }}</div>
-      </div>
-      <q-btn
-        flat
-        round
-        icon="refresh"
-        color="yellow"
-        :loading="analytics.loading"
-        @click="analytics.reload()"
-      />
-    </div>
+  <q-page class="lc-page lc-shell">
+    <LcPageHeader title="аналитика" :subtitle="specializationName" icon="insights">
+      <template #actions>
+        <q-btn
+          flat
+          round
+          dense
+          icon="refresh"
+          color="secondary"
+          :loading="analytics.loading"
+          @click="analytics.reload()"
+        >
+          <q-tooltip class="text-caption">пересчитать</q-tooltip>
+        </q-btn>
+      </template>
+    </LcPageHeader>
 
     <q-banner v-if="analytics.error" dense class="bg-negative text-white q-mb-md">
       не удалось посчитать аналитику: {{ analytics.error.message }}
     </q-banner>
 
-    <div v-if="!analytics.hasData" class="text-grey text-caption q-mt-md">
-      нет данных: заказы появятся здесь, как только вы их заведёте (в выручку входят только
-      <b>закрытые и оплаченные</b> заказы)
-    </div>
+    <LcEmptyState
+      v-if="!analytics.hasData"
+      icon="insights"
+      title="Данных пока нет"
+      hint="В выручку входят только закрытые и оплаченные заказы — заведите и закройте первый заказ."
+    />
 
     <template v-else>
       <!-- Выручка за сегодня/неделю/месяц/год — аналог серверного getProfitDWMY -->
@@ -76,120 +82,141 @@ onMounted(() => analytics.load())
           :key="card.label"
           class="col-6 col-sm-3"
         >
-          <q-card dark flat bordered>
-            <q-card-section class="q-pa-sm">
-              <div class="text-caption text-grey">{{ card.label }}</div>
-              <div class="text-subtitle1 text-green">{{ money(card.value) }} р</div>
-            </q-card-section>
-          </q-card>
+          <div class="lc-kpi">
+            <div class="lc-kpi__label">{{ card.label }}</div>
+            <div class="lc-kpi__value text-positive">{{ money(card.value) }} р</div>
+          </div>
         </div>
       </div>
 
       <!-- Итоги выбранного масштаба + переключатель периода -->
-      <q-card dark flat bordered class="q-mb-md">
-        <q-card-section class="q-pa-sm">
-          <div class="row items-center justify-between q-mb-sm">
-            <div class="text-caption text-grey">выручка за период</div>
-            <q-btn-toggle
-              v-model="period"
-              dense
-              no-caps
-              unelevated
-              outline
-              toggle-color="yellow"
-              color="grey"
-              :options="analytics.periodOptions"
-            />
-          </div>
-          <div class="row">
-            <div class="col-4">
-              <div class="text-caption text-grey">выручка</div>
-              <div class="text-h6 text-green">{{ money(analytics.summary.revenue) }} р</div>
-            </div>
-            <div class="col-4">
-              <div class="text-caption text-grey">средний чек</div>
-              <div class="text-h6">{{ money(analytics.summary.averageCheck) }} р</div>
-            </div>
-            <div class="col-4">
-              <div class="text-caption text-grey">заказов</div>
-              <div class="text-h6">{{ analytics.summary.ordersCount }}</div>
-            </div>
-          </div>
+      <div class="lc-card q-pa-md q-mb-md">
+        <div class="row items-center justify-between no-wrap q-mb-md q-gutter-x-sm">
+          <div class="lc-eyebrow">выручка за период</div>
+          <q-btn-toggle
+            v-model="period"
+            dense
+            no-caps
+            unelevated
+            color="grey-9"
+            text-color="grey-5"
+            toggle-color="secondary"
+            toggle-text-color="black"
+            :options="analytics.periodOptions"
+          />
+        </div>
 
-          <!-- Маржа за период (9.5/9.6): выручка − закупка позиций; у работ закупки нет -->
-          <div class="row q-mt-sm">
-            <div class="col-4">
-              <div class="text-caption text-grey">закупка</div>
-              <div class="text-subtitle1 text-orange">{{ money(analytics.summary.cost) }} р</div>
-            </div>
-            <div class="col-4">
-              <div class="text-caption text-grey">маржа</div>
-              <div class="text-subtitle1 text-green">{{ money(analytics.summary.margin) }} р</div>
-            </div>
-            <div class="col-4">
-              <div class="text-caption text-grey">наценка</div>
-              <div class="text-subtitle1">
-                {{ analytics.summary.marginPercent == null ? '—' : `${analytics.summary.marginPercent}%` }}
-              </div>
+        <div class="row q-col-gutter-sm">
+          <div class="col-4">
+            <div class="lc-kpi__label">выручка</div>
+            <div class="text-subtitle1 text-positive lc-money">{{ money(analytics.summary.revenue) }} р</div>
+          </div>
+          <div class="col-4">
+            <div class="lc-kpi__label">средний чек</div>
+            <div class="text-subtitle1 lc-money">{{ money(analytics.summary.averageCheck) }} р</div>
+          </div>
+          <div class="col-4">
+            <div class="lc-kpi__label">заказов</div>
+            <div class="text-subtitle1 lc-money">{{ analytics.summary.ordersCount }}</div>
+          </div>
+        </div>
+
+        <q-separator dark class="q-my-md" />
+
+        <!-- Маржа за период (9.5/9.6): выручка − закупка позиций; у работ закупки нет -->
+        <div class="row q-col-gutter-sm">
+          <div class="col-4">
+            <div class="lc-kpi__label">закупка</div>
+            <div class="text-subtitle2 text-orange lc-money">{{ money(analytics.summary.cost) }} р</div>
+          </div>
+          <div class="col-4">
+            <div class="lc-kpi__label">маржа</div>
+            <div class="text-subtitle2 text-positive lc-money">{{ money(analytics.summary.margin) }} р</div>
+          </div>
+          <div class="col-4">
+            <div class="lc-kpi__label">наценка</div>
+            <div class="text-subtitle2 lc-money">
+              {{ analytics.summary.marginPercent == null ? '—' : `${analytics.summary.marginPercent}%` }}
             </div>
           </div>
-        </q-card-section>
-      </q-card>
+        </div>
+      </div>
 
       <!-- Выручка по колонкам выбранного периода -->
-      <div class="text-caption text-grey q-mb-xs">выручка по периодам</div>
-      <div v-for="bucket in analytics.buckets" :key="bucket.key" class="q-mb-xs">
-        <div class="row items-center no-wrap">
-          <div class="col-3 text-caption">{{ bucket.label }}</div>
-          <div class="col">
-            <q-linear-progress :value="ratio(bucket.total, bucketsMax)" size="12px" color="green" />
+      <div class="lc-card q-pa-md q-mb-md">
+        <div class="lc-eyebrow q-mb-sm">выручка по периодам</div>
+        <div v-for="bucket in analytics.buckets" :key="bucket.key" class="row items-center no-wrap q-mb-xs">
+          <div class="col-3 text-caption lc-muted">{{ bucket.label }}</div>
+          <div class="col q-px-sm">
+            <q-linear-progress
+              :value="ratio(bucket.total, bucketsMax)"
+              size="10px"
+              color="positive"
+              track-color="grey-9"
+              rounded
+            />
           </div>
-          <div class="col-3 text-right text-caption">
-            {{ money(bucket.total) }} <span class="text-grey">({{ bucket.count }})</span>
+          <div class="col-3 text-right text-caption lc-money">
+            {{ money(bucket.total) }}
+            <span class="lc-mute">({{ bucket.count }})</span>
           </div>
         </div>
       </div>
 
       <!-- Заказы по текущим статусам (все заказы, не только учтённые) -->
-      <div class="text-caption text-grey q-mt-md q-mb-xs">заказы по статусам (сейчас)</div>
-      <div v-for="status in analytics.statuses" :key="status.value" class="q-mb-xs">
-        <div class="row items-center no-wrap">
-          <div class="col-3 text-caption">{{ status.label }}</div>
-          <div class="col">
+      <div class="lc-card q-pa-md q-mb-md">
+        <div class="lc-eyebrow q-mb-sm">заказы по статусам (сейчас)</div>
+        <div v-for="status in analytics.statuses" :key="status.value" class="row items-center no-wrap q-mb-xs">
+          <div class="col-3 text-caption lc-muted">{{ status.label }}</div>
+          <div class="col q-px-sm">
             <q-linear-progress
               :value="ratio(status.count, statusesTotal)"
-              size="12px"
-              :color="status.value === 'done' ? 'green' : status.value === 'process' ? 'red' : 'orange'"
+              size="10px"
+              :color="
+                status.value === 'done' ? 'positive' : status.value === 'process' ? 'negative' : 'warning'
+              "
+              track-color="grey-9"
+              rounded
             />
           </div>
-          <div class="col-2 text-right text-caption">{{ status.count }}</div>
+          <div class="col-2 text-right text-caption lc-money">{{ status.count }}</div>
         </div>
       </div>
 
       <!-- Топы за период: работы, товары со склада, ручные позиции -->
-      <template
-        v-for="top in [
-          { title: 'топ работ', rows: analytics.topServices },
-          { title: 'топ товаров', rows: analytics.topProducts },
-          { title: 'топ материалов', rows: analytics.topMaterials },
-        ]"
-        :key="top.title"
-      >
-        <div class="text-caption text-grey q-mt-md q-mb-xs">{{ top.title }}</div>
-        <div v-if="!top.rows.length" class="text-caption text-grey">— пусто —</div>
-        <div v-for="(row, index) in top.rows" :key="`${top.title}-${index}`" class="q-mb-xs">
-          <div class="row items-center no-wrap">
-            <div class="col text-caption ellipsis">{{ row.name }}</div>
-            <div class="col-2 text-right text-caption text-grey">{{ row.quantity }}</div>
-            <!-- Маржа есть только у позиций с закупкой (товары/ручные материалы) — 9.5/9.6 -->
-            <div class="col-2 text-right text-caption text-green">
-              {{ row.margin == null ? '' : `${money(row.margin)} р` }}
+      <div class="lc-card q-pa-md">
+        <template
+          v-for="top in [
+            { title: 'топ работ', rows: analytics.topServices },
+            { title: 'топ товаров', rows: analytics.topProducts },
+            { title: 'топ материалов', rows: analytics.topMaterials },
+          ]"
+          :key="top.title"
+        >
+          <div class="lc-eyebrow q-mt-md q-mb-sm">{{ top.title }}</div>
+          <div v-if="!top.rows.length" class="text-caption lc-mute q-mb-sm">— пусто —</div>
+          <div v-for="(row, index) in top.rows" :key="`${top.title}-${index}`" class="q-mb-sm">
+            <div class="row items-center no-wrap">
+              <div class="col text-caption ellipsis">{{ row.name }}</div>
+              <div class="col-2 text-right text-caption lc-mute">{{ row.quantity }}</div>
+              <!-- Маржа есть только у позиций с закупкой (товары/ручные материалы) — 9.5/9.6 -->
+              <div class="col-2 text-right text-caption text-positive lc-money">
+                {{ row.margin == null ? '' : `${money(row.margin)} р` }}
+              </div>
+              <div class="col-3 text-right text-caption text-positive lc-money">
+                {{ money(row.total) }} р
+              </div>
             </div>
-            <div class="col-3 text-right text-caption text-green">{{ money(row.total) }} р</div>
+            <q-linear-progress
+              :value="ratio(row.total, topMax(top.rows))"
+              size="6px"
+              color="secondary"
+              track-color="grey-9"
+              rounded
+            />
           </div>
-          <q-linear-progress :value="ratio(row.total, topMax(top.rows))" size="6px" color="yellow" />
-        </div>
-      </template>
+        </template>
+      </div>
     </template>
   </q-page>
 </template>

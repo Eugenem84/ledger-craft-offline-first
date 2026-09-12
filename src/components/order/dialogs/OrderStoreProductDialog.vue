@@ -2,7 +2,9 @@
 // Диалог «товар со склада» (Фаза 8, задача 8.1): категория товаров → товар → добавить.
 // Категории/товары приходят из стора, выбранные значения уходят наверх событиями.
 // Подписи — из лексикона профиля (Фаза 10, задача 10.1): велосипедисту «запчасть».
+// Оболочка — общая `LcDialogShell`.
 import { useLexicon } from 'src/domain/lexicon.js'
+import LcDialogShell from 'src/components/ui/LcDialogShell.vue'
 
 const { t } = useLexicon()
 
@@ -20,44 +22,43 @@ const emit = defineEmits([
   'update:selectedProduct',
   'submit',
 ])
-
-const close = () => emit('update:modelValue', false)
 </script>
 
 <template>
-  <q-dialog
+  <LcDialogShell
     :model-value="props.modelValue"
-    persistent
+    :title="`${t('part')} со склада`"
+    confirm-label="Добавить"
     @update:model-value="value => emit('update:modelValue', value)"
+    @confirm="emit('submit')"
   >
-    <q-card>
-      <q-card-section>
-        <div class="text-h6">Добавление: {{ t('part') }} со склада</div>
-        <q-select
-          :model-value="props.selectedCategory"
-          :options="props.categories"
-          option-value="id"
-          option-label="name"
-          emit-value
-          map-options
-          label="Выберите категорию"
-          @update:model-value="value => emit('update:selectedCategory', value)"
-          label-color="yellow"
-        />
-        <q-select
-          :model-value="props.selectedProduct"
-          :options="props.products"
-          option-label="name"
-          :label="`выберите ${t('part')}`"
-          label-color="yellow"
-          @update:model-value="value => emit('update:selectedProduct', value)"
-        />
-      </q-card-section>
+    <div class="q-gutter-y-md">
+      <q-select
+        :model-value="props.selectedCategory"
+        :options="props.categories"
+        option-value="id"
+        option-label="name"
+        emit-value
+        map-options
+        outlined
+        dense
+        label="Категория"
+        color="secondary"
+        @update:model-value="value => emit('update:selectedCategory', value)"
+      />
 
-      <q-card-actions align="right">
-        <q-btn flat label="отмена" color="yellow" @click="close" />
-        <q-btn flat label="добавить" color="yellow" @click="emit('submit')" />
-      </q-card-actions>
-    </q-card>
-  </q-dialog>
+      <q-select
+        :model-value="props.selectedProduct"
+        :options="props.products"
+        option-label="name"
+        outlined
+        dense
+        :label="t('part')"
+        color="secondary"
+        :disable="!props.selectedCategory"
+        @update:model-value="value => emit('update:selectedProduct', value)"
+      />
+    </div>
+  </LcDialogShell>
 </template>
+

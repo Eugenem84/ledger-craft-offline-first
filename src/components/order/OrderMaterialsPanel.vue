@@ -22,21 +22,38 @@ const emit = defineEmits([
 </script>
 
 <template>
-  <q-tab-panel name="materialsChoice" style="padding: 0">
+  <q-tab-panel name="materialsChoice" class="q-pa-none">
+    <div class="row items-center no-wrap q-pa-md q-gutter-x-sm">
+      <div class="col text-caption lc-mute">
+        материалы: <span class="lc-money">{{ props.materialsTotal }} р</span>
+        · товары: <span class="lc-money">{{ props.productsTotal }} р</span>
+      </div>
+      <q-btn
+        dense
+        no-caps
+        outline
+        color="secondary"
+        icon="inventory_2"
+        label="со склада"
+        @click="emit('add-store-product')"
+      />
+      <q-btn
+        dense
+        no-caps
+        unelevated
+        color="secondary"
+        text-color="black"
+        icon="add"
+        label="материал"
+        @click="emit('create-material')"
+      />
+    </div>
+
     <OrderMaterialsEditor
       :materials="props.materials"
       :total="props.materialsTotal"
       @remove="index => emit('remove-material', index)"
       @update-line="payload => emit('update-material-line', payload)"
-    />
-
-    <!-- Плавающая кнопка добавления нового материала -->
-    <q-btn
-      icon="add"
-      round
-      class="fab bg-yellow text-black"
-      @click="emit('create-material')"
-      size="20px"
     />
 
     <OrderProductsEditor
@@ -45,25 +62,5 @@ const emit = defineEmits([
       @remove="index => emit('remove-product', index)"
       @update-line="payload => emit('update-product-line', payload)"
     />
-
-    <q-btn
-      icon="storage"
-      round
-      class="bg-yellow text-black"
-      size="18"
-      @click="emit('add-store-product')"
-      style="position: fixed; bottom: 100px; right: 16px; z-index: 1000"
-    />
   </q-tab-panel>
 </template>
-
-<style scoped>
-/* Кнопка была в разметке страницы, где и жил класс `.fab` (scoped-стили родителя
-   не достают до вложенных элементов дочерних компонентов) — 8.1. */
-.fab {
-  position: fixed;
-  bottom: 16px;
-  right: 16px;
-  z-index: 1000;
-}
-</style>

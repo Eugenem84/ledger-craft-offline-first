@@ -1,7 +1,9 @@
 <script setup>
 // Диалог «добавить работу» (Фаза 8, задача 8.1): работа создаётся в выбранной
 // на вкладке «работы» категории (`useOrderDraftStore.addServiceToCatalog`).
+// Оболочка — общая `LcDialogShell`.
 import { ref, watch } from 'vue'
+import LcDialogShell from 'src/components/ui/LcDialogShell.vue'
 
 const props = defineProps({
   modelValue: { type: Boolean, default: false },
@@ -27,36 +29,18 @@ const submit = () => {
 </script>
 
 <template>
-  <q-dialog
+  <LcDialogShell
     :model-value="props.modelValue"
-    persistent
+    title="Новая работа"
+    subtitle="Работа появится в каталоге выбранной категории"
+    confirm-label="Добавить"
     @update:model-value="value => emit('update:modelValue', value)"
+    @confirm="submit"
   >
-    <q-card>
-      <q-card-section>
-        <div class="text-h6">Добавление сервиса</div>
-        <q-input
-          v-model="form.name"
-          label-color="yellow"
-          color="yellow"
-          label="Название"
-          outlined
-          class="q-mb-md"
-        />
-        <q-input
-          v-model.number="form.price"
-          label="Цена"
-          label-color="yellow"
-          color="yellow"
-          type="number"
-          outlined
-          class="q-mb-md"
-        />
-      </q-card-section>
-      <q-card-actions align="right">
-        <q-btn flat label="Отмена" color="yellow" @click="close" />
-        <q-btn flat label="Добавить" color="yellow" @click="submit" />
-      </q-card-actions>
-    </q-card>
-  </q-dialog>
+    <div class="q-gutter-y-md">
+      <q-input v-model="form.name" label="Название" outlined dense autofocus />
+      <q-input v-model.number="form.price" label="Цена, р" type="number" outlined dense />
+    </div>
+  </LcDialogShell>
 </template>
+

@@ -1,20 +1,18 @@
 <template>
-  <div class="fullscreen bg-blue text-white text-center q-pa-md flex flex-center">
-    <div>
-      <div style="font-size: 30vh">404</div>
+  <div class="lc-page fullscreen column flex-center text-center q-pa-md">
+    <div class="lc-eyebrow">ошибка</div>
+    <div class="text-h2 text-weight-bold lc-accent q-mt-sm">404</div>
+    <div class="lc-muted q-mb-lg">Такой страницы нет — возможно, ссылка устарела.</div>
 
-      <div class="text-h2" style="opacity: 0.4">Oops. Nothing here...</div>
-
-      <q-btn
-        class="q-mt-xl"
-        color="white"
-        text-color="blue"
-        unelevated
-        to="/"
-        label="Go Home"
-        no-caps
-      />
-    </div>
+    <q-btn
+      color="secondary"
+      text-color="black"
+      no-caps
+      unelevated
+      icon="arrow_back"
+      to="/orders"
+      label="К заказам"
+    />
   </div>
 </template>
 

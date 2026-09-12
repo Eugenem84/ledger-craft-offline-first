@@ -1,7 +1,8 @@
 <script setup>
-import {ref} from 'vue'
+import { ref } from 'vue'
 import { useServicesStore } from 'stores/useServicesStore.js'
 import { useQuasar } from 'quasar'
+import LcDialogShell from 'src/components/ui/LcDialogShell.vue'
 
 const $q = useQuasar()
 const servicesStore = useServicesStore()
@@ -63,20 +64,16 @@ const addNew = async () => {
 </script>
 
 <template>
-  <q-dialog v-model="isOpen">
-    <q-card>
-      <q-card-section>
-        <div class="text-h6">Новая услуга</div>
-        <q-input v-model="name" label="Название услуги" outlined class="q-mb-md"/>
-        <q-input v-model="price" label="Цена" outlined class="q-mb-md" />
-      </q-card-section>
-      <q-card-actions align="right">
-        <q-btn flat label="Отмена" color="yellow" @click="close" />
-        <q-btn flat label="Сохранить" color="yellow" @click="addNew" />
-      </q-card-actions>
-    </q-card>
-  </q-dialog>
+  <LcDialogShell
+    :model-value="isOpen"
+    title="Новая работа"
+    confirm-label="Сохранить"
+    @update:model-value="isOpen = $event"
+    @confirm="addNew"
+  >
+    <div class="q-gutter-y-md">
+      <q-input v-model="name" label="Название работы" outlined dense autofocus />
+      <q-input v-model="price" label="Цена, р" type="number" outlined dense />
+    </div>
+  </LcDialogShell>
 </template>
-
-<style scoped>
-</style>

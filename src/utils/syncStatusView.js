@@ -20,7 +20,7 @@ export function syncStatusView(status) {
   // Без входа синк невозможен даже при сети (задача 7.4) — это самое важное
   // состояние, поэтому проверяем его первым.
   if (s.requiresAuth === true) {
-    return { kind: 'auth', icon: 'lock', color: 'primary', label: 'требуется вход', spin: false }
+    return { kind: 'auth', icon: 'lock', color: 'secondary', label: 'требуется вход', spin: false }
   }
 
   if (s.online === false) {
@@ -28,7 +28,7 @@ export function syncStatusView(status) {
   }
 
   if (s.syncing) {
-    return { kind: 'syncing', icon: 'sync', color: 'primary', label: 'синхронизация…', spin: true }
+    return { kind: 'syncing', icon: 'sync', color: 'secondary', label: 'синхронизация…', spin: true }
   }
 
   if (s.lastError) {
@@ -38,8 +38,8 @@ export function syncStatusView(status) {
   const pending = Number(s.pendingCount) || 0
 
   if (pending > 0) {
-    return { kind: 'pending', icon: 'cloud_upload', color: 'orange', label: `не отправлено: ${pending}`, spin: false }
+    return { kind: 'pending', icon: 'cloud_upload', color: 'warning', label: `не отправлено: ${pending}`, spin: false }
   }
 
-  return { kind: 'synced', icon: 'cloud_done', color: 'green', label: 'синхронизировано', spin: false }
+  return { kind: 'synced', icon: 'cloud_done', color: 'positive', label: 'синхронизировано', spin: false }
 }

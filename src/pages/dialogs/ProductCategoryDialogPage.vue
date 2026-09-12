@@ -2,6 +2,7 @@
 import { ref, computed } from 'vue'
 import { useProductCategoriesStore } from 'stores/useProductCategoriesStore.js'
 import DeleteConfirmPage from 'pages/dialogs/DeleteConfirmPage.vue'
+import LcDialogShell from 'src/components/ui/LcDialogShell.vue'
 
 const productCategoriesStore = useProductCategoriesStore()
 
@@ -65,48 +66,36 @@ defineExpose({ open })
 </script>
 
 <template>
-  <q-dialog v-model="showDialog" persistent>
-    <q-card style="min-width: 400px">
-      <q-card-section class="row items-center">
-        <span class="q-ml-sm text-h6">
-          {{ isEditing ? 'Редактирование' : 'Новая категория' }}
-        </span>
-        <q-space />
-        <q-btn icon="close" flat round dense v-close-popup />
-      </q-card-section>
+  <LcDialogShell
+    :model-value="showDialog"
+    :title="isEditing ? 'Редактирование категории' : 'Новая категория'"
+    confirm-label="Сохранить"
+    @update:model-value="showDialog = $event"
+    @confirm="saveProductCategory"
+  >
+    <q-input
+      v-model="name"
+      outlined
+      dense
+      label="Название категории"
+      placeholder="Введите название"
+      autofocus
+    />
 
-      <q-card-section>
-        <div class="q-gutter-y-md">
-          <q-input
-            v-model="name"
-            outlined
-            label="Название категории"
-            placeholder="Введите название"
-            class="q-mb-md"
-            autofocus
-          />
-        </div>
-      </q-card-section>
-
-      <q-card-actions align="right">
-        <q-btn
-          v-if="isEditing"
-          label="Удалить"
-          flat
-          color="red"
-          @click="deleteCategory"
-        />
-        <q-space v-if="isEditing" />
-
-        <q-btn flat label="Отмена" color="grey" v-close-popup />
-        <q-btn
-          label="Сохранить"
-          text-color="yellow"
-          @click="saveProductCategory"
-        />
-      </q-card-actions>
-    </q-card>
-  </q-dialog>
+    <template v-if="isEditing" #actions>
+      <q-btn flat no-caps color="negative" icon="delete" label="Удалить" @click="deleteCategory" />
+      <q-space />
+      <q-btn flat no-caps color="grey-5" label="Отмена" @click="showDialog = false" />
+      <q-btn
+        unelevated
+        no-caps
+        color="secondary"
+        text-color="black"
+        label="Сохранить"
+        @click="saveProductCategory"
+      />
+    </template>
+  </LcDialogShell>
 
   <DeleteConfirmPage ref="deleteConfirmPage" />
 </template>

@@ -18,6 +18,8 @@ import { PRESETS } from 'src/domain/presets/index.js'
 import { serializeFeatures } from 'src/domain/features.js'
 import syncService from 'src/services/syncService.js'
 import { logger } from 'src/utils/logger'
+// Общий каркас экранов входа/регистрации (переработка интерфейса).
+import AuthShell from 'src/components/ui/AuthShell.vue'
 
 const auth = useAuthStore()
 const specializationsStore = useSpecializationsStore()
@@ -116,118 +118,103 @@ async function submit() {
 </script>
 
 <template>
-  <q-page class="login-page column items-center justify-center q-pa-md">
-    <q-card class="login-card bg-dark text-white" dark>
-      <q-card-section>
-        <div class="text-h6">Регистрация</div>
-        <div class="text-caption text-grey-5 q-mb-md">
-          Выберите специализации — каталог ниши появится сразу
-        </div>
-      </q-card-section>
+  <AuthShell
+    title="Регистрация"
+    subtitle="Выберите специализации — каталог ниши появится сразу"
+  >
+    <q-banner v-if="!online" dense class="bg-orange-9 text-white q-mb-md">
+      Нет интернета. Для регистрации нужна сеть — дальше приложение работает офлайн.
+    </q-banner>
 
-      <q-card-section>
-        <q-banner v-if="!online" dense class="bg-orange-9 text-white q-mb-md">
-          Нет интернета. Для регистрации нужна сеть — дальше приложение работает офлайн.
-        </q-banner>
+    <q-banner v-if="auth.error" dense class="bg-negative text-white q-mb-md">
+      {{ auth.error }}
+    </q-banner>
 
-        <q-banner v-if="auth.error" dense class="bg-negative text-white q-mb-md">
-          {{ auth.error }}
-        </q-banner>
+    <q-banner v-if="presetError" dense class="bg-negative text-white q-mb-md">
+      {{ presetError }}
+    </q-banner>
 
-        <q-banner v-if="presetError" dense class="bg-negative text-white q-mb-md">
-          {{ presetError }}
-        </q-banner>
+    <q-form class="q-gutter-y-md" @submit="submit">
+      <q-input
+        v-model="name"
+        label="Имя"
+        outlined
+        dense
+        autocomplete="name"
+        :rules="[value => Boolean(value) || 'Укажите имя']"
+      />
 
-        <q-form class="q-gutter-y-md" @submit="submit">
-          <q-input
-            v-model="name"
-            label="Имя"
-            dark
-            outlined
-            autocomplete="name"
-            :rules="[value => Boolean(value) || 'Укажите имя']"
-          />
+      <q-input
+        v-model="email"
+        type="email"
+        label="Email"
+        outlined
+        dense
+        autocomplete="username"
+        :rules="[value => Boolean(value) || 'Укажите email']"
+      />
 
-          <q-input
-            v-model="email"
-            type="email"
-            label="Email"
-            dark
-            outlined
-            autocomplete="username"
-            :rules="[value => Boolean(value) || 'Укажите email']"
-          />
+      <q-input
+        v-model="password"
+        type="password"
+        label="Пароль"
+        outlined
+        dense
+        autocomplete="new-password"
+        :rules="[
+          value => Boolean(value) || 'Укажите пароль',
+          value => String(value).length >= 6 || 'Минимум 6 символов',
+        ]"
+      />
 
-          <q-input
-            v-model="password"
-            type="password"
-            label="Пароль"
-            dark
-            outlined
-            autocomplete="new-password"
-            :rules="[
-              value => Boolean(value) || 'Укажите пароль',
-              value => String(value).length >= 6 || 'Минимум 6 символов',
-            ]"
-          />
+      <q-input
+        v-model="passwordConfirm"
+        type="password"
+        label="Повторите пароль"
+        outlined
+        dense
+        autocomplete="new-password"
+        :rules="[
+          value => Boolean(value) || 'Повторите пароль',
+          value => value === password || 'Пароли не совпадают',
+        ]"
+      />
 
-          <q-input
-            v-model="passwordConfirm"
-            type="password"
-            label="Повторите пароль"
-            dark
-            outlined
-            autocomplete="new-password"
-            :rules="[
-              value => Boolean(value) || 'Повторите пароль',
-              value => value === password || 'Пароли не совпадают',
-            ]"
-          />
+      <q-select
+        v-model="selectedPresets"
+        :options="presetOptions"
+        option-value="value"
+        option-label="label"
+        emit-value
+        map-options
+        multiple
+        use-chips
+        label="Специализации"
+        outlined
+        dense
+        color="secondary"
+        :rules="[value => (value && value.length) || 'Выберите хотя бы одну специализацию']"
+        hint="Можно выбрать несколько — например «веломастер + аквариумист»"
+      />
 
-          <q-select
-            v-model="selectedPresets"
-            :options="presetOptions"
-            option-value="value"
-            option-label="label"
-            emit-value
-            map-options
-            multiple
-            use-chips
-            label="Специализации"
-            dark
-            outlined
-            hint="Можно выбрать несколько — например «веломастер + аквариумист»"
-          />
+      <q-btn
+        type="submit"
+        color="secondary"
+        text-color="black"
+        no-caps
+        label="Создать аккаунт"
+        class="full-width"
+        :loading="submitting || auth.loading"
+      />
+    </q-form>
 
-          <q-btn
-            type="submit"
-            color="primary"
-            label="Создать аккаунт"
-            class="full-width"
-            :loading="submitting || auth.loading"
-          />
-        </q-form>
-
-        <q-btn
-          flat
-          no-caps
-          color="grey-6"
-          label="Уже есть аккаунт? Войти"
-          class="full-width q-mt-sm"
-          @click="router.push('/login')"
-        />
-      </q-card-section>
-    </q-card>
-  </q-page>
+    <q-btn
+      flat
+      no-caps
+      color="grey-6"
+      label="Уже есть аккаунт? Войти"
+      class="full-width q-mt-sm"
+      @click="router.push('/login')"
+    />
+  </AuthShell>
 </template>
-
-<style scoped>
-.login-page {
-  min-height: 100vh;
-}
-
-.login-card {
-  width: 100%;
-  max-width: 420px;
-}
-</style>

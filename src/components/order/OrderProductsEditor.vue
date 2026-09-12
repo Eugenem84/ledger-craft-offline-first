@@ -21,62 +21,86 @@ const lineMargin = line =>
 </script>
 
 <template>
-  <div class="text-center text-grey">продукты: {{ props.total }} р</div>
+  <div>
+    <div class="lc-linerow lc-linerow--head">
+      <div class="lc-col-name">товар</div>
+      <div class="lc-col-num">цена</div>
+      <div class="lc-col-qty">кол-во</div>
+      <div class="lc-col-num">закупка</div>
+      <div class="lc-col-num">сумма</div>
+      <div class="lc-col-num">маржа</div>
+      <div class="lc-col-del"></div>
+    </div>
 
-  <q-list bordered separator>
-    <q-item-label v-if="props.products.length === 0"> нет материалов</q-item-label>
-    <q-item
+    <div v-if="!props.products.length" class="text-caption lc-mute q-pa-md">
+      нет товаров со склада — добавьте кнопкой с иконкой склада
+    </div>
+
+    <div
       v-for="(product, index) in props.products"
       :key="product.id ?? index"
-      class="w-100 justify-between row"
-      style="width: 100%"
+      class="lc-linerow lc-linerow--edit"
     >
-      <q-item-section class="col-4">
+      <div class="lc-col-name">
         <q-input
+          dense
+          outlined
           :model-value="product.name"
+          placeholder="название"
           @update:model-value="value => emit('update-line', { index, field: 'name', value })"
         />
-      </q-item-section>
+      </div>
 
-      <q-item-section class="col-1">
+      <div class="lc-col-num">
         <q-input
-          :model-value="product.price"
+          dense
+          outlined
+          type="number"
           input-class="text-right"
+          :model-value="product.price"
           @update:model-value="value => emit('update-line', { index, field: 'price', value })"
         />
-      </q-item-section>
+      </div>
 
-      <q-item-section class="col-1">
+      <div class="lc-col-qty">
         <q-input
+          dense
+          outlined
+          type="number"
+          input-class="text-center"
           :model-value="product.amount"
-          input-class="text-right"
-          prefix="x"
           @update:model-value="value => emit('update-line', { index, field: 'amount', value })"
         />
-      </q-item-section>
+      </div>
 
-      <q-item-section class="col-1">
+      <div class="lc-col-num">
         <q-input
-          :model-value="product.buy_price"
+          dense
+          outlined
+          type="number"
           input-class="text-right"
-          placeholder="закупка"
+          :model-value="product.buy_price"
+          placeholder="—"
           @update:model-value="value => emit('update-line', { index, field: 'buy_price', value })"
         />
-      </q-item-section>
+      </div>
 
-      <q-item-section class="col-1">
-        <q-input :model-value="num(product.price) * num(product.amount)" readonly disable />
-      </q-item-section>
+      <div class="lc-col-num lc-money">
+        {{ num(product.price) * num(product.amount) }}
+      </div>
 
-      <q-item-section class="col-1">
-        <q-item-label class="text-right" :class="lineMargin(product) == null ? 'text-grey' : 'text-green'">
-          {{ lineMargin(product) == null ? '—' : lineMargin(product) }}
-        </q-item-label>
-      </q-item-section>
+      <div
+        class="lc-col-num lc-money"
+        :class="lineMargin(product) == null ? 'lc-mute' : 'text-positive'"
+      >
+        {{ lineMargin(product) == null ? '—' : lineMargin(product) }}
+      </div>
 
-      <q-item-section class="col-auto">
-        <q-btn icon="delete_forever" @click="emit('remove', index)" color="red" flat round />
-      </q-item-section>
-    </q-item>
-  </q-list>
+      <div class="lc-col-del">
+        <q-btn flat round dense icon="close" color="negative" @click="emit('remove', index)">
+          <q-tooltip class="text-caption">убрать</q-tooltip>
+        </q-btn>
+      </div>
+    </div>
+  </div>
 </template>

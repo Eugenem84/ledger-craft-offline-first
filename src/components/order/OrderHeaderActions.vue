@@ -1,9 +1,17 @@
 <script setup>
 // Шапка страницы заказа (Фаза 8, задача 8.1): кнопки действий, номер заказа,
 // переключатели статуса и «оплачено». Логика — в `useOrderDraftStore`, здесь только события.
+//
+// Переработка UI: вместо ряда мелких подписей («НАЗАД», «РЕД», «сохр», «опл»)
+//   • назад / правка / сохранение — иконки с подсказками;
+//   • второстепенные действия (ссылка, очистка, удаление) — в меню «⋮»;
+//   • статус — сегментированный переключатель со словами, оплата — отдельной кнопкой.
 import { computed } from 'vue'
+import { ORDER_STATUSES } from 'src/utils/analytics.js'
+import LcStatusChip from 'src/components/ui/LcStatusChip.vue'
 
-const props = defineProps({
+// Пропсы только читаются из шаблона — присваивание не нужно.
+defineProps({
   editMode: { type: Boolean, default: false },
   isNewOrder: { type: Boolean, default: false },
   orderNumber: { type: [String, Number], default: null },
@@ -24,90 +32,118 @@ const emit = defineEmits([
   'update:paid',
 ])
 
-const statusOptions = [
-  { label: 'ожид', value: 'waiting' },
-  { label: 'враб', value: 'process' },
-  { label: 'готово', value: 'done' },
-]
-
-const toggleColor = computed(() => {
-  switch (props.status) {
-    case 'waiting':
-      return 'orange'
-    case 'process':
-      return 'red'
-    case 'done':
-      return 'green'
-    default:
-      return 'yellow'
-  }
-})
+/** Подписи статусов — общий словарь (`src/utils/analytics.js`). */
+const statusOptions = computed(() => ORDER_STATUSES.map(item => ({ label: item.label, value: item.value })))
 </script>
 
 <template>
-  <div class="row justify-between">
-    <q-btn
-      flat
-      color="yellow"
-      :label="editMode ? 'отмена' : 'НАЗАД'"
-      @click="emit('back')"
-      size="md"
-      class="btn-flex"
-    />
+  <div class="lc-orderbar">
+    <div class="row items-center no-wrap q-gutter-x-sm">
+      <q-btn flat round dense icon="arrow_back" color="secondary" @click="emit('back')">
+        <q-tooltip class="text-caption">{{ editMode ? 'отменить правку' : 'назад' }}</q-tooltip>
+      </q-btn>
 
-    <q-btn
-      color="black"
-      icon="link"
-      text-color="yellow"
-      @click="emit('share')"
-      :loading="busy"
-      class="btn-flex"
-    />
+      <div class="col ellipsis">
+        <div class="row items-baseline no-wrap q-gutter-x-sm">
+          <span class="lc-eyebrow">заказ</span>
+          <span class="lc-money text-subtitle2">№ {{ orderNumber ?? '—' }}</span>
+          <span v-if="isNewOrder" class="text-caption lc-mute">не сохранён</span>
+        </div>
+        <div class="row items-center no-wrap q-gutter-x-sm q-mt-xs">
+          <LcStatusChip :status="status" />
+          <span v-if="paid" class="lc-status lc-status--paid">
+            <q-icon name="paid" size="14px" />
+            оплачено
+          </span>
+        </div>
+      </div>
 
-    <q-btn v-if="editMode" flat size="md" color="yellow" label="очистить" @click="emit('clear')" />
-
-    <div v-if="orderNumber">
-      <a style="color: grey; font-size: 12px">№</a>
-      <a style="color: yellow; font-size: 17px; padding-top: 5px; display: inline-block">
-        {{ orderNumber }}
-      </a>
-    </div>
-
-    <div>
       <q-btn
-        flat
         v-if="!editMode"
-        size="md"
-        color="yellow"
-        class="justify-end"
-        icon="delete_forever"
-        @click="emit('remove')"
-      />
+        flat
+        round
+        dense
+        icon="edit"
+        color="secondary"
+        @click="emit('edit')"
+      >
+        <q-tooltip class="text-caption">редактировать</q-tooltip>
+      </q-btn>
 
-      <q-btn v-if="!editMode" flat size="md" color="yellow" label="РЕД" @click="emit('edit')" />
-      <q-btn v-if="editMode" flat size="md" color="yellow" label="сохр" @click="emit('save')" />
+      <q-btn
+        v-else
+        flat
+        round
+        dense
+        icon="save"
+        color="secondary"
+        @click="emit('save')"
+      >
+        <q-tooltip class="text-caption">сохранить</q-tooltip>
+      </q-btn>
+
+      <q-btn flat round dense icon="share" color="secondary" :loading="busy" @click="emit('share')">
+        <q-tooltip class="text-caption">скопировать ссылку на отчёт</q-tooltip>
+      </q-btn>
+
+      <q-btn flat round dense icon="more_vert" color="secondary">
+        <q-tooltip class="text-caption">ещё</q-tooltip>
+        <q-menu dark auto-close>
+          <q-list dense style="min-width: 220px">
+            <q-item v-if="editMode" clickable @click="emit('clear')">
+              <q-item-section avatar><q-icon name="cleaning_services" /></q-item-section>
+              <q-item-section>очистить позиции</q-item-section>
+            </q-item>
+            <q-separator dark />
+            <q-item clickable class="text-negative" @click="emit('remove')">
+              <q-item-section avatar><q-icon name="delete_forever" /></q-item-section>
+              <q-item-section>удалить заказ</q-item-section>
+            </q-item>
+          </q-list>
+        </q-menu>
+      </q-btn>
     </div>
 
-    <div class="items-center row q-gutter-x-md">
+    <div class="row items-center no-wrap q-gutter-x-sm q-mt-sm">
       <q-btn-toggle
         :model-value="status"
-        size="md"
-        outline
-        glossy
-        :toggle-color="toggleColor"
-        color="grey"
-        @update:model-value="value => emit('update:status', value)"
+        class="col lc-statustoggle"
+        spread
+        no-caps
+        unelevated
+        color="grey-9"
+        text-color="grey-5"
+        toggle-color="secondary"
+        toggle-text-color="black"
         :options="statusOptions"
+        @update:model-value="value => emit('update:status', value)"
       />
 
       <q-btn
-        outline
-        size="md"
+        no-caps
+        unelevated
+        :outline="!paid"
+        :color="paid ? 'positive' : 'grey-8'"
+        :text-color="paid ? 'white' : 'grey-4'"
+        icon="paid"
+        label="оплачено"
         @click="emit('update:paid', !paid)"
-        :color="paid ? 'green' : 'grey'"
-        glossy
-        label="опл"
       />
     </div>
   </div>
 </template>
+
+<style scoped>
+.lc-orderbar {
+  background: var(--lc-surface);
+  border: 1px solid var(--lc-border);
+  border-radius: var(--lc-radius);
+  padding: 10px 12px;
+}
+
+.lc-statustoggle {
+  border-radius: var(--lc-radius-sm);
+  overflow: hidden;
+}
+</style>
+

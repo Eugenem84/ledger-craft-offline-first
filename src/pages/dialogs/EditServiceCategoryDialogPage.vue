@@ -1,7 +1,8 @@
 <script setup>
 import { logger } from 'src/utils/logger'
-import {ref} from 'vue'
-import {api} from "boot/axios.js";
+import { ref } from 'vue'
+import { api } from 'boot/axios.js'
+import LcDialogShell from 'src/components/ui/LcDialogShell.vue'
 
 
 const isOpen = ref(false)
@@ -60,27 +61,29 @@ const deleteServiceCategory = async () => {
 </script>
 
 <template>
+  <LcDialogShell
+    :model-value="isOpen"
+    title="Редактирование категории"
+    confirm-label="Сохранить"
+    @update:model-value="isOpen = $event"
+    @confirm="edit"
+  >
+    <q-input
+      v-model="name"
+      label="Название категории"
+      outlined
+      dense
+      autofocus
+      :rules="[val => !!val || 'Обязательное поле']"
+    />
 
-  <q-dialog v-model="isOpen">
-    <q-card>
-      <q-card-section>
-        <div class="text-h6"> редактирование категории</div>
-        <q-input v-model="name"
-                 label="Название категории"
-                 outlined class="q-mb-md"
-                 :rules="[val => !!val || 'Обязательное поле']"
-        />
-      </q-card-section>
-      <q-card-actions align="right">
-        <q-btn flat label="удалить" color="yellow" @click="deleteServiceCategory" />
-        <q-btn flat label="отмена" color="yellow" @click="close" />
-        <q-btn flat label="сохранить" color="yellow" @click="edit" />
-      </q-card-actions>
-    </q-card>
-  </q-dialog>
-
+    <template #actions>
+      <q-btn flat no-caps color="negative" icon="delete" label="Удалить" @click="deleteServiceCategory" />
+      <q-space />
+      <q-btn flat no-caps color="grey-5" label="Отмена" @click="close" />
+      <q-btn unelevated no-caps color="secondary" text-color="black" label="Сохранить" @click="edit" />
+    </template>
+  </LcDialogShell>
 </template>
 
-<style scoped>
-
-</style>
+<style scoped></style>

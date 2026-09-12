@@ -17,47 +17,51 @@ const lineMargin = line =>
 </script>
 
 <template>
-  <q-list bordered separator>
-    <q-item-label v-if="props.products.length === 0">Нет материалов</q-item-label>
-    <!-- ⚠️ Раньше здесь был `v-for="product in products"` без `index`, а удаление
-         вызывало `products.splice(index, 1)` — падало в рантайме. Исправлено при 8.1. -->
-    <q-item
-      v-for="(product, index) in props.products"
-      :key="product.id ?? index"
-      class="w-100 justify-between row"
-      style="width: 100%"
-    >
-      <q-item-section class="col-4">
-        <q-item-label class="text-left">
-          {{ product.name }}
-        </q-item-label>
-      </q-item-section>
+  <div>
+    <div v-if="!props.products.length" class="text-caption lc-mute q-pa-md">
+      товаров из склада пока нет — добавьте их на вкладке «материалы»
+    </div>
 
-      <q-item-section class="col-1">
-        <q-item-label class="text-right"> {{ product.price }}р </q-item-label>
-      </q-item-section>
+    <template v-else>
+      <div class="lc-linerow lc-linerow--head">
+        <div class="lc-col-name">товар</div>
+        <div class="lc-col-num">цена</div>
+        <div class="lc-col-qty">кол-во</div>
+        <div class="lc-col-num">закупка</div>
+        <div class="lc-col-num">сумма</div>
+        <div class="lc-col-num">маржа</div>
+        <div v-if="props.editMode" class="lc-col-del"></div>
+      </div>
 
-      <q-item-section class="col-1">
-        <q-item-label class="text-center"> х{{ product.amount }} </q-item-label>
-      </q-item-section>
-
-      <q-item-section class="col-1">
-        <q-item-label class="text-right text-grey"> {{ product.buy_price ?? '—' }} </q-item-label>
-      </q-item-section>
-
-      <q-item-section class="col-1">
-        <q-item-label class="text-right"> {{ num(product.price) * num(product.amount) }}р </q-item-label>
-      </q-item-section>
-
-      <q-item-section class="col-1">
-        <q-item-label class="text-right" :class="lineMargin(product) == null ? 'text-grey' : 'text-green'">
-          {{ lineMargin(product) == null ? '—' : `${lineMargin(product)}р` }}
-        </q-item-label>
-      </q-item-section>
-
-      <q-item-section class="col-auto" v-if="props.editMode">
-        <q-btn icon="delete_forever" @click="emit('remove', index)" color="red" flat round />
-      </q-item-section>
-    </q-item>
-  </q-list>
+      <div
+        v-for="(product, index) in props.products"
+        :key="product.id ?? index"
+        class="lc-linerow"
+      >
+        <div class="lc-col-name ellipsis">{{ product.name }}</div>
+        <div class="lc-col-num lc-money">{{ product.price }} р</div>
+        <div class="lc-col-qty">× {{ product.amount }}</div>
+        <div class="lc-col-num lc-mute">{{ product.buy_price ?? '—' }}</div>
+        <div class="lc-col-num lc-money">{{ num(product.price) * num(product.amount) }} р</div>
+        <div
+          class="lc-col-num"
+          :class="lineMargin(product) == null ? 'lc-mute' : 'text-positive'"
+        >
+          {{ lineMargin(product) == null ? '—' : `${lineMargin(product)} р` }}
+        </div>
+        <div v-if="props.editMode" class="lc-col-del">
+          <q-btn
+            flat
+            round
+            dense
+            icon="close"
+            color="negative"
+            @click="emit('remove', index)"
+          >
+            <q-tooltip class="text-caption">убрать</q-tooltip>
+          </q-btn>
+        </div>
+      </div>
+    </template>
+  </div>
 </template>

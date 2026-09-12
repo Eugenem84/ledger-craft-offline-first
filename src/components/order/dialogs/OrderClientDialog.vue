@@ -1,6 +1,8 @@
 <script setup>
 // Диалог «добавить клиента» прямо из заказа (Фаза 8, задача 8.1).
+// Оболочка — общая `LcDialogShell` (адаптивная ширина, единые кнопки).
 import { ref, watch } from 'vue'
+import LcDialogShell from 'src/components/ui/LcDialogShell.vue'
 
 const props = defineProps({
   modelValue: { type: Boolean, default: false },
@@ -26,36 +28,17 @@ const submit = () => {
 </script>
 
 <template>
-  <q-dialog
+  <LcDialogShell
     :model-value="props.modelValue"
-    persistent
+    title="Новый клиент"
+    confirm-label="Добавить"
     @update:model-value="value => emit('update:modelValue', value)"
+    @confirm="submit"
   >
-    <q-card>
-      <q-card-section>
-        <div class="text-h6">Добавление клиента</div>
-        <q-input
-          v-model="form.name"
-          label-color="yellow"
-          color="yellow"
-          label="Имя клиента"
-          outlined
-          class="q-mb-md"
-        />
-        <q-input
-          v-model="form.phone"
-          label="телефон"
-          label-color="yellow"
-          color="yellow"
-          type="text"
-          outlined
-          class="q-mb-md"
-        />
-      </q-card-section>
-      <q-card-actions align="right">
-        <q-btn flat label="Отмена" color="yellow" @click="close" />
-        <q-btn flat label="Добавить" color="yellow" @click="submit" />
-      </q-card-actions>
-    </q-card>
-  </q-dialog>
+    <div class="q-gutter-y-md">
+      <q-input v-model="form.name" label="Имя клиента" outlined dense autofocus />
+      <q-input v-model="form.phone" label="Телефон" type="tel" outlined dense />
+    </div>
+  </LcDialogShell>
 </template>
+

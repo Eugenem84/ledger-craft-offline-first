@@ -13,6 +13,8 @@ import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from 'src/stores/useAuthStore.js'
 import syncService from 'src/services/syncService.js'
 import { logger } from 'src/utils/logger'
+// Общий каркас экранов входа/регистрации (переработка интерфейса).
+import AuthShell from 'src/components/ui/AuthShell.vue'
 
 const auth = useAuthStore()
 const route = useRoute()
@@ -149,148 +151,129 @@ async function signOut() {
 </script>
 
 <template>
-  <q-page class="login-page bg-dark text-white column items-center justify-center q-pa-md">
-    <q-card class="login-card bg-grey-10 text-white" flat bordered>
-      <q-card-section>
-        <div class="text-h6">{{ title }}</div>
-        <div class="text-caption text-grey-5">{{ subtitle }}</div>
-      </q-card-section>
+  <AuthShell :title="title" :subtitle="subtitle">
+    <q-banner v-if="!online && mode === 'login'" dense class="bg-orange-9 text-white q-mb-md">
+      Нет интернета. Для первого входа нужна сеть — дальше приложение работает офлайн по PIN.
+    </q-banner>
 
-      <q-separator dark />
+    <q-banner v-if="auth.error" dense class="bg-negative text-white q-mb-md">
+      {{ auth.error }}
+    </q-banner>
 
-      <q-card-section>
-        <q-banner
-          v-if="!online && mode === 'login'"
-          dense
-          class="bg-orange-9 text-white q-mb-md"
-        >
-          Нет интернета. Для первого входа нужна сеть — дальше приложение работает офлайн по PIN.
-        </q-banner>
+    <q-banner v-if="pinError" dense class="bg-negative text-white q-mb-md">
+      {{ pinError }}
+    </q-banner>
 
-        <q-banner v-if="auth.error" dense class="bg-negative text-white q-mb-md">
-          {{ auth.error }}
-        </q-banner>
+    <q-form v-if="mode === 'login'" class="q-gutter-y-md" @submit="submitLogin">
+      <q-input
+        v-model="email"
+        type="email"
+        label="Email"
+        outlined
+        dense
+        autocomplete="username"
+        :rules="[value => Boolean(value) || 'Укажите email']"
+      />
 
-        <q-banner v-if="pinError" dense class="bg-negative text-white q-mb-md">
-          {{ pinError }}
-        </q-banner>
+      <q-input
+        v-model="password"
+        type="password"
+        label="Пароль"
+        outlined
+        dense
+        autocomplete="current-password"
+        :rules="[value => Boolean(value) || 'Укажите пароль']"
+      />
 
-        <q-form v-if="mode === 'login'" class="q-gutter-y-md" @submit="submitLogin">
-          <q-input
-            v-model="email"
-            type="email"
-            label="Email"
-            dark
-            outlined
-            autocomplete="username"
-            :rules="[value => Boolean(value) || 'Укажите email']"
-          />
+      <q-btn
+        type="submit"
+        color="secondary"
+        text-color="black"
+        no-caps
+        label="Войти"
+        class="full-width"
+        :loading="submitting || auth.loading"
+      />
 
-          <q-input
-            v-model="password"
-            type="password"
-            label="Пароль"
-            dark
-            outlined
-            autocomplete="current-password"
-            :rules="[value => Boolean(value) || 'Укажите пароль']"
-          />
+      <!-- Само-регистрация (Фаза 10, задача 10.5): раньше экрана регистрации не было. -->
+      <q-btn
+        type="button"
+        flat
+        no-caps
+        color="grey-6"
+        label="Нет аккаунта? Зарегистрироваться"
+        class="full-width"
+        @click="router.push('/register')"
+      />
+    </q-form>
 
-          <q-btn
-            type="submit"
-            color="primary"
-            label="Войти"
-            class="full-width"
-            :loading="submitting || auth.loading"
-          />
+    <q-form v-else-if="mode === 'unlock'" class="q-gutter-y-md" @submit="submitUnlock">
+      <q-input
+        v-model="pin"
+        type="password"
+        inputmode="numeric"
+        maxlength="8"
+        label="PIN-код"
+        outlined
+        dense
+        autofocus
+      />
 
-          <!-- Само-регистрация (Фаза 10, задача 10.5): раньше экрана регистрации не было. -->
-          <q-btn
-            type="button"
-            flat
-            no-caps
-            color="grey-6"
-            label="Нет аккаунта? Зарегистрироваться"
-            class="full-width"
-            @click="router.push('/register')"
-          />
-        </q-form>
+      <q-btn
+        type="submit"
+        color="secondary"
+        text-color="black"
+        no-caps
+        label="Разблокировать"
+        class="full-width"
+        :loading="submitting"
+      />
 
-        <q-form v-else-if="mode === 'unlock'" class="q-gutter-y-md" @submit="submitUnlock">
-          <q-input
-            v-model="pin"
-            type="password"
-            inputmode="numeric"
-            maxlength="8"
-            label="PIN-код"
-            dark
-            outlined
-          />
+      <q-btn flat no-caps color="grey-6" label="Выйти из аккаунта" @click="signOut" />
+    </q-form>
 
-          <q-btn
-            type="submit"
-            color="primary"
-            label="Разблокировать"
-            class="full-width"
-            :loading="submitting"
-          />
+    <q-form v-else class="q-gutter-y-md" @submit="savePin">
+      <div class="text-caption lc-mute">
+        PIN защищает приложение от чужого взгляда. Его можно пропустить — тогда приложение
+        будет открываться без замка.
+      </div>
 
-          <q-btn flat no-caps color="grey-6" label="Выйти из аккаунта" @click="signOut" />
-        </q-form>
+      <q-input
+        v-model="pin"
+        type="password"
+        inputmode="numeric"
+        maxlength="8"
+        label="PIN (4–8 цифр)"
+        outlined
+        dense
+      />
 
-        <q-form v-else class="q-gutter-y-md" @submit="savePin">
-          <div class="text-caption text-grey-5">
-            PIN защищает приложение от чужого взгляда. Его можно пропустить — тогда приложение
-            будет открываться без замка.
-          </div>
+      <q-input
+        v-model="pinConfirm"
+        type="password"
+        inputmode="numeric"
+        maxlength="8"
+        label="Повторите PIN"
+        outlined
+        dense
+      />
 
-          <q-input
-            v-model="pin"
-            type="password"
-            inputmode="numeric"
-            maxlength="8"
-            label="PIN (4–8 цифр)"
-            dark
-            outlined
-          />
+      <q-btn
+        type="submit"
+        color="secondary"
+        text-color="black"
+        no-caps
+        label="Сохранить PIN"
+        class="full-width"
+        :loading="submitting"
+      />
 
-          <q-input
-            v-model="pinConfirm"
-            type="password"
-            inputmode="numeric"
-            maxlength="8"
-            label="Повторите PIN"
-            dark
-            outlined
-          />
+      <q-btn flat no-caps color="grey-6" label="Позже" @click="skipPin" />
+    </q-form>
 
-          <q-btn
-            type="submit"
-            color="primary"
-            label="Сохранить PIN"
-            class="full-width"
-            :loading="submitting"
-          />
-
-          <q-btn flat no-caps color="grey-6" label="Позже" @click="skipPin" />
-        </q-form>
-      </q-card-section>
-    </q-card>
-
-    <div v-if="auth.isAuthenticated" class="text-caption text-grey-6 q-mt-md">
+    <div v-if="auth.isAuthenticated" class="text-caption lc-mute q-mt-md text-center">
       {{ auth.userName }}
     </div>
-  </q-page>
+  </AuthShell>
 </template>
-
-<style scoped>
-.login-page {
-  min-height: 100vh;
-}
-
-.login-card {
-  width: 100%;
-  max-width: 380px;
-}
-</style>
 

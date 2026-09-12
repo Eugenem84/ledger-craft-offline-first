@@ -1,13 +1,20 @@
 <script setup>
-import { onMounted, ref, computed, watch } from "vue";
-import { useQuasar } from "quasar";
-import { useSpecializationsStore } from "stores/useSpecializationsStore.js";
-import { useProductCategoriesStore } from "stores/useProductCategoriesStore.js";
-import { useProductsStore } from "stores/useProductsStore.js";
-import ProductCategoryDialogPage from "pages/dialogs/ProductCategoryDialogPage.vue";
-import ProductDialogPage from "pages/dialogs/ProductDialogPage.vue";
+import { onMounted, ref, computed, watch } from 'vue'
+import { useQuasar } from 'quasar'
+import { useSpecializationsStore } from 'stores/useSpecializationsStore.js'
+import { useProductCategoriesStore } from 'stores/useProductCategoriesStore.js'
+import { useProductsStore } from 'stores/useProductsStore.js'
+import ProductCategoryDialogPage from 'pages/dialogs/ProductCategoryDialogPage.vue'
+import ProductDialogPage from 'pages/dialogs/ProductDialogPage.vue'
+// Общие UI-элементы и лексикон профиля (переработка интерфейса).
+import LcEmptyState from 'src/components/ui/LcEmptyState.vue'
+import LcFab from 'src/components/ui/LcFab.vue'
+import LcPageHeader from 'src/components/ui/LcPageHeader.vue'
+import { useLexicon } from 'src/domain/lexicon.js'
 
-const $q = useQuasar();
+const { t } = useLexicon()
+
+const $q = useQuasar()
 
 const specializationStore = useSpecializationsStore();
 const productCategoriesStore = useProductCategoriesStore();
@@ -94,105 +101,101 @@ const handleProductSaved = async () => {
 </script>
 
 <template>
-  <div class="row items-center">
-    <q-select v-model="selectedProductCategory"
-              :options="productCategories"
-              option-label="name"
-              label="Категория товара"
-              dense
-              clearable
-              class="col-9"
-              outlined
+  <q-page class="lc-page lc-shell">
+    <LcPageHeader
+      :title="t('stock')"
+      :subtitle="selectedSpecialization?.name"
+      icon="inventory_2"
     />
 
-    <div class="col-auto self-end">
-      <q-btn class="col-1 text-yellow" @click="openAddProductCategoryDialog">+</q-btn>
+    <div class="row items-center no-wrap q-gutter-x-sm q-mb-sm">
+      <q-select
+        v-model="selectedProductCategory"
+        :options="productCategories"
+        option-label="name"
+        label="категория товара"
+        dense
+        outlined
+        clearable
+        color="secondary"
+        class="col"
+      />
+
+      <q-btn flat round dense icon="create_new_folder" color="secondary" @click="openAddProductCategoryDialog">
+        <q-tooltip class="text-caption">новая категория</q-tooltip>
+      </q-btn>
+      <q-btn
+        flat
+        round
+        dense
+        icon="edit"
+        color="secondary"
+        :disable="!selectedProductCategory"
+        @click="openEditProductCategoryDialog"
+      >
+        <q-tooltip class="text-caption">переименовать категорию</q-tooltip>
+      </q-btn>
     </div>
 
-    <div class="col-auto self-end">
-      <q-btn class="col-1 text-yellow" @click="openEditProductCategoryDialog" icon="edit" />
-    </div>
+    <!-- Остаток и цены товаров (задача 9.3): `quantity` — из `product_stocks`,
+         `buy_price` — из `buy_product_prices`, `last_sale_price` — из `sales_products_prices`. -->
+    <div class="lc-card">
+      <div class="lc-linerow lc-linerow--head">
+        <div class="lc-col-name">товар</div>
+        <div class="lc-col-num">остаток</div>
+        <div class="lc-col-num lc-hide-sm">закупка</div>
+        <div class="lc-col-num">продажа</div>
+        <div class="lc-col-num lc-hide-sm">посл. прод.</div>
+        <div class="lc-col-del"></div>
+      </div>
 
-  </div>
+      <LcEmptyState
+        v-if="!products.length"
+        icon="inventory_2"
+        :title="selectedProductCategory ? 'В категории пока нет товаров' : 'Выберите категорию'"
+        :hint="
+          selectedProductCategory
+            ? 'Добавьте товар кнопкой «+» внизу.'
+            : 'Товары сгруппированы по категориям.'
+        "
+      />
 
-  <!-- Остаток и цены товаров (задача 9.3): `quantity` — из `product_stocks`,
-       `buy_price` — из `buy_product_prices`, `last_sale_price` — из `sales_products_prices`.
-       Всё это приходит из `queries/products.js` (склад был без источника остатка). -->
-  <div class="row text-caption text-grey-6 q-px-md q-pt-sm">
-    <div class="col-4">товар</div>
-    <div class="col-2 text-center">остаток</div>
-    <div class="col-2 text-right">закупка</div>
-    <div class="col-2 text-right">продажа</div>
-    <div class="col-2 text-right">посл. прод.</div>
-  </div>
+      <div
+        v-for="product in products"
+        :key="product.id"
+        class="lc-linerow cursor-pointer"
+        @click="openDetailProductDialog(product)"
+      >
+        <div class="lc-col-name ellipsis">{{ product.name }}</div>
 
-  <q-list bordered separator>
-    <q-item-label header v-if="!products.length && selectedProductCategory">Нет товаров в этой категории</q-item-label>
-    <q-item-label header v-if="!selectedProductCategory">Выберите категорию для просмотра товаров</q-item-label>
-    <!-- ИСПОЛЬЗУЕМ products ВМЕСТО filteredProducts -->
-    <q-item v-for="product in products"
-            :key="product.id"
-            class="w-100 justify-between"
-            style="width: 100%"
-            clickable
-            v-ripple
-            @click="openDetailProductDialog(product)"
-    >
-      <q-item-section class="col-4">
-        <q-item-label class="text-left ellipsis">
-          {{ product.name }}
-        </q-item-label>
-      </q-item-section>
-
-      <q-item-section class="col-2">
-        <q-item-label class="text-center">
+        <div
+          class="lc-col-num lc-money"
+          :class="Number(product.quantity) > 0 ? '' : 'text-negative'"
+        >
           {{ product.quantity }}
-        </q-item-label>
-      </q-item-section>
+        </div>
 
-      <q-item-section class="col-2">
-        <q-item-label class="text-right text-grey-6">
-          {{ product.buy_price ?? '—' }}
-        </q-item-label>
-      </q-item-section>
+        <div class="lc-col-num lc-mute lc-hide-sm">{{ product.buy_price ?? '—' }}</div>
 
-      <q-item-section class="col-2">
-        <q-item-label class="text-right">
-          {{ product.base_sale_price }}
-        </q-item-label>
-      </q-item-section>
+        <div class="lc-col-num lc-money">{{ product.base_sale_price }}</div>
 
-      <q-item-section class="col-2">
-        <q-item-label class="text-right text-grey-6">
-          {{ product.last_sale_price ?? '—' }}
-        </q-item-label>
-      </q-item-section>
+        <div class="lc-col-num lc-mute lc-hide-sm">{{ product.last_sale_price ?? '—' }}</div>
 
-    </q-item>
+        <div class="lc-col-del"><q-icon name="chevron_right" class="lc-mute" size="18px" /></div>
+      </div>
+    </div>
 
-  </q-list>
+    <LcFab
+      icon="add"
+      label="новый товар"
+      :disable="!selectedProductCategory"
+      @click="openAddProductDialog"
+    />
 
-  <q-btn
-    icon="add"
-    round
-    class="fab bg-yellow text-black"
-    @click="openAddProductDialog"
-    size="20px"
-    :disable="!selectedProductCategory"
-  />
-
-  <ProductDialogPage ref="productDialog"  @product-saved="handleProductSaved" />
-  <ProductCategoryDialogPage ref="productCategoryDialog" @product-category-saved="handleProductCategorySaved"  />
-
+    <ProductDialogPage ref="productDialog" @product-saved="handleProductSaved" />
+    <ProductCategoryDialogPage
+      ref="productCategoryDialog"
+      @product-category-saved="handleProductCategorySaved"
+    />
+  </q-page>
 </template>
-
-<style scoped>
-
-.fab {
-  position: fixed;
-  bottom: 70px;
-  right: 16px;
-  z-index: 1000; /* чтобы кнопка была поверх остальных элементов */
-}
-
-</style>

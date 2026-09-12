@@ -45,81 +45,67 @@ const filterClients = (value, update) => {
 </script>
 
 <template>
-  <div class="row items-center q-col-gutter-md">
+  <div class="row items-start q-col-gutter-md">
     <!-- Клиент -->
-    <div class="col">
-      <!-- Режим редактирования -->
-      <q-select
-        v-if="editMode"
-        :model-value="client"
-        :options="filteredClients"
-        option-value="id"
-        :option-label="option => (option ? `${option.name} ${option.phone}` : 'Выберите клиента')"
-        :label="t('client')"
-        color="yellow"
-        use-input
-        fill-input
-        hide-selected
-        input-debounce="300"
-        behavior="menu"
-        map-options
-        @filter="filterClients"
-        @update:model-value="value => emit('update:client', value)"
-        placeholder="Выберите клиента"
-        outlined
-      />
+    <div class="col-12 col-sm">
+      <div v-if="props.editMode" class="row items-center no-wrap q-gutter-x-xs">
+        <q-select
+          class="col"
+          :model-value="client"
+          :options="filteredClients"
+          option-value="id"
+          :option-label="option => (option ? `${option.name} ${option.phone ?? ''}` : 'Выберите клиента')"
+          :label="t('client')"
+          color="secondary"
+          use-input
+          fill-input
+          hide-selected
+          input-debounce="300"
+          behavior="menu"
+          map-options
+          outlined
+          dense
+          @filter="filterClients"
+          @update:model-value="value => emit('update:client', value)"
+        />
+        <q-btn flat round dense icon="person_add" color="secondary" @click="emit('add-client')">
+          <q-tooltip class="text-caption">новый клиент</q-tooltip>
+        </q-btn>
+      </div>
 
-      <!-- Режим просмотра -->
-      <q-field
-        v-if="!editMode"
-        :label="t('client')"
-        stack-label
-        tabindex="-1"
-        style="pointer-events: auto"
-        label-color="grey"
-      >
-        <div class="column">
-          <div class="text-subtitle1 text-yellow">{{ client?.name }}</div>
-          <a
-            v-if="client?.phone"
-            :href="'tel:' + client.phone"
-            class="text-yellow text-bold text-body2"
-          >
-            {{ client.phone }}
-          </a>
-        </div>
-      </q-field>
-    </div>
-
-    <!-- Кнопка для добавления клиента (если в режиме редактирования) -->
-    <div class="col-auto" v-if="editMode">
-      <q-btn class="text-yellow" @click="emit('add-client')">+</q-btn>
+      <div v-else>
+        <div class="lc-eyebrow">{{ t('client') }}</div>
+        <div class="text-subtitle2">{{ client?.name || '—' }}</div>
+        <a v-if="client?.phone" :href="'tel:' + client.phone" class="lc-accent text-body2">
+          {{ client.phone }}
+        </a>
+      </div>
     </div>
 
     <!-- Модель (у части ниш блок скрыт флагом пресета, задача 10.3) -->
-    <div class="col" v-if="props.showModel">
-      <!-- Режим редактирования -->
-      <q-select
-        v-if="editMode"
-        :model-value="model"
-        :options="models"
-        outlined
-        option-value="id"
-        option-label="name"
-        :label="t('model')"
-        color="yellow"
-        @update:model-value="value => emit('update:model', value)"
-      />
+    <div v-if="props.showModel" class="col-12 col-sm">
+      <div v-if="props.editMode" class="row items-center no-wrap q-gutter-x-xs">
+        <q-select
+          class="col"
+          :model-value="model"
+          :options="models"
+          outlined
+          dense
+          option-value="id"
+          option-label="name"
+          :label="t('model')"
+          color="secondary"
+          @update:model-value="value => emit('update:model', value)"
+        />
+        <q-btn flat round dense icon="add" color="secondary" @click="emit('add-model')">
+          <q-tooltip class="text-caption">новая модель</q-tooltip>
+        </q-btn>
+      </div>
 
-      <!-- Режим просмотра -->
-      <q-field v-if="!editMode" :label="t('model')" stack-label tabindex="-1" style="pointer-events: none">
-        <div class="text-subtitle1 text-yellow">{{ model?.name || '—' }}</div>
-      </q-field>
-    </div>
-
-    <!-- Кнопка для добавления модели (если в режиме редактирования) -->
-    <div class="col-auto" v-if="editMode && props.showModel">
-      <q-btn class="text-yellow" @click="emit('add-model')">+</q-btn>
+      <div v-else>
+        <div class="lc-eyebrow">{{ t('model') }}</div>
+        <div class="text-subtitle2">{{ model?.name || '—' }}</div>
+      </div>
     </div>
   </div>
 </template>

@@ -10,9 +10,15 @@ import { useAuthStore } from 'src/stores/useAuthStore.js'
 import { useSpecializationsStore } from 'src/stores/useSpecializationsStore.js'
 import { PRESETS } from 'src/domain/presets/index.js'
 import { resolveFeatures, FEATURE_LABELS } from 'src/domain/features.js'
+// Общие UI-элементы и подтверждение разрушительных действий (переработка интерфейса).
+import DeleteConfirmPage from 'pages/dialogs/DeleteConfirmPage.vue'
+import LcPageHeader from 'src/components/ui/LcPageHeader.vue'
+import LcSectionCard from 'src/components/ui/LcSectionCard.vue'
 
 const $q = useQuasar()
 const router = useRouter()
+
+const dangerConfirm = ref(null)
 
 // Аккаунт (задача 7.4): видно, под кем работаем, и можно выйти.
 const auth = useAuthStore()
@@ -141,30 +147,52 @@ const sync = async () => {
   }
 }
 
-const fullReset = async () => {
-  try {
-    await SyncService.fullReset()
-    logger.log('Полный сброс локальной базы выполнен.')
-    await specializationsStore.load() // Перезагружаем данные в сторе (теперь они будут пустыми)
-  } catch (error) {
-    console.error('Ошибка при полном сбросе:', error)
-  }
+// Разрушительные действия подтверждаются: раньше кнопка «полный сброс» срабатывала сразу.
+const fullReset = () => {
+  dangerConfirm.value.open(
+    'Полный сброс',
+    'Локальная база будет очищена, данные перечитаются с сервера. Продолжить?',
+    async () => {
+      try {
+        await SyncService.fullReset()
+        logger.log('Полный сброс локальной базы выполнен.')
+        await specializationsStore.load() // Перезагружаем данные в сторе (теперь они будут пустыми)
+      } catch (error) {
+        console.error('Ошибка при полном сбросе:', error)
+        $q.notify({ type: 'negative', message: 'Не удалось выполнить сброс' })
+      }
+    }
+  )
 }
 
-const deleteDB = async () => {
-  try {
-    await SyncService.deleteLocalDB()
-    $q.notify({
-      type: 'positive',
-      message: 'Локальная база данных удалена. Перезагрузите страницу.',
-      timeout: 0, // не скрывать автоматически
-      // noinspection JSUnusedGlobalSymbols
-      actions: [{ label: 'Перезагрузить', color: 'white', handler: () => { window.location.reload() } }],
-    })
-  } catch (error) {
-    console.error('Ошибка при удалении БД:', error)
-    $q.notify({ type: 'negative', message: 'Не удалось удалить базу данных.' })
-  }
+const deleteDB = () => {
+  dangerConfirm.value.open(
+    'Удалить локальную БД',
+    'Локальные данные будут удалены без возможности восстановления. Уверены?',
+    async () => {
+      try {
+        await SyncService.deleteLocalDB()
+        $q.notify({
+          type: 'positive',
+          message: 'Локальная база данных удалена. Перезагрузите страницу.',
+          timeout: 0, // не скрывать автоматически
+          // noinspection JSUnusedGlobalSymbols
+          actions: [
+            {
+              label: 'Перезагрузить',
+              color: 'white',
+              handler: () => {
+                window.location.reload()
+              },
+            },
+          ],
+        })
+      } catch (error) {
+        console.error('Ошибка при удалении БД:', error)
+        $q.notify({ type: 'negative', message: 'Не удалось удалить базу данных.' })
+      }
+    }
+  )
 }
 
 // Бэкап локальной БД (задача 4.4). На Android файл ляжет в документы устройства,
@@ -190,142 +218,212 @@ const makeBackup = async () => {
 </script>
 
 <template>
-  <q-page padding class="bg-dark text-white">
-    <div class="q-gutter-y-md" style="max-width: 400px">
-      <!-- Рабочие профили (Фаза 10, задача 10.8): раньше здесь был один селект. -->
-      <div class="text-subtitle2">Рабочий профиль</div>
-      <q-input v-model="profileName" dense outlined dark label="Название профиля" />
+  <q-page class="lc-page lc-shell">
+    <LcPageHeader title="ещё" subtitle="профили, шаблоны, данные и аккаунт" icon="tune" />
 
-      <q-btn
-        size="sm"
-        color="primary"
-        label="Сохранить название"
-        :disable="!activeSpecialization"
-        @click="renameProfile"
-      />
+    <!-- Рабочие профили (Фаза 10, задача 10.8): добавление, переименование, архивирование. -->
+    <LcSectionCard title="рабочий профиль" icon="badge">
+      <div class="q-gutter-y-sm">
+        <q-input v-model="profileName" dense outlined color="secondary" label="Название профиля" />
+        <q-btn
+          size="sm"
+          no-caps
+          color="secondary"
+          text-color="black"
+          label="Сохранить название"
+          :disable="!activeSpecialization"
+          @click="renameProfile"
+        />
 
-      <q-select
-        v-model="selectedSpecialization"
-        :loading="specializationsStore.loading"
-        :options="specializationOptions"
-        label="Переключить профиль"
-        outlined
-        dense
-        dark
-        color="white"
-        label-color="white"
-        emit-value
-        map-options
-      />
+        <q-select
+          v-model="selectedSpecialization"
+          :loading="specializationsStore.loading"
+          :options="specializationOptions"
+          label="Переключить профиль"
+          outlined
+          dense
+          emit-value
+          map-options
+          color="secondary"
+        />
 
-      <div class="text-subtitle2 q-mt-md">Начать с шаблона</div>
-      <q-select
-        v-model="selectedPreset"
-        :options="presetOptions"
-        label="Пресет специализации"
-        outlined
-        dense
-        dark
-        emit-value
-        map-options
-      />
+        <q-separator dark class="q-my-sm" />
 
-      <q-btn
-        color="primary"
-        label="Применить шаблон"
-        :loading="busy"
-        :disable="!activeSpecialization || !selectedPreset"
-        @click="applyPreset"
-      />
-      <div class="text-caption">Повторное применение не создаёт дублей.</div>
+        <div class="lc-eyebrow">добавить профиль</div>
+        <q-input
+          v-model="newProfileName"
+          dense
+          outlined
+          color="secondary"
+          label="Название новой специализации"
+        />
+        <q-btn
+          size="sm"
+          no-caps
+          outline
+          color="secondary"
+          label="Добавить"
+          :disable="!newProfileName.trim()"
+          @click="addProfile"
+        />
 
-      <div class="text-subtitle2 q-mt-md">Возможности профиля</div>
-      <div class="text-caption">
-        <div v-for="(label, flag) in FEATURE_LABELS" :key="flag">
-          {{ label }}: {{ activeFeatures[flag] ? 'включено' : 'скрыто' }}
+        <q-btn
+          class="full-width"
+          size="sm"
+          no-caps
+          flat
+          color="warning"
+          icon="archive"
+          label="Архивировать текущий профиль"
+          :disable="!activeSpecialization"
+          @click="archiveProfile"
+        />
+        <div class="text-caption lc-mute">
+          Профиль не удаляется: его история и заказы остаются на месте.
+        </div>
+
+        <template v-if="archivedItems.length">
+          <q-separator dark class="q-my-sm" />
+          <div class="lc-eyebrow">архив</div>
+          <div
+            v-for="item in archivedItems"
+            :key="item.id"
+            class="row items-center no-wrap q-mb-xs"
+          >
+            <div class="col lc-muted ellipsis">{{ item.name }}</div>
+            <q-btn
+              flat
+              dense
+              no-caps
+              size="sm"
+              color="secondary"
+              label="вернуть"
+              @click="restoreProfile(item.id)"
+            />
+          </div>
+        </template>
+      </div>
+    </LcSectionCard>
+
+    <!-- Шаблон специализации: стартовый каталог (10.4) + видимость разделов (10.3). -->
+    <LcSectionCard title="шаблон специализации" icon="auto_awesome">
+      <div class="q-gutter-y-sm">
+        <q-select
+          v-model="selectedPreset"
+          :options="presetOptions"
+          label="Шаблон"
+          outlined
+          dense
+          emit-value
+          map-options
+          color="secondary"
+        />
+        <q-btn
+          class="full-width"
+          no-caps
+          color="secondary"
+          text-color="black"
+          label="Применить шаблон"
+          :loading="busy"
+          :disable="!activeSpecialization || !selectedPreset"
+          @click="applyPreset"
+        />
+        <div class="text-caption lc-mute">Повторное применение не создаёт дублей.</div>
+
+        <q-separator dark class="q-my-sm" />
+
+        <div class="lc-eyebrow">разделы профиля</div>
+        <div
+          v-for="(label, flag) in FEATURE_LABELS"
+          :key="flag"
+          class="row items-center no-wrap text-caption"
+        >
+          <q-icon
+            :name="activeFeatures[flag] ? 'check_circle' : 'visibility_off'"
+            size="16px"
+            :color="activeFeatures[flag] ? 'positive' : 'grey-6'"
+            class="q-mr-sm"
+          />
+          <span class="lc-muted">{{ label }}</span>
+          <q-space />
+          <span class="lc-mute">{{ activeFeatures[flag] ? 'включено' : 'скрыто' }}</span>
         </div>
       </div>
+    </LcSectionCard>
 
-      <q-separator dark class="q-my-md" />
-
-      <div class="text-subtitle2">Добавить профиль</div>
-      <q-input
-        v-model="newProfileName"
-        dense
-        outlined
-        dark
-        label="Название новой специализации"
-      />
-      <q-btn
-        color="primary"
-        label="Добавить"
-        :disable="!newProfileName.trim()"
-        @click="addProfile"
-      />
-
-      <q-btn
-        class="q-mt-sm"
-        color="warning"
-        label="Архивировать профиль"
-        :disable="!activeSpecialization"
-        @click="archiveProfile"
-      />
-
-      <template v-if="archivedItems.length">
-        <div class="text-caption q-mt-sm">Архив (история сохранена)</div>
-        <q-list dark dense>
-          <q-item v-for="item in archivedItems" :key="item.id">
-            <q-item-section>{{ item.name }}</q-item-section>
-            <q-item-section side>
-              <q-btn flat dense color="primary" label="вернуть" @click="restoreProfile(item.id)" />
-            </q-item-section>
-          </q-item>
-        </q-list>
-      </template>
-
-      <q-separator dark class="q-my-md" />
-
-      <q-btn
-        label="Синхронизировать"
-        color="primary"
-        @click="sync"
-      />
-
-      <q-btn
-        label="Создать бэкап"
-        color="primary"
-        :loading="backupLoading"
-        @click="makeBackup"
-      >
-        <q-tooltip>Копия локальной базы: на Android — файл в документах, в браузере — скачивание</q-tooltip>
-      </q-btn>
-      <div class="text-caption">Последний бэкап: {{ lastBackupAt }}</div>
-
-      <q-btn
-        label="Полный сброс (для отладки)"
-        color="negative"
-        @click="fullReset"
-      />
-
-      <q-btn
-        label="Удалить локальную БД"
-        color="deep-orange"
-        @click="deleteDB"
-      />
-
-      <q-separator dark class="q-my-md" />
-
-      <div class="text-subtitle2">Аккаунт: {{ auth.userName }}</div>
-      <div class="text-caption">
-        {{ auth.hasPin ? 'Вход защищён PIN-кодом' : 'PIN-код не установлен' }}
+    <!-- Синхронизация и бэкап: индикатор состояния живёт внизу экрана. -->
+    <LcSectionCard title="данные и синхронизация" icon="cloud_sync">
+      <div class="q-gutter-y-sm">
+        <q-btn
+          class="full-width"
+          no-caps
+          outline
+          color="secondary"
+          icon="sync"
+          label="Синхронизировать сейчас"
+          @click="sync"
+        />
+        <q-btn
+          class="full-width"
+          no-caps
+          outline
+          color="secondary"
+          icon="save_alt"
+          label="Создать бэкап"
+          :loading="backupLoading"
+          @click="makeBackup"
+        >
+          <q-tooltip class="text-caption">
+            Копия локальной базы: на Android — файл в документах, в браузере — скачивание
+          </q-tooltip>
+        </q-btn>
+        <div class="text-caption lc-mute">Последний бэкап: {{ lastBackupAt }}</div>
       </div>
-      <q-btn
-        label="Выйти"
-        color="negative"
-        outline
-        @click="signOut"
-      />
-    </div>
+    </LcSectionCard>
+
+    <!-- Опасная зона: действия подтверждаются (см. `fullReset`/`deleteDB`). -->
+    <LcSectionCard title="опасная зона" icon="warning_amber">
+      <div class="q-gutter-y-sm">
+        <q-btn
+          class="full-width"
+          no-caps
+          flat
+          color="negative"
+          icon="restart_alt"
+          label="Полный сброс (для отладки)"
+          @click="fullReset"
+        />
+        <q-btn
+          class="full-width"
+          no-caps
+          flat
+          color="deep-orange"
+          icon="delete_forever"
+          label="Удалить локальную БД"
+          @click="deleteDB"
+        />
+      </div>
+    </LcSectionCard>
+
+    <LcSectionCard title="аккаунт" icon="person">
+      <div class="q-gutter-y-sm">
+        <div class="lc-muted">{{ auth.userName }}</div>
+        <div class="text-caption lc-mute">
+          {{ auth.hasPin ? 'Вход защищён PIN-кодом' : 'PIN-код не установлен' }}
+        </div>
+        <q-btn
+          class="full-width"
+          no-caps
+          outline
+          color="negative"
+          icon="logout"
+          label="Выйти"
+          @click="signOut"
+        />
+      </div>
+    </LcSectionCard>
+
+    <DeleteConfirmPage ref="dangerConfirm" />
   </q-page>
 </template>
 

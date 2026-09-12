@@ -184,101 +184,114 @@ const handleShare = async () => {
 </script>
 
 <template>
-  <OrderHeaderActions
-    :edit-mode="editMode"
-    :is-new-order="isNewOrder"
-    :order-number="orderNumber"
-    :status="status"
-    :paid="paid"
-    :busy="isLoading"
-    @back="router.back()"
-    @share="handleShare"
-    @clear="draft.clearPositions()"
-    @remove="handleDelete"
-    @edit="draft.editMode = true"
-    @save="handleSave"
-    @update:status="draft.setStatus($event)"
-    @update:paid="draft.togglePaid()"
-  />
-
-  <OrderPartySelectors
-    v-model:client="client"
-    v-model:model="model"
-    :edit-mode="editMode"
-    :clients="draft.clients"
-    :models="draft.models"
-    :show-model="isEnabled('models')"
-    @add-client="showClientDialog = true"
-    @add-model="showModelDialog = true"
-  />
-
-  <div>
-    <q-card>
-      <q-tabs
-        v-show="editMode"
-        v-model="tab"
-        dense
-        class="text-grey"
-        active-color="yellow"
-        indicator-color="yellow"
-        align="justify"
-        narrow-indicator
-      >
-        <q-tab name="all" :label="`${t('service')}: ${services?.length || 0} материалов: ${(materials?.length || 0) + (products?.length || 0)}`" />
-        <q-tab name="servicesChoice" v-if="editMode" :label="t('service')" />
-        <q-tab name="materialsChoice" v-if="editMode" label="материалы" />
-      </q-tabs>
-
-      <q-separator />
-
-      <q-tab-panels v-model="tab" animated>
-        <OrderOverviewPanel
-          v-model:comments="comments"
-          :services="services"
-          :materials="materials"
-          :products="products"
+  <q-layout view="hHh lpR fFf">
+    <q-page-container>
+      <q-page class="lc-page lc-shell">
+        <OrderHeaderActions
           :edit-mode="editMode"
-          :services-total="servicesTotal"
-          :materials-total="materialsTotal"
-          :products-total="productsTotal"
-          :cost-total="draft.costTotal"
-          :margin="draft.margin"
-          :markup-percent="draft.markupPercent"
-          :has-unknown-cost="draft.hasUnknownCost"
-          :equipment-identifier="equipmentIdentifier"
-          :equipment-label="t('equipmentIdentifier')"
-          :show-equipment-identifier="isEnabled('equipmentIdentifier')"
-          @update:equipment-identifier="draft.equipmentIdentifier = $event"
-          @remove-service="draft.removeService($event)"
-          @remove-material="draft.removeMaterial($event)"
-          @remove-product="draft.removeProduct($event)"
+          :is-new-order="isNewOrder"
+          :order-number="orderNumber"
+          :status="status"
+          :paid="paid"
+          :busy="isLoading"
+          @back="router.back()"
+          @share="handleShare"
+          @clear="draft.clearPositions()"
+          @remove="handleDelete"
+          @edit="draft.editMode = true"
+          @save="handleSave"
+          @update:status="draft.setStatus($event)"
+          @update:paid="draft.togglePaid()"
         />
 
-        <OrderServicesPanel
-          :categories="draft.categories"
-          :selected-category="selectedServiceCategory"
-          :services="servicesByCategory"
-          :chosen="services"
-          @update:selected-category="handleServiceCategoryChange"
-          @add="draft.addService($event)"
-          @create="showServiceDialog = true"
-        />
+        <div class="lc-card q-pa-md q-mt-sm">
+          <OrderPartySelectors
+            v-model:client="client"
+            v-model:model="model"
+            :edit-mode="editMode"
+            :clients="draft.clients"
+            :models="draft.models"
+            :show-model="isEnabled('models')"
+            @add-client="showClientDialog = true"
+            @add-model="showModelDialog = true"
+          />
+        </div>
 
-        <OrderMaterialsPanel
-          :materials="materials"
-          :products="products"
-          :materials-total="materialsTotal"
-          :products-total="productsTotal"
-          @remove-material="draft.removeMaterial($event)"
-          @remove-product="draft.removeProduct($event)"
-          @update-material-line="({ index, field, value }) => draft.updateMaterialLine(index, field, value)"
-          @update-product-line="({ index, field, value }) => draft.updateProductLine(index, field, value)"
-          @create-material="showMaterialDialog = true"
-          @add-store-product="showStoreProductDialog = true"
-        />
-      </q-tab-panels>
-    </q-card>
-  </div>
+        <q-card flat class="lc-card q-mt-md">
+          <q-tabs
+            v-model="tab"
+            dense
+            no-caps
+            active-color="secondary"
+            indicator-color="secondary"
+            align="justify"
+            narrow-indicator
+          >
+            <q-tab
+              name="all"
+              icon="list_alt"
+              :label="`обзор · ${(materials?.length || 0) + (products?.length || 0)}`"
+            />
+            <q-tab v-if="editMode" name="servicesChoice" icon="build" :label="t('service')" />
+            <q-tab v-if="editMode" name="materialsChoice" icon="inventory_2" label="материалы" />
+          </q-tabs>
+
+          <q-separator dark />
+
+          <q-tab-panels v-model="tab" animated class="bg-transparent">
+            <OrderOverviewPanel
+              v-model:comments="comments"
+              :services="services"
+              :materials="materials"
+              :products="products"
+              :edit-mode="editMode"
+              :services-total="servicesTotal"
+              :materials-total="materialsTotal"
+              :products-total="productsTotal"
+              :cost-total="draft.costTotal"
+              :margin="draft.margin"
+              :markup-percent="draft.markupPercent"
+              :has-unknown-cost="draft.hasUnknownCost"
+              :equipment-identifier="equipmentIdentifier"
+              :equipment-label="t('equipmentIdentifier')"
+              :show-equipment-identifier="isEnabled('equipmentIdentifier')"
+              @update:equipment-identifier="draft.equipmentIdentifier = $event"
+              @remove-service="draft.removeService($event)"
+              @remove-material="draft.removeMaterial($event)"
+              @remove-product="draft.removeProduct($event)"
+            />
+
+            <OrderServicesPanel
+              :categories="draft.categories"
+              :selected-category="selectedServiceCategory"
+              :services="servicesByCategory"
+              :chosen="services"
+              @update:selected-category="handleServiceCategoryChange"
+              @add="draft.addService($event)"
+              @create="showServiceDialog = true"
+            />
+
+            <OrderMaterialsPanel
+              :materials="materials"
+              :products="products"
+              :materials-total="materialsTotal"
+              :products-total="productsTotal"
+              @remove-material="draft.removeMaterial($event)"
+              @remove-product="draft.removeProduct($event)"
+              @update-material-line="
+                ({ index, field, value }) => draft.updateMaterialLine(index, field, value)
+              "
+              @update-product-line="
+                ({ index, field, value }) => draft.updateProductLine(index, field, value)
+              "
+              @create-material="showMaterialDialog = true"
+              @add-store-product="showStoreProductDialog = true"
+            />
+          </q-tab-panels>
+        </q-card>
+      </q-page>
+    </q-page-container>
+  </q-layout>
 
   <OrderMaterialDialog
     v-model="showMaterialDialog"
@@ -303,9 +316,3 @@ const handleShare = async () => {
 
   <DeleteConfirmPage ref="deleteConfirmPage" />
 </template>
-
-<style scoped>
-.row {
-  background-color: black;
-}
-</style>

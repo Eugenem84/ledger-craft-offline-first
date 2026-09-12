@@ -1,7 +1,8 @@
 <script setup>
-import {ref} from 'vue'
-import {useSpecializationsStore} from "stores/useSpecializationsStore.js";
+import { ref } from 'vue'
+import { useSpecializationsStore } from 'stores/useSpecializationsStore.js'
 import { useClientsStore } from 'stores/useClientsStore.js'
+import LcDialogShell from 'src/components/ui/LcDialogShell.vue'
 
 const specializationStore = useSpecializationsStore()
 const clientsStore = useClientsStore()
@@ -50,23 +51,18 @@ const addNew = async () => {
 </script>
 
 <template>
-
-  <q-dialog v-model="isOpen">
-    <q-card>
-      <q-card-section>
-        <div class="text-h6"> новый клиент</div>
-        <q-input v-model="name" label="Имя клиента" outlined class="q-mb-md" />
-        <q-input v-model="phone" label="телефон" outlined class="q-mb-md" />
-      </q-card-section>
-      <q-card-actions align="right">
-        <q-btn flat label="отмена" color="yellow" @click="close" />
-        <q-btn flat label="сохранить" color="yellow" @click="addNew" />
-      </q-card-actions>
-    </q-card>
-  </q-dialog>
-
+  <LcDialogShell
+    :model-value="isOpen"
+    title="Новый клиент"
+    confirm-label="Добавить"
+    @update:model-value="isOpen = $event"
+    @confirm="addNew"
+  >
+    <div class="q-gutter-y-md">
+      <q-input v-model="name" label="Имя клиента" outlined dense autofocus />
+      <q-input v-model="phone" label="Телефон" type="tel" outlined dense />
+    </div>
+  </LcDialogShell>
 </template>
 
-<style scoped>
-
-</style>
+<style scoped></style>

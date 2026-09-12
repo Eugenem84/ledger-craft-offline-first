@@ -1,25 +1,27 @@
 // Quasar SCSS (& Sass) Variables
 // --------------------------------------------------
-// To customize the look and feel of this app, you can override
-// the Sass/SCSS variables found in Quasar's source Sass/SCSS files.
-
-// Check documentation for full list of Quasar variables
-
-// Your own variables (that are declared here) and Quasar's own
-// ones will be available out of the box in your .vue/.scss/.sass files
-
-// It's highly recommended to change the default colors
-// to match your app's branding.
-// Tip: Use the "Theme Builder" on Quasar's documentation website.
+// Палитра Ledger Craft.
+//
+// Роли цветов разведены намеренно:
+//   • `$secondary` — брендовый ЖЁЛТЫЙ. Это **интерактивный** акцент: кнопки,
+//     вкладки, ссылки, фокус. Он не меняется от профиля.
+//   • `$primary`   — «акцент рабочего профиля». `MainLayout.vue` переопределяет
+//     его в рантайме (`setCssVar('primary', …)`, `src/domain/theme.js`), поэтому
+//     в разметке `primary` — только для бейджа профиля, а не для интерактива.
+//   • статусы (ожидание/в работе/готово) — отдельные токены `--lc-*` в `app.scss`.
 
 $primary: #1976d2;
-$secondary: #26a69a;
-$accent: #9c27b0;
+$secondary: #ffeb3b;
+$accent: #26c6da;
 
-$dark: #1d1d1d;
-$dark-page: #121212;
+// Фон: чёрный «цех», приподнятые поверхности — через `--lc-surface*` в `app.scss`.
+$dark: #121212;
+$dark-page: #000000;
 
-$positive: #21ba45;
-$negative: #c10015;
-$info: #31ccec;
-$warning: #f2c037;
+$positive: #43a047;
+$negative: #e53935;
+$info: #29b6f6;
+$warning: #ffb300;
+
+// Плотность интерфейса: приложение живёт на телефоне в мастерской.
+$body-font-size: 14px;

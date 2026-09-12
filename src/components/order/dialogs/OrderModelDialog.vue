@@ -1,7 +1,9 @@
 <script setup>
 // Диалог «добавить модель техники» прямо из заказа (Фаза 8, задача 8.1).
+// Оболочка — общая `LcDialogShell` (адаптивная ширина, единые кнопки).
 import { ref, watch } from 'vue'
 import { useLexicon } from 'src/domain/lexicon.js'
+import LcDialogShell from 'src/components/ui/LcDialogShell.vue'
 
 const { t } = useLexicon()
 
@@ -29,27 +31,14 @@ const submit = () => {
 </script>
 
 <template>
-  <q-dialog
+  <LcDialogShell
     :model-value="props.modelValue"
-    persistent
+    :title="`Новая модель: ${t('model')}`"
+    confirm-label="Добавить"
     @update:model-value="value => emit('update:modelValue', value)"
+    @confirm="submit"
   >
-    <q-card>
-      <q-card-section>
-        <div class="text-h6">Добавление: {{ t('model') }}</div>
-        <q-input
-          v-model="form.name"
-          label-color="yellow"
-          color="yellow"
-          :label="`Название: ${t('model')}`"
-          outlined
-          class="q-mb-md"
-        />
-      </q-card-section>
-      <q-card-actions align="right">
-        <q-btn flat label="Отмена" color="yellow" @click="close" />
-        <q-btn flat label="Добавить" color="yellow" @click="submit" />
-      </q-card-actions>
-    </q-card>
-  </q-dialog>
+    <q-input v-model="form.name" :label="`Название: ${t('model')}`" outlined dense autofocus />
+  </LcDialogShell>
 </template>
+

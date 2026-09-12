@@ -1,8 +1,9 @@
 <script setup>
-import {ref} from 'vue'
+import { ref } from 'vue'
 import { useCategoriesStore } from 'stores/useCategoriesStore.js'
 import { useSpecializationsStore } from 'stores/useSpecializationsStore.js'
 import { useQuasar } from 'quasar'
+import LcDialogShell from 'src/components/ui/LcDialogShell.vue'
 
 const $q = useQuasar()
 const categoriesStore = useCategoriesStore()
@@ -65,22 +66,15 @@ const addNew = async () => {
 </script>
 
 <template>
-
-  <q-dialog v-model="isOpen">
-    <q-card>
-      <q-card-section>
-        <div class="text-h6"> Новая категория</div>
-        <q-input v-model="name" label="Название категории" outlined class="q-mb-md" />
-      </q-card-section>
-      <q-card-actions align="right">
-        <q-btn flat label="Отмена" color="yellow" @click="close" />
-        <q-btn flat label="Сохранить" color="yellow" @click="addNew" />
-      </q-card-actions>
-    </q-card>
-  </q-dialog>
-
+  <LcDialogShell
+    :model-value="isOpen"
+    title="Новая категория"
+    confirm-label="Сохранить"
+    @update:model-value="isOpen = $event"
+    @confirm="addNew"
+  >
+    <q-input v-model="name" label="Название категории" outlined dense autofocus />
+  </LcDialogShell>
 </template>
 
-<style scoped>
-
-</style>
+<style scoped></style>

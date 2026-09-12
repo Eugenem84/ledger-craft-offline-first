@@ -216,6 +216,7 @@ npx quasar dev -m capacitor -T android        # запуск на устройс
 - `docs/PLAN.md` — **план действий (дорожная карта)**: что делать, зачем и в каком порядке
 - `docs/ARCHITECTURE.md` — общая архитектура и потоки данных
 - `docs/FRONTEND.md` — структура фронта, локальная БД, синхронизация
+- `docs/UI.md` — дизайн-система: роли цвета, токены, общие компоненты, правила экранов
 - `docs/API-INTEGRATION.md` — как клиент использует API (канонический контракт — в `LedgerCraftDocker03/docs/API.md`)
 - `docs/DATA-MODEL.md` — схема таблиц **локальной** БД клиента (серверная — в `LedgerCraftDocker03/docs/DB.md`)
 

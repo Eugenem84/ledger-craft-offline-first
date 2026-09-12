@@ -1,5 +1,10 @@
 <script setup>
 // Список выбранных работ в заказе (Фаза 8, задача 8.1).
+// Подпись «работа/услуга» — из лексикона профиля (10.1).
+import { useLexicon } from 'src/domain/lexicon.js'
+
+const { t } = useLexicon()
+
 const props = defineProps({
   services: { type: Array, default: () => [] },
   editMode: { type: Boolean, default: false },
@@ -9,27 +14,38 @@ const emit = defineEmits(['remove'])
 </script>
 
 <template>
-  <q-list bordered separator>
-    <q-item-label v-if="props.services.length === 0">Нет сервисов</q-item-label>
-    <q-item
-      v-for="(service, index) in props.services"
-      :key="service.id ?? index"
-      class="w-100 justify-between"
-      style="width: 100%"
-    >
-      <q-item-section>
-        <q-item-label class="text-left">
-          {{ service.service }}
-        </q-item-label>
-      </q-item-section>
+  <div>
+    <div v-if="!props.services.length" class="text-caption lc-mute q-pa-md">
+      работ пока нет — добавьте их на вкладке «{{ t('service') }}»
+    </div>
 
-      <q-item-section>
-        <q-item-label class="text-right"> {{ service.price }}р </q-item-label>
-      </q-item-section>
+    <template v-else>
+      <div class="lc-linerow lc-linerow--head">
+        <div class="lc-col-name">{{ t('service') }}</div>
+        <div class="lc-col-num">цена</div>
+        <div v-if="props.editMode" class="lc-col-del"></div>
+      </div>
 
-      <q-item-section class="col-auto" v-if="props.editMode">
-        <q-btn icon="delete_forever" @click="emit('remove', index)" color="red" flat round />
-      </q-item-section>
-    </q-item>
-  </q-list>
+      <div
+        v-for="(service, index) in props.services"
+        :key="service.id ?? index"
+        class="lc-linerow"
+      >
+        <div class="lc-col-name ellipsis">{{ service.service }}</div>
+        <div class="lc-col-num lc-money">{{ service.price }} р</div>
+        <div v-if="props.editMode" class="lc-col-del">
+          <q-btn
+            flat
+            round
+            dense
+            icon="close"
+            color="negative"
+            @click="emit('remove', index)"
+          >
+            <q-tooltip class="text-caption">убрать</q-tooltip>
+          </q-btn>
+        </div>
+      </div>
+    </template>
+  </div>
 </template>

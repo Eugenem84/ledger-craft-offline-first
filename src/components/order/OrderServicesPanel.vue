@@ -21,67 +21,73 @@ const isChosen = service => props.chosen.some(chosen => chosen.id === service.id
 </script>
 
 <template>
-  <q-tab-panel name="servicesChoice" style="padding: 0">
-    <q-select
-      :model-value="props.selectedCategory"
-      :options="props.categories"
-      option-label="category_name"
-      option-value="id"
-      emit-value
-      map-options
-      outlined
-      :label="`категории: ${t('service')}`"
-      placeholder="нет категорий"
-      label-color="grey"
-      color="yellow"
-      text-color="yellow"
-      @update:model-value="value => emit('update:selectedCategory', value)"
-    />
+  <q-tab-panel name="servicesChoice" class="q-pa-none">
+    <div class="q-pa-md">
+      <q-select
+        :model-value="props.selectedCategory"
+        :options="props.categories"
+        option-label="category_name"
+        option-value="id"
+        emit-value
+        map-options
+        outlined
+        dense
+        :label="`категории: ${t('service')}`"
+        placeholder="нет категорий"
+        color="secondary"
+        @update:model-value="value => emit('update:selectedCategory', value)"
+      />
 
-    <q-list bordered separator>
-      <div class="text-center text-grey" style="letter-spacing: 0.3em">{{ t('service') }}</div>
-      <q-item-label v-if="props.services.length === 0">Нет: {{ t('service') }}</q-item-label>
-      <q-item
-        v-for="service in props.services"
-        :key="service.id"
-        class="w-100 justify-between selectService"
-        style="width: 100%"
-        clickable
-        v-ripple
-        :class="{ 'text-yellow': isChosen(service) }"
-        @click="emit('add', service)"
-      >
-        <q-item-section>
-          <q-item-label class="text-left">
-            {{ service.service }}
-          </q-item-label>
-        </q-item-section>
+      <div class="row items-center no-wrap q-mt-sm">
+        <div class="text-caption lc-mute col">
+          выберите {{ t('service') }} — она добавится в заказ
+        </div>
+        <q-btn
+          dense
+          no-caps
+          outline
+          color="secondary"
+          icon="add"
+          :label="`новая ${t('service')}`"
+          @click="emit('create')"
+        />
+      </div>
+    </div>
 
-        <q-item-section>
-          <q-item-label class="text-right">
-            {{ service.price }}
-          </q-item-label>
-        </q-item-section>
-      </q-item>
-    </q-list>
+    <div class="lc-linerow lc-linerow--head">
+      <div class="lc-col-name">{{ t('service') }}</div>
+      <div class="lc-col-num">цена</div>
+      <div class="lc-col-del"></div>
+    </div>
 
-    <q-btn
-      icon="add"
-      round
-      class="fab bg-yellow text-black"
-      @click="emit('create')"
-      size="20px"
-    />
+    <div v-if="!props.services.length" class="text-caption lc-mute q-pa-md">
+      выберите категорию, чтобы увидеть список
+    </div>
+
+    <div
+      v-for="service in props.services"
+      :key="service.id"
+      class="lc-linerow cursor-pointer"
+      :class="{ 'lc-linerow--selected': isChosen(service) }"
+      @click="emit('add', service)"
+    >
+      <div class="lc-col-name ellipsis" :class="{ 'lc-accent': isChosen(service) }">
+        {{ service.service }}
+      </div>
+      <div class="lc-col-num lc-money">{{ service.price }} р</div>
+      <div class="lc-col-del">
+        <q-icon
+          :name="isChosen(service) ? 'check_circle' : 'add_circle_outline'"
+          :color="isChosen(service) ? 'positive' : 'secondary'"
+          size="20px"
+        />
+      </div>
+    </div>
   </q-tab-panel>
 </template>
 
 <style scoped>
-/* Кнопка была в разметке страницы, где и жил класс `.fab` (scoped-стили родителя
-   не достают до вложенных элементов дочерних компонентов) — 8.1. */
-.fab {
-  position: fixed;
-  bottom: 16px;
-  right: 16px;
-  z-index: 1000;
+.lc-linerow--selected {
+  background: var(--lc-accent-soft);
 }
 </style>

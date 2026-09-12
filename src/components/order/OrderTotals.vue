@@ -24,25 +24,58 @@ const markupText = computed(() =>
 </script>
 
 <template>
-  <div class="text-grey text-left" v-show="itemsTotal > 0">
-    всего по материалам: {{ itemsTotal }}р
-  </div>
-
-  <div class="text-grey text-center display: flex">
-    <div>всего к оплате:</div>
-    <div class="text-green">{{ grandTotal }}</div>
-    р
-  </div>
-
-  <!-- Маржа заказа (9.5/9.6): сходится с суммой позиций — закупка × количество -->
-  <div v-show="costTotal > 0" class="text-grey text-center">
-    <div class="row justify-center items-center q-gutter-x-md">
-      <span>закупка: <span class="text-orange">{{ costTotal }}</span> р</span>
-      <span>маржа: <span :class="margin >= 0 ? 'text-green' : 'text-negative'">{{ margin }}</span> р</span>
-      <span>наценка: {{ markupText }}</span>
+  <div class="lc-totals q-pa-md">
+    <div class="lc-totals-row">
+      <span class="lc-muted">работы</span>
+      <span class="lc-money">{{ servicesTotal }} р</span>
     </div>
-    <div v-if="hasUnknownCost" class="text-caption text-orange">
-      часть позиций без закупки — маржа посчитана без их себестоимости
+
+    <div v-show="itemsTotal > 0" class="lc-totals-row">
+      <span class="lc-muted">материалы и товары</span>
+      <span class="lc-money">{{ itemsTotal }} р</span>
     </div>
+
+    <q-separator dark class="q-my-sm" />
+
+    <div class="lc-totals-row lc-totals-row--grand">
+      <span>всего к оплате</span>
+      <span class="lc-money text-positive">{{ grandTotal }} р</span>
+    </div>
+
+    <!-- Маржа заказа (9.5/9.6): сходится с суммой позиций — закупка × количество -->
+    <template v-if="costTotal > 0">
+      <div class="lc-totals-row">
+        <span class="lc-muted">закупка</span>
+        <span class="lc-money text-orange">{{ costTotal }} р</span>
+      </div>
+      <div class="lc-totals-row">
+        <span class="lc-muted">маржа</span>
+        <span class="lc-money" :class="margin >= 0 ? 'text-positive' : 'text-negative'">
+          {{ margin }} р
+        </span>
+      </div>
+      <div class="lc-totals-row">
+        <span class="lc-muted">наценка</span>
+        <span class="lc-money">{{ markupText }}</span>
+      </div>
+      <div v-if="hasUnknownCost" class="text-caption text-orange q-mt-xs">
+        часть позиций без закупки — маржа посчитана без их себестоимости
+      </div>
+    </template>
   </div>
 </template>
+
+<style scoped>
+.lc-totals-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 3px 0;
+}
+
+.lc-totals-row--grand {
+  font-size: 16px;
+  font-weight: 700;
+}
+</style>
