@@ -46,10 +46,10 @@ import { toEpochSeconds } from 'src/utils/timestamps.js'
 /**
  * `queries.insert` — локальное сохранение заказа.
  *
- * @param {{ id: string, order: OrderAttributes, specialization: ForeignKeyRef, client: ForeignKeyRef }} input
+ * @param {{ id: string, order: OrderAttributes, specialization: ForeignKeyRef, client: ForeignKeyRef, modelServerId?: number|null }} input
  * @returns {Array<string|number|null>}
  */
-export function orderInsertParams({ id, order, specialization, client }) {
+export function orderInsertParams({ id, order, specialization, client, modelServerId }) {
   return [
     id,
     order.server_id || null,
@@ -66,6 +66,7 @@ export function orderInsertParams({ id, order, specialization, client }) {
     order.status || 'waiting',
     order.paid || 0,
     order.model_id || null,
+    modelServerId ?? null,
     order.share_token || null,
     order.equipment_identifier || null,
   ]
@@ -74,10 +75,10 @@ export function orderInsertParams({ id, order, specialization, client }) {
 /**
  * `queries.update` — локальное обновление заказа (`WHERE id = ?` — последний параметр).
  *
- * @param {{ order: OrderAttributes, specialization: ForeignKeyRef, client: ForeignKeyRef }} input
+ * @param {{ order: OrderAttributes, specialization: ForeignKeyRef, client: ForeignKeyRef, modelServerId?: number|null }} input
  * @returns {Array<string|number|null>}
  */
-export function orderUpdateParams({ order, specialization, client }) {
+export function orderUpdateParams({ order, specialization, client, modelServerId }) {
   return [
     specialization.id,
     specialization.server_id,
@@ -92,6 +93,7 @@ export function orderUpdateParams({ order, specialization, client }) {
     order.status || 'waiting',
     order.paid || 0,
     order.model_id || null,
+    modelServerId ?? null,
     order.share_token || null,
     order.equipment_identifier || null,
     order.id,
@@ -103,10 +105,10 @@ export function orderUpdateParams({ order, specialization, client }) {
  * Время сервер отдаёт строками ISO-8601, локально храним UNIX-секунды (задача 3.8).
  *
  * @param {object} record серверная запись
- * @param {{ localId: string, specialization: ForeignKeyRef, client: ForeignKeyRef, localModelId: string|null }} input
+ * @param {{ localId: string, specialization: ForeignKeyRef, client: ForeignKeyRef, localModelId: string|null, modelServerId?: number|null }} input
  * @returns {Array<string|number|null>}
  */
-export function orderInsertFromServerParams(record, { localId, specialization, client, localModelId }) {
+export function orderInsertFromServerParams(record, { localId, specialization, client, localModelId, modelServerId }) {
   return [
     localId,
     record.id,
@@ -126,6 +128,7 @@ export function orderInsertFromServerParams(record, { localId, specialization, c
     record.status ?? null,
     record.paid ?? 0,
     localModelId ?? null,
+    modelServerId ?? null,
     record.share_token ?? null,
     record.equipment_identifier ?? null,
     toEpochSeconds(record.created_at),
@@ -140,7 +143,7 @@ export function orderInsertFromServerParams(record, { localId, specialization, c
  * @param {{ specialization: ForeignKeyRef, client: ForeignKeyRef, localModelId: string|null }} input
  * @returns {Array<string|number|null>}
  */
-export function orderUpdateFromServerParams(record, { specialization, client, localModelId }) {
+export function orderUpdateFromServerParams(record, { specialization, client, localModelId, modelServerId }) {
   return [
     specialization.id,
     specialization.server_id,
@@ -156,6 +159,7 @@ export function orderUpdateFromServerParams(record, { specialization, client, lo
     record.status ?? null,
     record.paid ?? 0,
     localModelId ?? null,
+    modelServerId ?? null,
     record.share_token ?? null,
     record.equipment_identifier ?? null,
     toEpochSeconds(record.updated_at),

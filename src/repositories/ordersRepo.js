@@ -44,6 +44,29 @@ async function getSpecializationData(order) {
   return { id: null, server_id: null };
 }
 
+/**
+ * Модель техники заказа в виде пары «локальный UUID + серверный id» — та же конвенция,
+ * что у клиента и специализации.
+ *
+ * `server_id = null` при известном локальном id означает «модель ещё не на сервере»:
+ * по этому признаку `syncService` строит зависимость «модель → заказ» и сам подставит
+ * серверный id после отправки модели (задача 11.2).
+ */
+async function getModelData(order) {
+  if (order.model_id) {
+    const model = await getModelById(order.model_id);
+    return { id: order.model_id, server_id: model?.server_id ?? null };
+  }
+  if (order.model_server_id) {
+    const model = await findModelByServerId(order.model_server_id);
+    if (model) {
+      return { id: model.id, server_id: model.server_id };
+    }
+    return { id: null, server_id: order.model_server_id };
+  }
+  return { id: null, server_id: null };
+}
+
 async function getClientData(order) {
   if (order.client_id) {
     return {
@@ -67,6 +90,7 @@ export async function save(order) {
   const id = order.id || uuidv4()
   const specializationData = await getSpecializationData(order);
   const clientData = await getClientData(order);
+  const modelData = await getModelData(order);
 
   // Задача 8.3: позиционные аргументы собирает именованный маппер — порядок колонок
   // живёт в `src/database/mappers/orders.js`, а не в репозитории.
@@ -75,17 +99,22 @@ export async function save(order) {
     order,
     specialization: specializationData,
     client: clientData,
+    // Пара «модель + её серверный id» — как у клиента и специализации (задача 11.2).
+    modelServerId: modelData.server_id,
   })
 
   await dbAdapter.execute(queries.insert, params)
 
   const payloadForServer = { ...order };
-  if (order.model_id) {
-    const model = await getModelById(order.model_id);
-    if (model && model.server_id) {
-      payloadForServer.model_server_id = model.server_id;
-    }
-    delete payloadForServer.model_id; // Всегда убираем локальный id; серверу шлём только model_server_id
+  if (order.model_id || modelData.server_id != null) {
+    // Задача 11.2: локальный `model_id` остаётся в payload, а сигнальное поле
+    // `model_server_id` отдаём даже когда оно `null` — «модель ещё не на сервере».
+    // syncService по `null` сам переведёт локальный id в серверный (после отправки
+    // самой модели) — как `productsRepo` с `product_category_server_id`.
+    // Раньше `model_id` удалялся всегда, поэтому заказ, созданный офлайн с новой
+    // моделью техники, уезжал на сервер без неё — связь терялась молча.
+    payloadForServer.model_id = modelData.id ?? payloadForServer.model_id ?? null;
+    payloadForServer.model_server_id = modelData.server_id ?? null;
   }
   delete payloadForServer.id;
   const opId = uuidv4();
@@ -101,11 +130,13 @@ export async function update(order) {
   const existingOrder = await dbAdapter.queryOne(queries.getById, [order.id]);
   const specializationData = await getSpecializationData(order);
   const clientData = await getClientData(order);
+  const modelData = await getModelData(order);
 
   const params = orderUpdateParams({
     order,
     specialization: specializationData,
     client: clientData,
+    modelServerId: modelData.server_id,
   });
   await dbAdapter.execute(queries.update, params);
 
@@ -115,12 +146,11 @@ export async function update(order) {
       id: existingOrder.server_id,
       ...order
     };
-    if (order.model_id) {
-      const model = await getModelById(order.model_id);
-      if (model && model.server_id) {
-        payloadForServer.model_server_id = model.server_id;
-      }
-      delete payloadForServer.model_id; // Всегда убираем локальный id; серверу шлём только model_server_id
+    if (order.model_id || modelData.server_id != null) {
+      // Задача 11.2: см. комментарий в `save` — `null` в сигнальном поле означает
+      // «модель ещё не на сервере», и syncService переведёт локальный id сам.
+      payloadForServer.model_id = modelData.id ?? payloadForServer.model_id ?? null;
+      payloadForServer.model_server_id = modelData.server_id ?? null;
     }
     // `...order` перетёр `id` локальным UUID, а серверу для UPDATE нужен именно
     // СЕРВЕРНЫЙ id: без него `/sync` отвечает `MISSING_ID_FOR_UPDATE` и правка
@@ -176,6 +206,7 @@ export async function applyServerRecord(record) {
       specialization: specializationData,
       client: clientData,
       localModelId,
+      modelServerId: record.model_id ?? null,
     });
 
     await dbAdapter.execute(queries.insertFromServer, params);
@@ -190,6 +221,7 @@ export async function applyServerRecord(record) {
       specialization: specializationData,
       client: clientData,
       localModelId,
+      modelServerId: record.model_id ?? null,
     });
     await dbAdapter.execute(queries.updateFromServer, updateParams);
   }

@@ -25,6 +25,7 @@ import * as servicesRepo from 'src/repositories/servicesRepo.js'
 import * as ordersRepo from 'src/repositories/ordersRepo.js'
 import * as orderServiceRepo from 'src/repositories/orderServiceRepo.js'
 import * as materialsRepo from 'src/repositories/materialsRepo.js'
+import * as modelsRepo from 'src/repositories/modelsRepo.js'
 
 /** Индекс первого применения таблицы на «сервере» — им проверяем порядок. */
 const orderIndex = (server, table) => server.applied.findIndex(entry => entry.table === table)
@@ -101,6 +102,42 @@ describe('5.4 порядок «родитель → ребёнок»', () => {
     expect(
       (await db.queryOne('SELECT * FROM order_service WHERE order_id = ?', [orderId])).order_server_id
     ).not.toBeNull()
+  })
+
+  // Задача 11.2: раньше `ordersRepo` всегда вырезал локальный `model_id` из payload,
+  // поэтому заказ, созданный офлайн с ещё не уехавшей моделью техники, уходил на сервер
+  // без неё — связь терялась молча.
+  it('11.2: заказ с новой моделью техники уезжает одним sync() и сохраняет связь', async () => {
+    const modelId = await modelsRepo.save({ name: 'Bosch Performance' })
+    const orderId = await ordersRepo.save({ model_id: modelId, total_amount: 3000 })
+
+    await syncService.sync()
+
+    // Модель уехала раньше заказа (топосортировка), а заказ унёс серверный id модели.
+    expect(orderIndex(server, 'equipment_models')).toBeLessThan(orderIndex(server, 'orders'))
+
+    const model = await db.queryOne('SELECT * FROM equipment_models WHERE id = ?', [modelId])
+    const order = await db.queryOne('SELECT * FROM orders WHERE id = ?', [orderId])
+    expect(model.server_id).not.toBeNull()
+    expect(order.server_id).not.toBeNull()
+
+    const sentOrder = server.received.find(entry => entry.table === 'orders')
+    expect(sentOrder.payload.model_id).toBe(model.server_id)
+    // Сигнальное поле живёт только внутри синка — на сервер оно не уходит.
+    expect(sentOrder.payload).not.toHaveProperty('model_server_id')
+    expect(await operationsRepo.countPending()).toBe(0)
+
+    // Устройство Б: чистая БД — у заказа та же модель, но уже со своим локальным UUID.
+    await setupTestDb()
+    await syncService.sync()
+
+    const remoteModel = await db.queryOne('SELECT * FROM equipment_models WHERE server_id = ?', [
+      model.server_id,
+    ])
+    const remoteOrder = await db.queryOne('SELECT * FROM orders WHERE server_id = ?', [order.server_id])
+    expect(remoteModel).not.toBeNull()
+    expect(remoteOrder.model_id).toBe(remoteModel.id)
+    expect(remoteOrder.model_server_id).toBe(model.server_id)
   })
 
   it('специальности уезжают с серверными именами полей (name → specializationName)', async () => {

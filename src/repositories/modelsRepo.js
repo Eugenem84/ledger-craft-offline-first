@@ -128,7 +128,10 @@ export async function applyServerRecord(record) {
       serverId: record.id,
       name: record.name,
       localSpecializationId,
-      specializationServerId: record.specialization_id,
+      // `specialization_id` на сервере nullable: без `?? null` в sql.js уходил
+      // `undefined` → «tried to bind a value of an unknown type», и модель техники
+      // с сервера не применялась вовсе (найдено тестом 11.2).
+      specializationServerId: record.specialization_id ?? null,
       templateKey: record.template_key,
       createdAt: toEpochSeconds(record.created_at),
       updatedAt: toEpochSeconds(record.updated_at),
@@ -144,7 +147,7 @@ export async function applyServerRecord(record) {
     const updateParams = modelUpdateFromServerParams({
       name: record.name,
       localSpecializationId,
-      specializationServerId: record.specialization_id,
+      specializationServerId: record.specialization_id ?? null,
       templateKey: record.template_key ?? local.template_key ?? null,
       updatedAt: toEpochSeconds(record.updated_at),
       serverId: record.id,
