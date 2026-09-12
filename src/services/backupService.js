@@ -15,12 +15,14 @@
 // Автобэкап: раз в сутки при старте нативного приложения (см. boot/db.js). Отметка
 // «когда сделали» лежит в таблице `meta`.
 import { logger } from 'src/utils/logger'
-import { Filesystem, Directory } from '@capacitor/filesystem'
+import { Filesystem, Directory, Encoding } from '@capacitor/filesystem'
 import { getAdapter } from 'src/database/db.js'
 import { isNativePlatform } from 'src/utils/platform.js'
 import { getValue, setValue } from 'src/repositories/metaRepo.js'
+import { SCHEMA_VERSION } from 'src/database/schema-version.js'
 
 const BACKUP_PREFIX = 'ledgercraft-backup-'
+const BACKUP_EXTENSION = '.json'
 const LAST_BACKUP_KEY = 'last_backup_at'
 const AUTO_BACKUP_INTERVAL_MS = 24 * 60 * 60 * 1000
 
@@ -116,6 +118,133 @@ export async function createBackup() {
   logger.log(`[Backup] Дамп отправлен на скачивание: ${fileName} (${bytes.length} байт)`)
 
   return { fileName, size: bytes.length, format: 'sqlite', createdAt }
+}
+
+/**
+ * Список JSON-бэкапов на устройстве (задача 11.9).
+ *
+ * Только нативная платформа: в браузере бэкап — это дамп `.sqlite` (только выгрузка),
+ * а не JSON, поэтому восстанавливать там нечего. Смотрим обе папки, куда пишет
+ * `writeNativeBackup()`: публичные `Documents` и приватные `Data` (фолбэк).
+ * Новые файлы — первыми: в имени есть метка времени.
+ *
+ * @param {{ Filesystem?: object, Directory?: object, isNative?: () => boolean }} [deps]
+ * @returns {Promise<Array<{fileName: string, directory: string, directoryLabel: string, mtime?: number}>>}
+ */
+export async function listBackups({
+  Filesystem: fs = Filesystem,
+  Directory: dir = Directory,
+  isNative = isNativePlatform,
+} = {}) {
+  if (!isNative()) return []
+
+  const locations = [
+    { directory: dir.Documents, label: 'Documents' },
+    { directory: dir.Data, label: 'Data' },
+  ]
+  const backups = []
+
+  for (const { directory, label } of locations) {
+    try {
+      const { files = [] } = await fs.readdir({ path: '', directory })
+
+      for (const entry of files) {
+        const name = typeof entry === 'string' ? entry : entry?.name
+        if (!name || !name.startsWith(BACKUP_PREFIX) || !name.endsWith(BACKUP_EXTENSION)) continue
+
+        backups.push({ fileName: name, directory, directoryLabel: label, mtime: entry?.mtime })
+      }
+    } catch (err) {
+      logger.warn(`[Backup] Не удалось прочитать папку ${label}:`, err?.message)
+    }
+  }
+
+  return backups.sort((a, b) => b.fileName.localeCompare(a.fileName))
+}
+
+/**
+ * Разбирает JSON-бэкап и проверяет, что это дамп LedgerCraft.
+ *
+ * Нативный `exportToJson()` кладёт в файл сам `JsonSQLite` (top-level `database`,
+ * `version`, `mode`, `tables`), но обёртку `{ export: JsonSQLite }` тоже принимаем —
+ * формат экспорта у разных версий плагина отличается.
+ *
+ * @param {string} json
+ * @returns {object} распарсенный `JsonSQLite`
+ */
+export function parseBackupJson(json) {
+  let parsed
+
+  try {
+    parsed = JSON.parse(json)
+  } catch {
+    throw new Error('[Backup] Файл не является JSON')
+  }
+
+  const data = parsed?.export && typeof parsed.export === 'object' ? parsed.export : parsed
+
+  if (!data || typeof data !== 'object' || typeof data.database !== 'string' || !Array.isArray(data.tables)) {
+    throw new Error('[Backup] Это не бэкап LedgerCraft')
+  }
+
+  return data
+}
+
+/**
+ * Восстанавливает локальную БД из JSON-бэкапа (задача 11.9).
+ *
+ * Это **аварийный путь без сервера** (сервер потерян/недоступен, аккаунт удалён):
+ * обычный перенос на новый телефон делается входом и синхронизацией, а не этим
+ * вызовом. Данные читаются из файла и **полностью заменяют** текущую локальную БД.
+ *
+ * Версия схемы бэкапа сверяется с текущей (`SCHEMA_VERSION`, задача 4.5) **до** импорта:
+ * дамп от другой версии приложения не должен молча сломать схему.
+ *
+ * @param {{ fileName: string, directory?: string }} target
+ * @param {{ Filesystem?: object, Encoding?: object, isNative?: () => boolean, getAdapter?: () => object, schemaVersion?: number }} [deps]
+ * @returns {Promise<{ fileName: string, schemaVersion: number }>}
+ */
+export async function restoreBackup({ fileName, directory = Directory.Documents } = {}, {
+  Filesystem: fs = Filesystem,
+  Encoding: encoding = Encoding,
+  isNative = isNativePlatform,
+  getAdapter: adapterProvider = getAdapter,
+  schemaVersion = SCHEMA_VERSION,
+} = {}) {
+  if (!isNative()) {
+    throw new Error('[Backup] Восстановление доступно только на устройстве (там бэкап — JSON)')
+  }
+  if (!fileName) {
+    throw new Error('[Backup] Не выбран файл бэкапа')
+  }
+
+  const { data } = await fs.readFile({ path: fileName, directory, encoding: encoding.UTF8 })
+  const json = typeof data === 'string' ? data : String(data)
+
+  const backup = parseBackupJson(json)
+
+  if (Number(backup.version) !== Number(schemaVersion)) {
+    throw new Error(
+      `[Backup] Версия схемы бэкапа (${backup.version}) не совпадает с текущей (${schemaVersion}): ` +
+      'восстановите дамп той версией приложения, которая его создала'
+    )
+  }
+
+  const adapter = adapterProvider()
+
+  if (typeof adapter.importDatabaseJson !== 'function') {
+    throw new Error('[Backup] Активный адаптер не умеет импортировать БД из JSON')
+  }
+
+  // Плагин импортирует только с `overwrite: true`: иначе при совпадающей версии
+  // схемы и непустой БД импорт — no-op (проверено по реализации плагина, 11.9).
+  backup.overwrite = true
+
+  await adapter.importDatabaseJson(JSON.stringify(backup))
+
+  logger.log(`[Backup] Восстановлено из «${fileName}» (версия схемы ${backup.version})`)
+
+  return { fileName, schemaVersion: backup.version }
 }
 
 /**

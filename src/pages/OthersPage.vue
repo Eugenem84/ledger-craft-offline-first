@@ -5,7 +5,8 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { useQuasar } from 'quasar'
 import { useRouter } from 'vue-router'
 import SyncService from '../services/syncService.js'
-import { createBackup, getLastBackupAt } from 'src/services/backupService.js'
+import { createBackup, getLastBackupAt, listBackups, restoreBackup } from 'src/services/backupService.js'
+import { isNativePlatform } from 'src/utils/platform.js'
 import { useAuthStore } from 'src/stores/useAuthStore.js'
 import { useSpecializationsStore } from 'src/stores/useSpecializationsStore.js'
 import { PRESETS } from 'src/domain/presets/index.js'
@@ -14,6 +15,7 @@ import { resolveFeatures, FEATURE_LABELS } from 'src/domain/features.js'
 import DeleteConfirmPage from 'pages/dialogs/DeleteConfirmPage.vue'
 import LcPageHeader from 'src/components/ui/LcPageHeader.vue'
 import LcSectionCard from 'src/components/ui/LcSectionCard.vue'
+import LcDialogShell from 'src/components/ui/LcDialogShell.vue'
 
 const $q = useQuasar()
 const router = useRouter()
@@ -215,6 +217,74 @@ const makeBackup = async () => {
   }
 }
 
+// --- Восстановление из бэкапа (задача 11.9) -----------------------------------
+// Это АВАРИЙНЫЙ путь без сервера: обычный перенос на новое устройство — это вход и
+// синхронизация, а сюда идут, когда сервер потерян/недоступен или аккаунт удалён.
+// Доступно только на устройстве: там бэкап — JSON. В браузере бэкап — дамп `.sqlite`
+// (только выгрузка), поэтому восстановления для него нет.
+const restoreAvailable = computed(() => isNativePlatform())
+const restoreOpen = ref(false)
+const restoreLoading = ref(false)
+const backupOptions = ref([])
+const selectedBackup = ref(null)
+
+const openRestore = async () => {
+  restoreLoading.value = true
+  try {
+    backupOptions.value = await listBackups()
+    selectedBackup.value = backupOptions.value[0]?.fileName ?? null
+    restoreOpen.value = true
+  } catch (error) {
+    console.error('Ошибка чтения списка бэкапов:', error)
+    $q.notify({ type: 'negative', message: `Не удалось прочитать бэкапы: ${error.message}` })
+  } finally {
+    restoreLoading.value = false
+  }
+}
+
+const confirmRestore = () => {
+  const target = backupOptions.value.find(item => item.fileName === selectedBackup.value)
+  if (!target) return
+
+  restoreOpen.value = false
+
+  // Разрушительное действие (замена всей БД) — подтверждаем отдельным диалогом.
+  dangerConfirm.value.open(
+    'Восстановить из бэкапа',
+    'Текущая локальная база будет ПОЛНОСТЬЮ заменена данными из файла. Это аварийный путь без сервера — ' +
+      'обычный перенос делается входом и синхронизацией. Продолжить?',
+    async () => {
+      restoreLoading.value = true
+      // Синк на время замены БД останавливаем: он держит соединение и очередь операций.
+      SyncService.stopAutoSync()
+
+      try {
+        const result = await restoreBackup({ fileName: target.fileName, directory: target.directory })
+        $q.notify({
+          type: 'positive',
+          message: `Данные восстановлены из ${result.fileName}. Перезапустите приложение.`,
+          timeout: 0, // не скрывать автоматически
+          actions: [
+            {
+              label: 'Перезагрузить',
+              color: 'white',
+              handler: () => {
+                window.location.reload()
+              },
+            },
+          ],
+        })
+      } catch (error) {
+        console.error('Ошибка восстановления из бэкапа:', error)
+        SyncService.startAutoSync()
+        $q.notify({ type: 'negative', message: `Не удалось восстановить: ${error.message}` })
+      } finally {
+        restoreLoading.value = false
+      }
+    }
+  )
+}
+
 </script>
 
 <template>
@@ -377,6 +447,21 @@ const makeBackup = async () => {
             Копия локальной базы: на Android — файл в документах, в браузере — скачивание
           </q-tooltip>
         </q-btn>
+        <q-btn
+          v-if="restoreAvailable"
+          class="full-width"
+          no-caps
+          outline
+          color="deep-orange"
+          icon="settings_backup_restore"
+          label="Восстановить из бэкапа"
+          :loading="restoreLoading"
+          @click="openRestore"
+        >
+          <q-tooltip class="text-caption">
+            Аварийно, без сервера: заменяет локальную БД данными из JSON-бэкапа
+          </q-tooltip>
+        </q-btn>
         <div class="text-caption lc-mute">Последний бэкап: {{ lastBackupAt }}</div>
       </div>
     </LcSectionCard>
@@ -422,6 +507,43 @@ const makeBackup = async () => {
         />
       </div>
     </LcSectionCard>
+
+    <!-- Восстановление из JSON-бэкапа (задача 11.9) — только на устройстве. -->
+    <LcDialogShell
+      :model-value="restoreOpen"
+      title="Восстановить из бэкапа"
+      subtitle="аварийный путь без сервера"
+      confirm-label="Восстановить"
+      confirm-color="deep-orange"
+      :confirm-disable="!selectedBackup"
+      :loading="restoreLoading"
+      @update:model-value="restoreOpen = $event"
+      @confirm="confirmRestore"
+    >
+      <div class="text-caption lc-mute">
+        Данные берутся из файла, а не с сервера. Текущая локальная база будет
+        <b>полностью заменена</b>. Для переноса на новое устройство пользуйтесь входом
+        и синхронизацией.
+      </div>
+
+      <q-select
+        v-model="selectedBackup"
+        class="q-mt-md"
+        :options="backupOptions"
+        option-label="fileName"
+        option-value="fileName"
+        emit-value
+        map-options
+        dense
+        outlined
+        color="secondary"
+        label="Файл бэкапа"
+      />
+
+      <div v-if="!backupOptions.length" class="text-caption lc-mute q-mt-sm">
+        Бэкапов не найдено — сначала создайте бэкап.
+      </div>
+    </LcDialogShell>
 
     <DeleteConfirmPage ref="dangerConfirm" />
   </q-page>

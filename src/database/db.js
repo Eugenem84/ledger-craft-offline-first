@@ -49,6 +49,7 @@ const db = {
   setSchemaVersion: (...args) => active.setSchemaVersion?.(...args) ?? Promise.resolve(),
   exportDatabaseJson: (...args) => active.exportDatabaseJson?.(...args),
   exportDatabaseBytes: (...args) => active.exportDatabaseBytes?.(...args),
+  importDatabaseJson: (...args) => active.importDatabaseJson?.(...args),
 }
 
 export default db

@@ -6,7 +6,8 @@
 // Контракт совпадает с `sqljs-web-adapter.js`, поэтому репозитории и syncService
 // работают через `src/database/db.js` и не знают, какой адаптер активен:
 //   init / execute(sql, params) / query / queryOne / transaction / deleteDatabase
-//   + версия схемы (getSchemaVersion/setSchemaVersion) и бэкап (exportDatabaseJson).
+//   + версия схемы (getSchemaVersion/setSchemaVersion) и бэкап
+//     (exportDatabaseJson/importDatabaseJson).
 //
 // Почему код выглядит именно так (особенности плагина):
 //  • соединение создаётся через SQLiteConnection: сначала checkConnectionsConsistency()
@@ -155,6 +156,36 @@ export default {
     const conn = requireConnection()
     const json = await conn.exportToJson('full')
     return typeof json === 'string' ? json : JSON.stringify(json)
+  },
+
+  /**
+   * Восстановление БД из JSON-бэкапа (задача 11.9).
+   *
+   * Импорт делает **менеджер соединений** (`SQLiteConnection.importFromJson` — у
+   * `SQLiteDBConnection` такого метода нет). Формат JSON — тот же `JsonSQLite`,
+   * что отдаёт `exportDatabaseJson()` (top-level `database`/`version`/`mode`/`tables`).
+   *
+   * Важно (проверено по реализации плагина): импорт срабатывает, только если в JSON
+   * стоит `overwrite: true` — иначе при совпадающей версии и непустой БД плагин
+   * вернёт `changes: 0` (no-op). Сервис бэкапа проставляет `overwrite` сам.
+   *
+   * Соединение закрываем до импорта: плагин пересоздаёт файл БД, а держать его
+   * открытым нельзя. После восстановления приложение нужно перезапустить.
+   *
+   * @param {string} json
+   */
+  async importDatabaseJson(json) {
+    if (typeof json !== 'string' || json.length === 0) {
+      throw new Error('[SQLITE] Пустой JSON бэкапа')
+    }
+
+    if (connection) {
+      await connection.close()
+      connection = null
+    }
+
+    await sqlite.importFromJson(json)
+    logger.log('[SQLITE] База восстановлена из JSON-бэкапа')
   },
 
   /**
