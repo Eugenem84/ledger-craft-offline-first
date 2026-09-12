@@ -21,9 +21,15 @@
 | Формат данных | JSON |
 | Клиент | axios (`src/services/api.js`) |
 
-Идентификация по `X-Sync-ID` **не является авторизацией** — это просто метка устройства.
+Идентификация по `X-Sync-ID` **не является авторизацией** — это просто метка устройства (анти-эхо).
 Отдельно есть настоящая авторизация: `POST /api/register`, `POST /api/login` (Sanctum),
 `/api/me`, `/api/logout`, `/api/delete-account`.
+
+С задачи 3.10 синк **требует токен**: `/api/sync` и `/api/sync-updates` — под `auth:sanctum`.
+Клиент подставляет `Authorization: Bearer <token>` из `localStorage.auth_token` (`src/services/api.js`);
+выдача/запись ограничены данными пользователя (напрямую `user_id` или через цепочку родителей).
+Вход в приложение и получение токена — задача 7.4 (до неё сервер отвечает `401`, операции просто
+остаются в очереди).
 
 ## 2. Эндпоинты
 
@@ -35,6 +41,7 @@
 POST /api/sync
 Headers: Content-Type: application/json
          X-Sync-ID: <uuid устройства>
+         Authorization: Bearer <sanctum-токен>      // задача 3.10
 Body:
 {
   "operations": [
@@ -81,7 +88,14 @@ Body:
 - `MISSING_ID_FOR_UPDATE` / `MISSING_ID_FOR_DELETE` — если в payload нет `id` (серверного);
 - ошибки БД ловятся (`QueryException`) и возвращаются в `errors`;
 - `last_sync_id` (анти-эхо) проставляется при insert/update/soft-delete — ✅ колонка есть у всех
-  синкаемых таблиц (миграция `2026_09_13_000000_add_last_sync_id_to_sync_tables`, задача 3.6).
+  синкаемых таблиц (миграция `2026_09_13_000000_add_last_sync_id_to_sync_tables`, задача 3.6);
+- ✅ **`updated_at` в ответе** (задача 3.8): у каждой подтверждённой операции — версия записи
+  ISO-8601 UTC, ровно та, что записана в БД. Клиент применяет её локально (`markSynced`), чтобы
+  версии клиента и сервера совпадали;
+- ✅ **владелец данных** (задача 3.10): без токена — `401`; вставка привязывается к чужому
+  родителю → `FORBIDDEN_NOT_OWNER`; `update`/`delete` чужой записи → `RECORD_NOT_FOUND`;
+- ✅ **деньги — целые рубли** (задача 3.12): сервер принимает строки/«1 000,50» и нормализует
+  (`1501`), `''` у услуги → `0`.
 
 **Спец-обработка `orders`** (не все поля!): сервер принимает только
 `specialization_id, client_id, hours, minutes, total_amount, comments` — остальное игнорируется.
@@ -114,26 +128,31 @@ buy_product_prices, sales_products_prices`
 ```
 GET /api/sync-updates?table=<table>&since=<ms>
 Headers: X-Sync-ID: <uuid устройства>
+         Authorization: Bearer <sanctum-токен>      // задача 3.10
 ```
 
 - `since` — число **миллисекунд** (`Carbon::createFromTimestampMs`);
 - если таблица не входит в `$tables` → `400 { "error": "Invalid or missing table" }`;
+- ✅ владелец данных (задача 3.10): выдаются только записи пользователя из токена (цепочка
+  `specializations.user_id` / `orders.user_id`), «ничьи» legacy-строки — тоже;
 - ✅ фильтр анти-эха (задача 3.6): записи с `last_sync_id == X-Sync-ID` исключаются — устройство
   не получает свои же изменения; правка чужого устройства вернёт запись автору;
-- soft-delete: `whereNull('deleted_at')` применяется только к `clients, products, services, categories`
-  (при этом `deleted_at` есть ещё у `orders`, `equipment_models`, `order_service` — §4.13);
-- сортировка по `updated_at`;
-- ⚠️ роут без auth и без владельца: выдача не фильтруется по пользователю (§4.14);
+- ✅ **удаления (задача 3.9)**: soft-deleted строки приходят с `deleted: true` и `deleted_at`
+  (у `clients`, `products`, `services`, `categories`, `equipment_models`, `orders`, `order_service`),
+  а у таблиц без `deleted_at` добавляются tombstones
+  `{ id, uuid_id, deleted: true, deleted_at, updated_at }`;
+- ✅ время — ISO-8601 UTC (задача 3.8), сортировка по `updated_at`;
 - ⚠️ нет `limit`/пагинации — устройство после долгого офлайна получает таблицу целиком (§4.18).
 
 Ответ:
 
 ```json
-{ "table": "clients", "count": 2, "records": [ { "id": 1, ... }, ... ] }
+{ "table": "clients", "count": 2, "records": [ { "id": 1, "deleted": false, ... }, ... ] }
 ```
 
-`id` в записях — **серверные** id (клиент пишет их в `server_id`). Для вставки новой записи
-клиенту нужны `created_at`/`updated_at`.
+`id` в записях — **серверные** id (клиент пишет их в `server_id`), `deleted` — признак удаления
+(по нему `syncService._applyServerDeletion` убирает запись локально). Для вставки новой записи
+клиенту нужны `created_at`/`updated_at` (ISO-8601 UTC).
 
 ### 2.3. `POST /api/arrival_product` — приход товара на склад
 
@@ -208,8 +227,10 @@ Headers: X-Sync-ID: <uuid устройства>
    синкаемым таблицам; сервер проставляет её значением `X-Sync-ID` при insert/update/soft-delete,
    а `fetchUpdates` отдаёт только записи с чужой меткой (`last_sync_id != X-Sync-ID OR
    last_sync_id IS NULL`; строки без метки — например заведённые вручную — видны всем).
-4. **Soft-delete:** `tableHasSoftDeletes()` учитывает только `clients, products, services,
-   categories`, тогда как фронт ожидает `deleted_at` у многих таблиц (orders, equipment_models…).
+4. ✅ **Soft-delete (задача 3.9): исправлено.** `tableHasSoftDeletes()` теперь спрашивает схему
+   (`Schema::hasColumn($table, 'deleted_at')`), поэтому soft-delete работает и для `orders`,
+   `equipment_models`, `order_service`. Для таблиц без `deleted_at` заведена `sync_tombstones`,
+   а `sync-updates` отдаёт удаления как `deleted: true` — клиент убирает запись у себя.
 5. **Деньги:** все цены — в **рублях** и на клиенте, и на сервере (`total_amount` без
    конверсии). ✅ согласовано (задача 2.3).
 6. **`orders` при синке:** сервер берёт только часть колонок
@@ -230,28 +251,30 @@ Headers: X-Sync-ID: <uuid устройства>
 11. ✅ **Семантика `materials` сведена** (D2, 3.4): и на клиенте, и на сервере под этим именем —
     **строки материалов заказа**. `LedgerCraftDocker03/docs/DB.md` описывает `materials` верно.
     Осталось продуктовое расширение (`buy_price` для маржи) — задачи 9.5/9.6.
-12. **`orders` при insert из синка теряет ещё и `user_id`/`user_order_number`**, не только
-    `status`, `paid`, `model_id`, `share_token` (см. п. 6): заказ с устройства приезжает на сервер
-    **без владельца**, а статистика фильтрует по `status='done'` и `paid=1` — то есть не увидит его.
-13. **Удаления не доезжают до других устройств.** `tableHasSoftDeletes()` знает 4 таблицы, но
-    `deleted_at` реально есть ещё у `orders` (миграция `2026_02_11_133000_add_soft_deletes_to_orders_table`),
-    `equipment_models`, `order_service`. Итог: удаление заказа через `/sync` — hard-delete, а
-    `sync-updates` отдаёт уже удалённые заказы обратно → на втором устройстве фантом навсегда.
-14. **Синк без владельца:** `/sync` и `/sync-updates` — без auth (`routes/api.php:152-153`);
-    `X-Sync-ID` — метка устройства, не авторизация; выдача не фильтруется по пользователю.
-15. **Дубли и мёртвые роуты + IDOR:** `GET /get_orders_by_user` объявлен 3 раза (Laravel берёт
-    первую регистрацию — публичную, она падает в 500 на `Auth::user()->getAuthIdentifier()`, а
-    рабочая sanctum-версия недостижима); `GET /get_orders_by_user/{id}` отдаёт заказы **любого**
-    пользователя; `update_paid_status` и `switch_paid_status` дублируют операцию; `auth:api`
-    (token-guard, у `users` нет `api_token`) — тупик рядом с рабочим `auth:sanctum`;
-    `MaterialController::create` не зароутен и вызывает `createMaterial($data, $orderId)` при
-    сигнатуре `createMaterial($orderId, array $data)`; scaffold `app/Http/Controllers/Auth/*`.
+12. ✅ **Владелец заказа из синка (задача 3.10): исправлено** — `orders.user_id` теперь проставляется
+    из токена. По-прежнему теряются `status`, `paid`, `model_id`, `share_token`, `user_order_number`
+    (см. п. 6) — статистика (`status='done'`, `paid=1`) такие заказы не увидит, это отдельная работа.
+13. ✅ **Удаления доезжают (задача 3.9): исправлено.** Soft-delete по схеме + `sync_tombstones`
+    для остальных таблиц; `sync-updates` отдаёт `deleted: true`/`deleted_at`, клиент применяет
+    удаление и снимает «висящие» операции (удаление заказа убирает его строки каскадом).
+14. ✅ **Владелец данных (задача 3.10): исправлено.** `/sync` и `/sync-updates` — под
+    `auth:sanctum`; `user_id` проставляется при вставке, `update`/`delete` работают только со своими
+    записями, выдача фильтруется по цепочке владельцев. ⚠️ «Ничьи» legacy-строки видны всем — их
+    нужно разово привязать к пользователю; вход/токен на клиенте — задача 7.4.
+15. **Дубли и мёртвые роуты + IDOR:** IDOR закрыт в задаче 3.10 — `GET /get_orders_by_user/{id}` и
+    публичный `/get_orders_by_user` удалены (остался sanctum-вариант без `id`). Осталось на 7.6:
+    `update_paid_status` + `switch_paid_status` дублируют операцию; `auth:api` (token-guard, у `users`
+    нет `api_token`) — тупик рядом с рабочим `auth:sanctum`; `MaterialController::create` не зароутен
+    и вызывает `createMaterial($data, $orderId)` при сигнатуре `createMaterial($orderId, array $data)`;
+    scaffold `app/Http/Controllers/Auth/*`.
 16. **Три методики «выручки»** в `StatisticRepository`: `SUM(CAST(services.price AS numeric))`,
     `SUM(order_service.quantity * sale_price)`, `SUM(orders.total_amount)` (последнее — без фильтров
     `paid/status`) → цифры на одном экране не сойдутся.
-17. **`services.price` — VARCHAR** (`2023_10_03_045859_chenge_price_columne`), поэтому в SQL
-    приходится писать `CAST(... AS numeric)`; `materials.price` — `decimal(10,2)`, суммы заказов —
-    целые. Единый стандарт «рубли целыми» не соблюдён (задача 3.12).
+17. ✅ **`services.price` (задача 3.12): исправлено.** Миграция
+    `2026_09_15_000000_services_price_to_integer` привела колонку к `integer` (нечисловое → 0,
+    десятичные округляются), `CAST(... AS numeric)` из `StatisticRepository` убран, payload синка
+    нормализуется (`'1 500,50'` → `1501`). `materials.price` в схеме — `bigint`, остальные суммы —
+    `integer`: единый стандарт «рубли целыми» соблюдён.
 18. **`fetchUpdates` без `limit`/пагинации** — после долгого офлайна устройство получает таблицу
     целиком (память/трафик). Курсор выдачи и анти-эхо уже на месте (задачи 3.6), лимиты — нет.
 19. **Склад:** остаток ведётся по товару (`product_stocks.product_id`), но строка дублирует

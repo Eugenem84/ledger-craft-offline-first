@@ -22,12 +22,20 @@ if (!syncId) {
 }
 logger.log(`[API] Sync ID: ${syncId}`);
 
+// --- Токен доступа к синку (задача 3.10) ---
+// `/sync` и `/sync-updates` работают под `auth:sanctum`: сервер должен знать
+// владельца данных. Вход в приложение и получение токена — задача 7.4; до неё
+// заголовок просто не отправляется, сервер отвечает 401, а операции остаются
+// в очереди (ничего не теряется). Универсальное хранилище — задача 7.3.
+const authToken = localStorage.getItem('auth_token');
+
 // Создаем экземпляр axios с преднастроенными заголовками
 const apiClient = axios.create({
   baseURL: API_URL,
   headers: {
     'Content-Type': 'application/json',
-    'X-Sync-ID': syncId // Добавляем ID в заголовки по умолчанию
+    'X-Sync-ID': syncId, // Добавляем ID в заголовки по умолчанию
+    ...(authToken ? { Authorization: `Bearer ${authToken}` } : {})
   }
 });
 

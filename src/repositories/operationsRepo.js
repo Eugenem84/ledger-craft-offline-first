@@ -210,5 +210,36 @@ export default {
         await db.execute('DELETE FROM operations WHERE id = ?', [op.id]);
       }
     }
+  },
+
+  /**
+   * Удаляет из очереди update/delete операции по серверному id записи.
+   *
+   * Нужно при применении удаления с сервера (задача 3.9): если оставить операцию,
+   * локально удалённая строка «воскреснет» следующей же отправкой (update по ней
+   * вернёт `RECORD_NOT_FOUND`, и операция зациклится).
+   *
+   * @param {string} tableName - Имя таблицы
+   * @param {number|string} serverId - Серверный id записи (в payload это `id`)
+   */
+  async removeByServerId(tableName, serverId) {
+    const operations = await db.query(
+      `SELECT * FROM operations WHERE "table" = ? AND type <> 'insert'`,
+      [tableName]
+    );
+
+    for (const op of operations) {
+      let payload;
+
+      try {
+        payload = JSON.parse(op.payload);
+      } catch {
+        continue;
+      }
+
+      if (payload?.id != null && String(payload.id) === String(serverId)) {
+        await db.execute('DELETE FROM operations WHERE id = ?', [op.id]);
+      }
+    }
   }
 };

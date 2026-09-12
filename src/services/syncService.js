@@ -682,6 +682,14 @@ class SyncService {
 
         for (const record of records) {
           maxRecordMs = Math.max(maxRecordMs, toEpochMs(record.updated_at, 0));
+
+          // Удаление, сделанное на другом устройстве (задача 3.9): сервер отдаёт
+          // tombstone — soft-deleted строку (`deleted`) или запись из `sync_tombstones`.
+          if (this._isDeletion(record)) {
+            await this._applyServerDeletion(table, record);
+            continue;
+          }
+
           await repo.applyServerRecord(record);
         }
 
@@ -695,6 +703,55 @@ class SyncService {
         // Не прерываем синхронизацию других таблиц.
       }
     }
+  }
+
+  /**
+   * Удаление ли это? Сервер помечает tombstone явным `deleted: true`, а у
+   * soft-deleted строк есть `deleted_at` (задача 3.9).
+   */
+  _isDeletion(record) {
+    return record?.deleted === true || record?.deleted_at != null;
+  }
+
+  /**
+   * Применяет удаление с сервера: убирает локальную строку и снимает «висящие»
+   * операции по ней — иначе удалённая запись воскресла бы следующей же отправкой
+   * (задача 3.9).
+   *
+   * Строку ищем по `server_id` (все синкаемые записи его получают), а если его нет
+   * (у `order_service`-подобных связок серверного id не существует) — по клиентскому
+   * UUID: локально он лежит в `id`, на сервере — в `uuid_id`.
+   */
+  async _applyServerDeletion(table, record) {
+    // 1. Отменяем ещё не улетевший INSERT и любые update/delete по этой записи.
+    if (record.uuid_id) {
+      await operationsRepo.removeByLocalId(table, record.uuid_id);
+    }
+    if (record.id != null) {
+      await operationsRepo.removeByServerId(table, record.id);
+    }
+
+    // 2. Если удаляется заказ — убираем и его строки (работа/товары/ручные позиции):
+    //    их собственные tombstones могут прийти позже или не прийти вовсе.
+    if (table === 'orders' && record.id != null) {
+      const localOrders = await dbAdapter.query('SELECT id FROM orders WHERE server_id = ?', [record.id]);
+
+      if (localOrders.length) {
+        for (const child of ['order_service', 'order_product', 'materials']) {
+          await dbAdapter.execute(`DELETE FROM ${child} WHERE order_id = ?`, [localOrders[0].id]);
+        }
+      }
+    }
+
+    // 3. Убираем саму запись.
+    if (record.id != null) {
+      await dbAdapter.execute(`DELETE FROM ${table} WHERE server_id = ?`, [record.id]);
+    }
+    if (record.uuid_id) {
+      await dbAdapter.execute(`DELETE FROM ${table} WHERE id = ?`, [record.uuid_id]);
+    }
+
+    logger.log(`[Sync] Применено удаление с сервера: ${table}`, record);
   }
 
   async fullReset() {

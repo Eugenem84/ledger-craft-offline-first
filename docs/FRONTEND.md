@@ -176,6 +176,15 @@ return id;
 - состояние для индикаторов (6.2/6.3): `syncService.getStatus()` / `subscribe()`
   (`online`, `syncing`, `lastError`, `consecutiveFailures`, `nextRetryAt`, `pendingCount`).
 
+**Удаления и владелец данных (задачи 3.9/3.10):**
+- удаления с сервера применяются: `deleted: true`/`deleted_at` → `syncService._applyServerDeletion`
+  (снимает «висящие» операции, удаляет строку по `server_id` или `uuid_id`, для заказа — каскад
+  по его строкам); «доезд» удалений на второе устройство — задача 3.9 (сервер: soft-delete по
+  схеме + `sync_tombstones`);
+- `/sync` и `/sync-updates` работают под `auth:sanctum`: токен берётся из `localStorage.auth_token`
+  и уходит в `Authorization: Bearer` (вход/токен — задача 7.4); сервер проставляет `user_id` и
+  фильтрует выдачу по владельцу.
+
 **Конфликты и версии (задача 3.8):**
 - время в одном стандарте: локально — целые UNIX-секунды, серверные ISO-8601 UTC приводятся
   `toEpochSeconds` (`src/utils/timestamps.js`) во всех `applyServerRecord`;
