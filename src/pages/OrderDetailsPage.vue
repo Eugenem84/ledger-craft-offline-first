@@ -10,6 +10,7 @@ import { useQuasar } from 'quasar'
 import { storeToRefs } from 'pinia'
 
 import DeleteConfirmPage from 'pages/dialogs/DeleteConfirmPage.vue'
+import LcFab from 'src/components/ui/LcFab.vue'
 import OrderClientDialog from 'src/components/order/dialogs/OrderClientDialog.vue'
 import OrderHeaderActions from 'src/components/order/OrderHeaderActions.vue'
 import OrderMaterialDialog from 'src/components/order/dialogs/OrderMaterialDialog.vue'
@@ -65,6 +66,32 @@ const showStoreProductDialog = ref(false)
 const deleteConfirmPage = ref(null)
 
 const notify = (type, message) => $q.notify({ type, message })
+
+// Добавлять позиции можно и в режиме просмотра: первое же действие включает правку.
+// Так «+» работает всегда, а данные всё равно уезжают в БД только по «Сохранить».
+function ensureEditMode() {
+  if (!draft.editMode) draft.editMode = true
+}
+
+function openServiceDialog() {
+  ensureEditMode()
+  showServiceDialog.value = true
+}
+
+function openMaterialDialog() {
+  ensureEditMode()
+  showMaterialDialog.value = true
+}
+
+function openStoreProductDialog() {
+  ensureEditMode()
+  showStoreProductDialog.value = true
+}
+
+function addServiceToOrder(service) {
+  ensureEditMode()
+  draft.addService(service)
+}
 
 onMounted(async () => {
   try {
@@ -238,8 +265,10 @@ const handleShare = async () => {
               icon="list_alt"
               :label="`обзор · ${(materials?.length || 0) + (products?.length || 0)}`"
             />
-            <q-tab v-if="editMode" name="servicesChoice" icon="build" :label="t('service')" />
-            <q-tab v-if="editMode" name="materialsChoice" icon="inventory_2" label="материалы" />
+            <!-- Вкладки видны всегда: разделы «работа»/«материалы» не должны
+                 исчезать в режиме просмотра (правку включает первое же действие). -->
+            <q-tab name="servicesChoice" icon="build" :label="t('service')" />
+            <q-tab name="materialsChoice" icon="inventory_2" label="материалы" />
           </q-tabs>
 
           <q-separator dark />
@@ -273,8 +302,8 @@ const handleShare = async () => {
               :services="servicesByCategory"
               :chosen="services"
               @update:selected-category="handleServiceCategoryChange"
-              @add="draft.addService($event)"
-              @create="showServiceDialog = true"
+              @add="addServiceToOrder($event)"
+              @create="openServiceDialog"
             />
 
             <OrderMaterialsPanel
@@ -282,6 +311,7 @@ const handleShare = async () => {
               :products="products"
               :materials-total="materialsTotal"
               :products-total="productsTotal"
+              :edit-mode="editMode"
               @remove-material="draft.removeMaterial($event)"
               @remove-product="draft.removeProduct($event)"
               @update-material-line="
@@ -290,11 +320,25 @@ const handleShare = async () => {
               @update-product-line="
                 ({ index, field, value }) => draft.updateProductLine(index, field, value)
               "
-              @create-material="showMaterialDialog = true"
-              @add-store-product="showStoreProductDialog = true"
+              @create-material="openMaterialDialog"
+              @add-store-product="openStoreProductDialog"
             />
           </q-tab-panels>
         </q-card>
+
+        <!-- Нижнее основное действие: всегда видно, куда нажать, чтобы добавить позицию. -->
+        <LcFab
+          v-if="tab === 'servicesChoice'"
+          icon="add"
+          :label="`Новая ${t('service')}`"
+          @click="openServiceDialog"
+        />
+        <LcFab
+          v-else-if="tab === 'materialsChoice'"
+          icon="add"
+          label="Новый материал"
+          @click="openMaterialDialog"
+        />
       </q-page>
     </q-page-container>
   </q-layout>

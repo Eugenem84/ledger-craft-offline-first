@@ -38,13 +38,17 @@ const emit = defineEmits([
 
 <template>
   <q-tab-panel name="all" class="q-pa-none">
-    <!-- В режиме просмотра вкладки «работа/материалы» скрыты — подсказываем, как их открыть. -->
+    <!-- Вкладки «работа»/«материалы» видны всегда; в режиме просмотра напоминаем,
+         что добавить позиции можно там же — правка включится автоматически. -->
     <div
       v-if="!props.editMode"
-      class="row items-center no-wrap q-px-md q-pt-md q-gutter-x-xs text-caption lc-mute"
+      class="row items-start no-wrap q-px-md q-pt-md q-gutter-x-xs text-caption lc-mute"
     >
       <q-icon name="info" size="14px" />
-      <span>Чтобы добавить работы, материалы или товары — нажмите «Изменить» сверху.</span>
+      <span>
+        Добавить работы, материалы или товары можно на вкладках выше — правка включится сама,
+        а изменения сохранит кнопка «Сохранить».
+      </span>
     </div>
 
     <OrderServicesBlock

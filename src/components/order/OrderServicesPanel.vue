@@ -38,7 +38,8 @@ const isChosen = service => props.chosen.some(chosen => chosen.id === service.id
         @update:model-value="value => emit('update:selectedCategory', value)"
       />
 
-      <!-- Главное действие вкладки — заметная кнопка с «+» (раньше был мелкий outline). -->
+      <!-- Главное действие вкладки — заметная кнопка с «+». Работает и в режиме
+           просмотра: страница сама включит правку (см. `openServiceDialog`). -->
       <q-btn
         class="full-width q-mt-md"
         unelevated
@@ -46,12 +47,12 @@ const isChosen = service => props.chosen.some(chosen => chosen.id === service.id
         color="secondary"
         text-color="black"
         icon="add"
-        :label="`Добавить ${t('service')}`"
+        :label="`Новая ${t('service')}`"
         @click="emit('create')"
       />
 
       <div class="text-caption lc-mute q-mt-sm">
-        Или выберите {{ t('service') }} из списка ниже — она сразу попадёт в заказ.
+        Или нажмите на {{ t('service') }} в списке ниже — она сразу попадёт в заказ.
       </div>
     </div>
 
