@@ -1,13 +1,15 @@
 // src/boot/db.js
 //
 // Инициализация локальной БД: выбор адаптера по платформе (4.3), миграции (Фаза 2),
-// сверка версии схемы с эталоном (4.5), авто-бэкап на нативной платформе (4.4) и
-// запуск синка.
+// сверка версии схемы с эталоном (4.5) и авто-бэкап на нативной платформе (4.4).
+//
+// Синхронизация здесь больше **не запускается** (задача 6.1): раньше `await syncService.sync()`
+// блокировал рендер приложения, пока идёт сетевой обмен. Теперь старт синка —
+// в `App.vue` после монтирования (`syncService.startAutoSync()`), фоном.
 import { logger } from 'src/utils/logger'
 import { boot } from 'quasar/wrappers'
 import { runMigrations, checkSchemaVersion } from 'src/database/migrate.js'
 import { setAdapter } from 'src/database/db.js'
-import syncService from 'src/services/syncService.js'
 import { autoBackupIfDue } from 'src/services/backupService.js'
 import { isNativePlatform } from 'src/utils/platform'
 
@@ -49,9 +51,6 @@ export default boot(async () => {
     logger.log(`[DB] Миграций применено в этом запуске: ${applied}`)
 
     await checkSchemaVersion(adapter)
-
-    logger.log('sync activated')
-    await syncService.sync()
 
     // Автобэкап (4.4) — только нативно: у sql.js копия данных уже лежит в
     // localStorage, а на Android бэкап — это файл, который делает плагин.

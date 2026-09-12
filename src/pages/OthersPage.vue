@@ -41,7 +41,9 @@ onMounted(async () => {
 
 const sync = async () => {
   try {
-    await SyncService.sync()
+    // Ручной повтор (задача 6.2/3.7): force игнорирует паузу после сбоя, чтобы кнопка
+    // не казалась «мёртвой» в течение backoff.
+    await SyncService.sync({ force: true })
     logger.log('Синхронизация завершена успешно.')
     await specializationsStore.load()
   } catch (error) {

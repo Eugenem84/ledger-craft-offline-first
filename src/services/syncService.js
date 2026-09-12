@@ -49,9 +49,20 @@ const TABLE_ORDER = [
 // Защищают от «бесконечного цикла отправки одного батча» (задача 3.7).
 const RETRY_DELAYS_MS = [5000, 15000, 60000, 300000];
 
+// Периодичность фоновой синхронизации (задача 6.1): пока приложение открыто, изменения
+// «догоняются» сами, без перезапуска. Возвращение сети и ручной повтор срабатывают
+// немедленно, таймер лишь страхует «тихий» простой.
+const AUTO_SYNC_INTERVAL_MS = 60000;
+
 class SyncService {
   constructor() {
     this.syncing = false;
+
+    // Фоновый запуск (задачи 6.1/6.3): идемпотентный старт + таймер периодического sync().
+    this._autoSyncStarted = false;
+    this._autoSyncTimer = null;
+    this._autoSyncTimeout = null;
+    this._autoSyncIntervalMs = AUTO_SYNC_INTERVAL_MS;
 
     this.repos = {
       specializations: specializationsRepo,
@@ -195,6 +206,17 @@ class SyncService {
     return { ...this.status };
   }
 
+  /**
+   * Перечитывает размер очереди из БД и рассылает состояние подписчикам. Нужно индикатору
+   * (задача 6.2) на старте: `pendingCount` нельзя взять из памяти — он живёт в таблице операций.
+   * @returns {Promise<object>} актуальный снимок состояния
+   */
+  async refreshStatus() {
+    const pendingCount = await this._countPending();
+    this._setStatus({ pendingCount });
+    return this.getStatus();
+  }
+
   _setStatus(patch) {
     Object.assign(this.status, patch);
 
@@ -207,22 +229,113 @@ class SyncService {
     }
   }
 
+  // --- Фоновый запуск синка (задачи 6.1/6.3) -----------------------------------
+
   /**
-   * Слушаем online/offline браузера: состояние для индикатора, а возвращение сети снимает
-   * паузу после сбоя (сам автоповтор по событию — задача 6.3).
+   * Включает фоновую синхронизацию (задача 6.1):
+   *   • первый проход — сразу, но **не блокируя** рендер: `onMounted` в `App.vue` уже
+   *     отрисовал интерфейс, а сетевые запросы стартуют следующим тиком таймера;
+   *   • далее — раз в `intervalMs` (по умолчанию минута), чтобы приложение «догоняло»
+   *     изменения, пока оно открыто;
+   *   • возвращение сети обрабатывает `_handleOnline()` — синк не ждёт таймера (задача 6.3).
+   *
+   * Повторный вызов безопасен: автозапуск идемпотентен.
+   *
+   * @param {{intervalMs?: number}} [options] `intervalMs: 0` — без периодического таймера
+   */
+  startAutoSync(options = {}) {
+    if (this._autoSyncStarted) return;
+
+    this._autoSyncStarted = true;
+
+    if (typeof options.intervalMs === 'number') {
+      this._autoSyncIntervalMs = options.intervalMs;
+    }
+
+    this._scheduleBackgroundSync();
+
+    if (this._autoSyncIntervalMs > 0 && typeof setInterval === 'function') {
+      this._autoSyncTimer = setInterval(
+        () => this._scheduleBackgroundSync(),
+        this._autoSyncIntervalMs
+      );
+    }
+
+    logger.log(
+      `[Sync] Автосинхронизация включена (интервал ${Math.round(this._autoSyncIntervalMs / 1000)} с).`
+    );
+  }
+
+  /** Выключает фоновую синхронизацию (таймер, запланированный первый проход и автозапуск). */
+  stopAutoSync() {
+    if (this._autoSyncTimer != null) {
+      clearInterval(this._autoSyncTimer);
+      this._autoSyncTimer = null;
+    }
+
+    if (this._autoSyncTimeout != null) {
+      clearTimeout(this._autoSyncTimeout);
+      this._autoSyncTimeout = null;
+    }
+
+    this._autoSyncStarted = false;
+  }
+
+  /**
+   * Запускает `sync()` фоном: не `await`, потому что вызывающий (boot/UI) не должен ждать
+   * сети. `sync()` сам защищён от параллельных запусков, офлайна и паузы после сбоя.
+   * Хэндл таймера хранится, чтобы `stopAutoSync()` мог отменить ещё не начатый проход.
+   */
+  _scheduleBackgroundSync() {
+    const run = () => {
+      this._autoSyncTimeout = null;
+      this.sync().catch(e => console.error('[SyncService] Фоновый синк упал:', e));
+    };
+
+    if (typeof setTimeout !== 'function') {
+      run();
+      return;
+    }
+
+    this._autoSyncTimeout = setTimeout(run, 0);
+  }
+
+  /**
+   * Слушаем online/offline браузера: состояние для индикатора, возвращение сети снимает
+   * паузу после сбоя и (при включённом автозапуске) сразу дожимает очередь — задача 6.3.
    */
   _bindNetworkEvents() {
     if (typeof window === 'undefined' || typeof window.addEventListener !== 'function') return;
 
     window.addEventListener('online', () => {
-      logger.log('[Sync] Сеть появилась');
-      this._setStatus({ online: true, nextRetryAt: 0 });
+      this._handleOnline();
     });
 
     window.addEventListener('offline', () => {
-      logger.warn('[Sync] Сеть пропала');
-      this._setStatus({ online: false });
+      this._handleOffline();
     });
+  }
+
+  /**
+   * Появление сети (задача 6.3): обновляем состояние и, если автозапуск включён, немедленно
+   * повторяем `sync({ force: true })` — иначе отложенные офлайном операции ждали бы таймера.
+   * @returns {Promise<void>}
+   */
+  _handleOnline() {
+    logger.log('[Sync] Сеть появилась');
+    this._setStatus({ online: true, nextRetryAt: 0 });
+
+    if (!this._autoSyncStarted) return Promise.resolve();
+
+    return this.sync({ force: true }).catch(e =>
+      console.error('[SyncService] Синк после выхода в сеть упал:', e)
+    );
+  }
+
+  /** Пропажа сети: индикатор (6.2) показывает «нет интернета», очередь просто копится. */
+  _handleOffline() {
+    logger.warn('[Sync] Сеть пропала');
+    this._setStatus({ online: false });
   }
 
   /** Физическая доступность сети. Вне браузера (Node/тесты) считаем, что сеть есть. */
