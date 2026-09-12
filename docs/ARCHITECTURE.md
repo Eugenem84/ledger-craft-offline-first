@@ -35,8 +35,20 @@
                Axios (services/api.js, заголовок X-Sync-ID)
                        │
                        ▼
-        Laravel API на Beget (https://dev.medovf2h.beget.tech/api)
+        Laravel API на VPS: dev / prod (см. §1.1 «Среды»)
 ```
+
+### 1.1. Среды: dev-VPS и prod-VPS (с 12.09.2026)
+
+| Контур | Адрес API | Назначение |
+|---|---|---|
+| **dev-VPS** | `https://dev.medovf2h.beget.tech/api` | песочница: обкатка новых фич, БД можно снести и накатить заново |
+| **prod-VPS** | `https://<prod-домен>/api` (домен уточняется — TODO 11.1) | боевой контур с реальными данными мастерских |
+
+Код один и тот же (`main` + `master`), контур выбирается адресом API: у клиента — `VITE_API_URL`
+(env-файл, задача 7.1), у сервера — `APP_URL` и домен в Traefik. Порядок выката и команды:
+`README.md` §«Среды и выкат» (клиент) и `LedgerCraftDocker03/README.md` (сервер); чек-лист живого
+прогона — `TODO.md`, Фаза 11.
 
 ## 2. Ключевая идея: локальный `id` и серверный `server_id`
 

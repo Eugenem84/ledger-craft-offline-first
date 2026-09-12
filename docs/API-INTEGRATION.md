@@ -16,7 +16,8 @@
 | Связанный репозиторий | `/Users/artem/PhpstormProjects/LedgerCraftDocker03` (Laravel) |
 | Канонический контракт | `LedgerCraftDocker03/docs/API.md` |
 | Стек сервера | PHP + Laravel (Sanctum) + PostgreSQL |
-| Base URL (dev) | `https://dev.medovf2h.beget.tech/api` |
+| Base URL (dev-VPS) | `https://dev.medovf2h.beget.tech/api` — песочница, обкатка новых фич |
+| Base URL (prod-VPS) | `https://<prod-домен>/api` — боевой контур (домен уточняется, TODO 11.1) |
 | Идентификация клиента | заголовок `X-Sync-ID` (UUID из `localStorage` устройства) |
 | Формат данных | JSON |
 | Клиент | axios (`src/services/api.js`) |
