@@ -91,7 +91,7 @@
 - [x] **Фаза 8** — Рефакторинг UI · 3/3 · *OrderDetailsPage 300 строк: форма разбита на компоненты, данные — в сторе*
 - [x] **Фаза 9** — Продукт (аналитика, склад, материалы) · FE 6/6 · BE 6/6 · *аналитика, маржа, ручные позиции*
 - [x] **Фаза 10** — Специализации и пресеты (мульти-профиль) · FE 9/9 · BE 4/4 · *новый юзер получает готовый каталог своей ниши, UI говорит на его языке*
-- [ ] **Фаза 11** — Среды и выкат: dev-VPS → prod-VPS · 1/12 · *новые фичи обкатываем на dev, боевой контур обновляем по чек-листу*
+- [ ] **Фаза 11** — Среды и выкат: dev-VPS → prod-VPS · 2/12 · *новые фичи обкатываем на dev, боевой контур обновляем по чек-листу*
 
 ---
 
@@ -259,7 +259,7 @@
         (например, `product_category_server_id` у `productsRepo`) принималось за уже готовый FK →
         связь терялась: товар уезжал без категории и не приезжал на второе устройство. Теперь `null`
         в сигнальном поле означает «родитель ещё не на сервере», и FK переводится по локальному id
-      → ⚠️ найдено при 3.4 (**не исправлено** — задача **11.2** в Фазе 11):
+      → ⚠️ найдено при 3.4 (**исправлено в 11.2** — FE `47c90bb`):
         `ordersRepo.save/update` **всегда** удаляет `model_id` из payload («серверу шлём только
         `model_server_id`»), поэтому заказ, созданный с ещё не синхронизированной моделью техники,
         уезжает без неё — связь теряется молча (фикс зеркален `productsRepo`)
@@ -1164,13 +1164,25 @@ BE: миграции полей профиля, `template_key`, `equipment_ident
       → *критерий:* по докам можно выкатить dev и prod, не читая историю коммитов; известно, где
       прописан боевой домен (Traefik `Host(...)`, `APP_URL`, `VITE_API_URL`)
       ⚠️ боевой домен на 12.09.2026 ещё не выбран — вписать, когда появится
-- [ ] **11.2** [FE] (P1) Потеря модели техники в заказе (бывший O-1)
+- [x] **11.2** [FE] (P1) Потеря модели техники в заказе (бывший O-1)
       → `ordersRepo.save/update` больше **не вырезает** локальный `model_id`, а добавляет
       сигнальное `model_server_id` (серверный id модели или `null`) — зеркально `productsRepo`
       (`product_category_id` + `product_category_server_id: null`); `_prepareForeignKeys` на `null`
       сам переводит локальный id
       → *критерий:* заказ офлайн с новой (ещё не уехавшей) моделью техники — одним `sync()` уезжают
       и модель, и заказ со связью; на втором устройстве у заказа та же модель; есть тест vitest
+      → ✅ **сделано 12.09.2026** (FE `47c90bb`): заодно закрыта пара `model_id` + `model_server_id`
+      в локальной схеме — колонка `orders.model_server_id` была в миграции 014, но **нигде не
+      заполнялась**; теперь пишется наравне с `client_server_id`/`specialization_server_id`
+      (4 SQL-запроса + 4 маппера + `getModelData` в `ordersRepo`, как `getClientData`)
+      → ⚠️ тест нашёл и закрыл ещё один дефект: `modelsRepo.applyServerRecord` биндил `undefined`
+      в `specializationServerId` (на сервере это поле nullable) → модель техники **с сервера не
+      применялась вовсе**, а ошибка глушилась per-table `catch` в синке (то есть тихо)
+      → проверено: `test/sync.test.js` → «11.2: заказ с новой моделью техники уезжает одним
+      `sync()` и сохраняет связь» (А офлайн: модель + заказ → модель уезжает раньше, заказ уносит
+      серверный id модели, сигнальное поле на сервер не уходит; Б — чистая БД: модель и заказ
+      приезжают, `model_id` = локальный UUID модели, `model_server_id` = серверный id);
+      `npm test` → **202 теста** (было 201), `npm run lint` — 0, прод-сборка SPA проходит
 - [ ] **11.3** [BE] (P1) Сид пресетов `specialization_templates` (бывший O-7)
       → seeder/команда на 4 строки (`bike`/`aquarium`/`hvac`/`auto`) с контентом в формате клиентских
       пресетов (`content` JSON + `version`), идемпотентно (`updateOrCreate` по `preset_key`)
@@ -1342,7 +1354,7 @@ BE: миграции полей профиля, `template_key`, `equipment_ident
 | Фаза 3.3 статусы операций | ✅ сделано | `operations` получила `status` (`pending`/`sending`/`synced`) и `updated_at`: эталон 002 + новая миграция `022_add_operations_status` (идемпотентный `ALTER`, проверка `PRAGMA table_info`) для уже установленных БД — миграций в `index.js` стало 19. `operationsRepo`: `enqueue`→`pending`, `dequeue` — только `pending`, `markSending`/`markPending`, `markSynced` (коммит `synced` + транзакция «delete + server_id из ответа»), `recoverInFlight` (`sending`→`pending`, `synced`+insert→`pending`, `synced`+update/delete→снять). `syncService`: `recoverInFlight()` перед волнами, `markSending` до `api.send()`, `markPending` на сетевой/серверной ошибке; снят избыточный `repo.updateServerId()` из 2.5. Проверка: 8 рантайм-сценариев на настоящем SQLite (sql.js) с реальными миграциями/репозиториями/`operationsRepo`/`syncService`; `npm run lint` — 0; сборка SPA — проходит |
 | Фаза 3.4 связные таблицы | ✅ сделано | `order_product` и `materials` (ручные позиции заказа) добавлены в `syncService.repos`/`fkTransformationMap`/`TABLE_ORDER`; `orderProductRepo` переписан (UUID строки, операция, `applyServerRecord`), `orderMaterialRepo` → `materialsRepo` (таблица `materials`, решение D2); миграции 018/021 удалены, новая 023 переносит ручные позиции (имя из справочника) и создаёт `materials` в серверной семантике, защищена guard'ом по `specialization_id` → идемпотентна; удаление строк ставит delete по `server_id`; добавлен `src/utils/timestamps.js` (ISO → локальные секунды). UI: ручная позиция = `name/price/amount`. Проверка: 5 рантайм-сценариев на sql.js с двумя БД-«устройствами» (А → сервер → Б), lint 0, SPA-сборка ok. BE: правок не потребовалось (обе таблицы уже в `$tables`, timestamps есть, generic-путь ок); живая проверка на dev-сервере не выполнена (недоступен из окружения) |
 | Фаза 3.4 `null` в `*_server_id` | ✅ исправлено | `_prepareForeignKeys`: сигнальное поле со значением `null` больше не считается готовым FK (`productsRepo` отправлял `product_category_server_id: null` → категория товара терялась, товар не приезжал на второе устройство) |
-| Фаза 3.4 `ordersRepo.model_id` | ⚠️ открыто | найдено при 3.4: `ordersRepo.save/update` всегда удаляет локальный `model_id` из payload → заказ с ещё не синхронизированной моделью техники уезжает без модели (связь теряется молча). **Не исправлено** — задача **11.2** |
+| Фаза 3.4 `ordersRepo.model_id` | ✅ исправлено (11.2) | найдено при 3.4: `ordersRepo.save/update` всегда удалял локальный `model_id` из payload → заказ с ещё не синхронизированной моделью техники уезжал без модели (связь терялась молча). Теперь `model_id` остаётся, а сигнальное `model_server_id` отдаётся даже как `null` (FE `47c90bb`); заодно заполняется пара `orders.model_id` + `orders.model_server_id` |
 | Фаза 3.5 `order_service` delete | ✅ исправлено | найдено при 3.4: сервер отвечал `server_id: null` (у связки нет PK), а `deleteRecord` требует `id` → строку работ нельзя было ни удалить, ни обновить. Теперь `orderServiceRepo.remove*` ставит delete-операцию по натуральному ключу `order_server_id + service_server_id`, сервер удаляет по `order_id + service_id` (`deleteRecord`), строка матчится по `uuid_id` (`applyServerRecord`) |
 | Фаза 3.5 идемпотентность (BE) | ✅ сделано | миграция `2026_09_12_000000_add_uuid_id_to_sync_tables`: `uuid_id` (nullable, unique) всем синкаемым таблицам; `SyncController::upsertRecord` — «найти или вставить/обновить» по `uuid_id = local_id` (у `order_service` — по `order_id + service_id`), `created_at` не перезаписывается; `stripClientFields` убирает `server_id`/`*_server_id`; `SAVEPOINT sync_op` + `ROLLBACK TO SAVEPOINT` на операцию; `update`/`delete` подтверждаются всегда, `update` несуществующей записи → `RECORD_NOT_FOUND`. Коммит `5dc96fc` |
 | Фаза 3.5 идемпотентность (FE) | ✅ сделано | `syncService._sendOperations`: «200 OK без ответа по операции» больше не `markSynced`, а `markPending` (операция не теряется, сервер подтверждает каждую); `orderServiceRepo.remove*` ставит delete по натуральному ключу либо отменяет незаезженный INSERT; `applyServerRecord` матчит связку по `uuid_id` (новый запрос `getLinesByOrderId`, `updateFromServer` по `id`). Коммит `aa9b986` |
@@ -1389,6 +1401,7 @@ BE: миграции полей профиля, `template_key`, `equipment_ident
 | Фаза 10 тесты и проверки | ✅ сделано | FE `npm test` → **201 тест** (25 файлов; новые — лексикон, пресеты, применение пресета, сервис пресетов, флаги/`featureGuard`, схема Фазы 10), BE `php artisan test` → **72 passed** (401 assertion; `Phase10OnboardingTest` — 5 тестов: регистрация создаёт специализации, занятый email → 422, синк специализации, endpoint пресетов); `npm run lint` — 0, прод-сборка SPA проходит. ⚠️ живой онлайн-прогон (регистрация/шапка/лексикон/пресеты на dev-VPS) — задачи **11.4/11.5** |
 | Среды и выкат (dev-VPS → prod-VPS) | ✅ зафиксировано | два контура с 12.09.2026: **dev-VPS** `dev.medovf2h.beget.tech` — песочница (обкатка фич, БД не жалко), **prod-VPS** — боевой контур (только проверенное на dev, с бэкапом БД). Описано: FE `README.md` §«Среды и выкат», BE `README.md` §«Среды: dev-VPS и prod-VPS», `docs/ARCHITECTURE.md` §1.1, таблицы Base URL в `docs/API-INTEGRATION.md` и BE `docs/API.md`, `docs/PLAN.md` (Фаза 11), `TODO.md` (правило в «Правилах» + задача 11.1). ⚠️ боевой домен ещё не выбран — вписать по задаче 11.1 |
 | Фаза 11.4 — dev-VPS переустановлен | ✅ сделано (12.09.2026) | вход по SSH-ключу (`dev-vps` → `root@217.114.0.27`); `git fetch`+`reset --hard`+`clean` (сохранены `.env`, `letsencrypt/`), том БД снесён, `up -d --build --remove-orphans`, `composer install`, **63 миграции Ran / 0 Pending**; smoke: `/` 302, `/login` 200, `POST /api/sync` 401, `POST /api/register` 422. Живой API-прогон: регистрация создаёт user + 2 специализации (`user_id`, `preset_key`); sync `categories` → `server_id=1`, затем `services` с FK родителя (порядок «родитель → ребёнок»); `/sync-updates` отдаёт запись другому устройству и не отдаёт автору (анти-эхо). Найдено и закрыто: `index index.php` в nginx (403 на `/`, BE `ed43eb0`), Traefik не подхватывал nginx-контейнер (404; `docker compose restart traefik`), `@vite`-manifest → 500 на `/login` (ассеты собираются на сервере). Бэкап до сноса — `/root/ledgercraft_dev_backup_2026-09-12_1947.sql` |
+| Фаза 11.2 — модель техники в заказе | ✅ сделано (12.09.2026) | FE `47c90bb`: `ordersRepo` не вырезает локальный `model_id`, а отдаёт сигнальное `model_server_id` (даже `null` = «модель ещё не на сервере»), `syncService` строит ребро и подставляет серверный id; закрыта пара `orders.model_id`+`orders.model_server_id` (колонка была в 014, но не заполнялась) — 4 SQL-запроса + 4 маппера + `getModelData`. Тест поймал и закрыл ещё один дефект: `modelsRepo.applyServerRecord` биндил `undefined` в `specializationServerId` → модель с сервера не применялась вовсе (глушилось per-table `catch`). Тест: «11.2: заказ с новой моделью техники уезжает одним `sync()` и сохраняет связь»; `npm test` → **202 теста**, lint 0, SPA-сборка ok |
 
 Коммиты: `8ba14f0` — Фаза 3 (3.1–3.3), `36cb4b0` — 3.4, `85ab900` — 3.7, `f4dff1f` — 3.6 (FE-часть),
 3.5 — FE `aa9b986` + BE `5dc96fc`, 3.6 (BE-часть) — `f21ffd6`, 3.8 — FE `ea3e72c` + BE `e82d435`,
@@ -1398,7 +1411,8 @@ BE: миграции полей профиля, `template_key`, `equipment_ident
 FE `d002264` (7.4–7.5), BE `bf5a738` (7.4-тест) + BE `753c4bd` (7.6), Фаза 8 (8.1–8.3) — FE
 `f747f3f`, Фаза 9 (9.1–9.6) — FE `74655ee` + BE `019b16c`, Фаза 10 (10.1–10.9) — FE
 `5f60606` + BE `3657933` (гигиена `.DS_Store` — BE `593bf53`), Фаза 11 (среды и выкат: доки) — FE
-`cad31d7` + BE `b7fcb2e` (`LedgerCraftDocker03`), TODO — FE `—` (этот коммит) (см. `git log`).
+`cad31d7` + BE `b7fcb2e`, Фаза 11.2 — FE `47c90bb`, Фаза 11.4 (dev-VPS + фикс nginx) — BE
+`ed43eb0` + `b92fc8a` (`LedgerCraftDocker03`), TODO — FE `—` (этот коммит) (см. `git log`).
 **Фазы 3–10 закрыты** — vitest (**201 тест** в 25 файлах: миграции, репозитории, синк,
 автосинк, индикатор, storage, DEV-моки, вход/PIN, guard, стор заказа, аналитика, приход товара,
 склад/цены, share-ссылка, маржа, лексикон/пресеты/флаги Фазы 10) + PHPUnit в бэкенде
