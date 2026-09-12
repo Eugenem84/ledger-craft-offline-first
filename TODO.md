@@ -52,7 +52,7 @@
 - [x] **Фаза 5** — Тесты · FE 5/5 · BE 1/1 · *регрессии ловятся автоматически (особенно по синку)*
 - [x] **Фаза 6** — UX офлайна и синка · 3/3 · *приложение не блокируется на синке, есть индикатор сети*
 - [x] **Фаза 7** — Конфигурация и безопасность · FE 5/5 · BE 2/2 · *env, токены, осмысленный вход*
-- [ ] **Фаза 8** — Рефакторинг UI · 0/3 · *OrderDetailsPage 1042 строки → компоненты*
+- [x] **Фаза 8** — Рефакторинг UI · 3/3 · *OrderDetailsPage 300 строк: форма разбита на компоненты, данные — в сторе*
 - [ ] **Фаза 9** — Продукт (аналитика, склад, материалы) · FE 0/6 · BE 0/6 · *аналитика, маржа, ручные позиции*
 
 ---
@@ -729,7 +729,7 @@
 
 ## Фаза 8 — Рефакторинг UI (P1)
 
-- [ ] **8.1** (P1) Разбить OrderDetailsPage (1042 строки)
+- [x] **8.1** (P1) Разбить OrderDetailsPage (1042 строки)
       → компоненты: `OrderForm`, `OrderServicesBlock`, `OrderMaterialsBlock`, `OrderProductsBlock`,
       `OrderTotals`, клиент/модель-селекторы
       ⚠️ найдено при 3.2 (сборка SPA): `OrderDetailsPage.vue:345` зовёт `clientsRepo.getById(...)`,
@@ -737,12 +737,56 @@
       при добавлении клиента прямо из заказа это упадёт в рантайме → либо экспортировать `getById`,
       либо отдать чтение через стор
       → *критерий:* каждая страница/компонент ≤ ~300 строк
-- [ ] **8.2** (P2) Единая схема stores
+      → ✅ сделано: страница — **300 строк** («клей»: инициализация стора, уведомления, навигация,
+      диалоги); форма — 11 компонентов в `src/components/order/` (каждый 25–120 строк) и 5 диалогов
+      в `src/components/order/dialogs/`: `OrderHeaderActions` (кнопки/№/статус/«опл»),
+      `OrderPartySelectors` (клиент/модель + «+»; фильтр клиентов переехал внутрь),
+      `OrderOverviewPanel` («все»), `OrderServicesPanel` («работы»), `OrderMaterialsPanel`
+      («материалы»), `OrderServicesBlock`/`OrderMaterialsBlock`/`OrderProductsBlock` (списки),
+      `OrderMaterialsEditor`/`OrderProductsEditor` (редактируемые позиции), `OrderTotals`,
+      `dialogs/Order{Material,Service,Client,Model,StoreProduct}Dialog`
+      ✅ `clientsRepo.getById` (был найден при 4.1) теперь вызывается из стора (`addClient`)
+      ✅ попутно исправлено (найдено при переносе):
+        • в списке товаров «все»-вкладки `v-for` был без `index`, а удаление делало
+          `products.splice(index, 1)` → рантайм-ошибка при удалении товара;
+        • «добавить модель из заказа» никогда не работало: `modelsStore.add` не возвращал
+          локальный id, страница звала `modelsRepo.getById(undefined)` → UUID теперь
+          генерируется в сторе и передаётся в `add`, затем модель выбирается в заказе;
+        • кнопка «+» (создать работу) стояла **внутри** `v-for` — рисовалась на каждой строке,
+          вынесена из списка;
+        • `.fab` был объявлен в scoped-стилях страницы и не доставал до кнопок внутри
+          дочерних компонентов → стиль перенесён в панели, где кнопки живут.
+      Проверено: `npm run lint` — 0; `npm test` — 107 (в т.ч. 4 новых на стор заказа);
+      SPA-сборка проходит; `npm run dev` → HTTP 200, модули страницы/компонентов/стора
+      отдаются без ошибок компиляции
+- [x] **8.2** (P2) Единая схема stores
       → каждое изменение уходит либо через store, либо через repo — не оба способа вперемешку
       → *критерий:* нет прямых вызовов `*Repo` из `*.vue`
-- [ ] **8.3** (P2) Типизация аргументов
+      → ✅ сделано: новый `src/stores/useOrderDraftStore.js` — черновик заказа (позиции
+      `services`/`materials`/`products`, клиент/модель, комментарий, статус/оплата, справочники
+      формы, геттеры итогов) + все операции записи (`createOrder`/`updateOrder`/`save`,
+      `togglePaid`/`setStatus`/`removeOrder`, `addClient`/`addModel`/`addServiceToCatalog`,
+      `generateShareLink`). Сам заказ по-прежнему меняется только через `useOrdersStore`
+      (оптимистичный список), позиции — через репозитории **из стора**; уведомления и
+      навигация остались в странице. Проверено: `grep -rn 'repositories/' src --include='*.vue'`
+      → **пусто** (и `database/db` из `*.vue` — тоже пусто); единственный Vue-файл с репозиториями
+      раньше был `OrderDetailsPage.vue`
+- [x] **8.3** (P2) Типизация аргументов
       → пройтись по `params`-массивам INSERT/UPDATE (позиционные, легко путаются); добавить хелперы-мапперы
       → *критерий:* нет «магии» с порядком полей в коде страниц
+      → ✅ сделано: `src/database/mappers/` — именованные мапперы позиционных SQL-аргументов
+      (`orders.js`: 4 маппера на 16/15 значений, `orderLines.js`: `order_service`/`order_product`/
+      `materials`, `catalog.js`: клиенты/работы/модели) + JSDoc-типы (`OrderAttributes`,
+      `ForeignKeyRef`); на них переведены `ordersRepo`, `orderServiceRepo`, `orderProductRepo`,
+      `materialsRepo`, `clientsRepo`, `servicesRepo`, `modelsRepo` — ровно те, что трогала страница.
+      Порядок колонок теперь живёт в одном месте на запрос и сверяется с `database/queries/*`.
+      В коде страниц позиционных `params`-массивов не осталось вовсе (критерий).
+      ✅ найдено и исправлено при переносе: `servicesRepo.applyServerRecord` для существующей
+      услуги звал `queries.services.updateFromServer` с 4 значениями, а в запросе 5 `?`
+      (`category_id` не передавался) — обновление услуги с сервера падало на нехватке аргументов;
+      теперь передаётся локальный `category_id`
+      Проверено: `npm test` — 107 (тесты 5.3 покрывают все переведённые репозитории);
+      `npm run lint` — 0; SPA-сборка проходит
 
 ---
 
@@ -821,14 +865,14 @@
 ## Текущее состояние (снимок от 12.09.2026)
 
 Снимок фактов на 12.09.2026 (после Фаз 0–2, всей Фазы 3, Фазы 4: 4.1–4.5, Фазы 5: 5.1–5.6,
-Фазы 6: 6.1–6.3 и Фазы 7: 7.1–7.6; по Фазе 4 остаётся живой прогон на Android — в окружении нет
-JDK/Android SDK).
+Фазы 6: 6.1–6.3, Фазы 7: 7.1–7.6 и Фазы 8: 8.1–8.3; по Фазе 4 остаётся живой прогон на Android —
+в окружении нет JDK/Android SDK).
 Проверенные факты:
 
 | Область | Статус | Улики |
 |---|---|---|
 | Фаза 0.1 `.cursor/debug-*.log` | ✅ сделано | `git rm --cached`, `.cursor/` в `.gitignore` |
-| Фаза 0.2 мусор шаблона | ✅ сделано | удалены `IndexPage.vue`, `EssentialLink.vue`, `MainLayout3.vue`, `example-store.js`; `src/components/` теперь пустой и удалён |
+| Фаза 0.2 мусор шаблона | ✅ сделано | удалены `IndexPage.vue`, `EssentialLink.vue`, `MainLayout3.vue`, `example-store.js`; папка `src/components/` тогда опустела и была удалена (позже в неё вернулись `SyncStatusBar.vue` — 6.2 и `order/*` — 8.1) |
 | Фаза 0.3 `// #region agent log` | ✅ сделано | удалены 9 блоков телеметрии; `syncService.js`: 517 → 290 строк
 | Фаза 0.4 lint | ✅ 0 ошибок | `npm run lint` → чисто; `_params`/`_op`/`_cb` в адаптерах (интерфейсные заглушки), `argsIgnorePattern: '^_'` в eslint.config.js; в `OrderDetailsPage.vue` импортирован `apiClient` |
 | Фаза 0.5 дебаг-логи | ✅ сделано | `src/utils/logger.js` (DEV-only); заменены 58 `console.log/table` + 7 `console.warn`; в prod-бандле нет вызовов из src |
@@ -850,7 +894,7 @@ JDK/Android SDK).
 | Фаза 3.10 владелец | ✅ сделано | `/api/sync` и `/api/sync-updates` под `auth:sanctum`; `insert` проставляет `user_id` из токена и проверяет владельца родителей (`FORBIDDEN_NOT_OWNER`); `update`/`delete` — только свои (`RECORD_NOT_FOUND`); выдача фильтруется по цепочке (`SyncController::OWNER_REFS`/`ownedIds`); IDOR закрыт (удалены `get_orders_by_user/{id}` и публичный дубль); FE отправляет `Authorization: Bearer <auth_token>`. Тесты: 5 (401, изоляция выдачи, чужие update/delete, чужой родитель, `user_id` заказа). ⚠️ legacy-строки без владельца видны всем (нужна разовая привязка); «ничьи» — осознанно |
 | Фаза 3.11 транспорт | ✅ сделано | Go-сайдкар вынесен из проекта: `sync/` + `_docker/sync/` убраны, сервис `sync` удалён из `docker-compose.yaml` (файл идентичен HEAD), копия — в песочнице `../ledger-craft-go-sync-sandbox` с README; в проекте один транспорт (`/api/sync` + `/api/sync-updates`); документация бэкенда обновлена (`README.md`, `docs/API.md` §7, `docs/DB.md`). ✅ `SAVEPOINT`-изоляция и вырезание `server_id`/`*_server_id` — в Laravel с 3.5 (тест `test_broken_operation_does_not_break_the_batch`) |
 | Фаза 3.12 типы денег | ✅ сделано | миграция `2026_09_15_000000_services_price_to_integer`: `services.price` VARCHAR → integer (нечисловое → 0, десятичные округляются); остальные денежные колонки уже integer/bigint; `CAST(... AS numeric)` из `StatisticRepository` убраны (5 мест); payload нормализуется (`normalizeMoney`/`toRubles`). Тесты: колонка = integer, `'1 500,50'` → 1501, `''` → 0, `sale_price` числом из цены услуги, статистика работает |
-| Фаза 7.6 гигиена API бэка | ❌ | `GET /get_orders_by_user` объявлен 3 раза (публичный падает в 500 на `Auth::user()`); `update_paid_status` + `switch_paid_status` дублируют операцию; `auth:api` без `api_token`; scaffold `app/Http/Controllers/Auth/*`; `MaterialController::create` не зароутен и с перепутанными аргументами |
+| Фаза 7.6 гигиена API бэка | ✅ сделано | удалены группа `auth:api`, дубль `switch_paid_status` (+ метод контроллера/репозитория; web-компонент переведён на `update_paid_status`) и мёртвый `MaterialController::create`; `php -l` чисто, `route:list` без удалённых роутов, `php artisan test` → `35 passed`, exit 0; решение **D3** (web-часть — продукт) |
 | Фаза 3.1 двойной вызов | ✅ сделано | `syncService.js`: в `sync()` остался один вызов `_syncLocalToServer()` (двойной прогон убран); комментарий и docs (`ARCHITECTURE` §4.1, `README`) синхронизированы; `npm run lint` — 0 ошибок; прод-сборка SPA проходит; рантайм-проверка (esbuild-бандл в Node): 1 вызов. ⚠️ до 3.2 дети, чей родитель получил `server_id` в этом же прогоне, дожимаются на следующем `sync()` (в очереди, не теряются) |
 | Фаза 3.2 топосортировка | ✅ сделано | `syncService.js`: `_syncLocalToServer()` — «волны» (`MAX_SYNC_WAVES = 5`) + `_prepareOperations()` (парсинг, сигнальные `*_server_id`, точечное откладывание) + граф зависимостей (`fkTransformationMap` + локальные id родительских операций батча) + `_sortByDependencies()` (алгоритм Кана; тай-брейк `TABLE_ORDER` → `created_at`); ответ сервера — `_findSyncResult()`/`_sendOperations()` (insert по `local_id`/`op.id`, update/delete по `server_id` — как отдаёт `SyncController`). Проверка: 6 рантайм-сценариев в Node (временный esbuild-бандл, фейковые БД/api/репо; переносятся в 5.4) — клиент → заказ → «заказ-услуга» уезжает за 3 волны и очередь пуста, битый FK откладывается точечно, серверная ошибка не зацикливает и не теряет операцию, граф важнее статического `TABLE_ORDER`, цикл не вешает сортировку; `npm run lint` — 0; прод-сборка SPA — проходит |
 | Фаза 5.3 `specializationsRepo` | ✅ исправлено | найдено при 3.2 и починено тестами 5.3: insert-payload без `local_id` (локальный `id` уезжал на сервер), нет `updateServerId`, `save/update/remove` звали `dbAdapter.enqueueOperation()` — заглушку. Теперь очередь ставится через `operationsRepo.enqueue` (`local_id`), `update`/`remove` работают по `server_id`, добавлен `updateServerId`; в `syncService` — исходящий маппинг `name → specializationName` + `popularCounter = 0` (без него сервер отвечал `DATABASE_ERROR`). Следствие до фикса: у специальности не появлялся `server_id`, и цепочки `clients`/`categories`/`product_categories`/`equipment_models`/`orders` по `specialization_id` висели в очереди. Тесты: `repositories-catalog.test.js` (save/update/remove/applyServerRecord/updateServerId) + `sync.test.js` (специальность уезжает и получает `server_id`) |
@@ -874,7 +918,7 @@ JDK/Android SDK).
 | Фаза 4.5 версия схемы | ✅ сделано | `src/database/schema-version.js` (`SCHEMA_VERSION` = число миграций = 18), `src/database/migrate.js` (`runMigrations` вынесен из boot + `checkSchemaVersion`): сверка числа применённых миграций и `PRAGMA user_version` с эталоном, при расхождении эталон записывается заново, расхождение — в `console.error`. В плагине 7.x нет `setVersion`, поэтому версия живёт в `PRAGMA user_version` (её читает нативный `getVersion()`). Проверка: свежая БД 1 → 18, сбитая версия чинится, `user_version` лежит в самом файле |
 | Фаза 4 живой прогон | ⚠️ не сделано | в окружении нет JDK и Android SDK: платформа не сгенерирована (`cd src-capacitor && npx cap add android`), запуска на устройстве не было. Критерии 4.2/4.3 «на Android» подтверждены только рантайм-проверками на sql.js с заглушкой плагина |
 | Фаза 4 `metaRepo` UPSERT | ✅ исправлено | `ON CONFLICT(key) DO UPDATE` требует SQLite ≥ 3.24 (Android 10+), а нативный SQLite системный (minSdk 23 → Android 6). Заменено на `INSERT OR REPLACE`; добавлены `getValue`/`setValue` в `metaRepo` (нужны бэкапу). Проверено рантайм-проверками (повторная запись обновляет строку, дублей нет) |
-| Фаза 8.1 `clientsRepo.getById` | ✅ исправлено | найден при 4.1: `OrderDetailsPage.vue` зовёт `clientsRepo.getById`, а экспорта не было → SPA-сборка падала (`"getById" is not exported`). Добавлен `getById` (запрос `queries.getById` уже существовал); сам рефакторинг страницы — по-прежнему 8.1 |
+| Фаза 8.1 `clientsRepo.getById` | ✅ исправлено | найден при 4.1: `OrderDetailsPage.vue` зовёт `clientsRepo.getById`, а экспорта не было → SPA-сборка падала (`"getById" is not exported`). Добавлен `getById` (запрос `queries.getById` уже существовал); вызов переехал в стор в 8.1 (`useOrderDraftStore.addClient`) |
 
 | Фаза 5.3 `servicesRepo` binding | ✅ исправлено | найдено при 3.3: `servicesRepo.save()` передаёт `service.category_id` без `|| null` → при отсутствии категории sql.js падал «tried to bind a value of an unknown type (undefined)». Теперь — `|| null`, ошибка понятная (`NOT NULL constraint failed: services.category_id`); тест фиксирует это поведение |
 | Фаза 5.1 тест-раннер | ✅ сделано | `vitest` 5.x, `"test": "vitest run"` + `test:watch`; `vitest.config.js` (алиас `src`, Node-окружение, `test/setup.js`); `test/**` и `vitest.config.js` добавлены в `npm run lint`. `npm test` → `65 тестов` в 5 файлах, lint 0, SPA-сборка проходит |
@@ -891,21 +935,27 @@ JDK/Android SDK).
 | Фаза 7.4 вход и токен | ✅ сделано | FE: `src/stores/useAuthStore.js` + `src/pages/LoginPage.vue` (email/пароль → токен, PIN-замок с солью + SHA-256, `unlocked` в памяти), `api.js` — интерцептор токена и обработчик 401 (`boot/auth.js`), синк без токена в сеть не ходит, `401` — вид `auth`; BE: `tests/Feature/AuthSyncTest.php` (5 тестов, PostgreSQL). ⚠️ локальная БД общая для всех пользователей устройства |
 | Фаза 7.5 auth-guard | ✅ сделано | `src/router/authGuard.js` (фабрика: защищено всё с `meta.requiredAuth !== false`), подключён в `router/index.js`; публичный `/login`; редирект с `?redirect=`; тест `test/auth-guard.test.js` (6 сценариев) |
 | Фаза 7.6 гигиена API (BE) | ✅ сделано | удалены группа `auth:api`, `switch_paid_status` (+ методы контроллера/репозитория; web-компонент переведён на `update_paid_status`), мёртвый `MaterialController::create`; `php -l` чисто, `route:list` без удалённых роутов, `php artisan test` → `35 passed`, exit 0; решение **D3** (web — продукт) |
-| Фаза 9.4 `api` без импорта | ⏳ кодовая часть сделана | `apiClient` экспортирован из `api.js` и используется в `generateAndCopyLink` (рамках 0.4); рантайм-проверка ссылки — в Фазе 9 |
+| Фаза 8.1 разбиение страницы заказа | ✅ сделано | `OrderDetailsPage.vue`: 1053 → **300 строк** («клей»: `useOrderDraftStore.init`, уведомления, навигация, диалоги); форма — 11 компонентов ≤ 120 строк в `src/components/order/` (`OrderHeaderActions`, `OrderPartySelectors`, `OrderOverviewPanel`, `OrderServicesPanel`, `OrderMaterialsPanel`, `OrderServicesBlock`, `OrderMaterialsBlock`, `OrderProductsBlock`, `OrderMaterialsEditor`, `OrderProductsEditor`, `OrderTotals`) + 5 диалогов в `components/order/dialogs/`. Попутно исправлено: удаление товара на «все»-вкладке падало (`v-for` без `index`); «добавить модель из заказа» не работало (`getById(undefined)` — UUID теперь из стора); кнопка «+» (создать работу) рисовалась на каждой строке (`v-for`); `.fab` не действовал внутри дочерних компонентов (перенесён в scoped-стили панелей) |
+| Фаза 8.2 единая схема stores | ✅ сделано | новый `src/stores/useOrderDraftStore.js`: черновик заказа (позиции, клиент/модель, комментарий, статус/оплата, справочники, геттеры итогов) + все операции записи (`createOrder`/`updateOrder`/`save`, `togglePaid`/`setStatus`/`removeOrder`, `addClient`/`addModel`/`addServiceToCatalog`, `generateShareLink`); заказ меняется только через `useOrdersStore`, позиции — репозиториями **из стора**. Проверено: `grep -rn 'repositories/' src --include='*.vue'` → пусто; `grep -rn 'database/db' src --include='*.vue'` → пусто |
+| Фаза 8.3 типизация SQL-аргументов | ✅ сделано | `src/database/mappers/{orders,orderLines,catalog}.js` — именованные мапперы позиционных аргументов (JSDoc `OrderAttributes`/`ForeignKeyRef`); на них переведены `ordersRepo` (16/15 значений), `orderServiceRepo`, `orderProductRepo`, `materialsRepo`, `clientsRepo`, `servicesRepo`, `modelsRepo`. ✅ найдено и исправлено: `servicesRepo.applyServerRecord` (update) передавал 4 значения в запрос с 5 `?` (`category_id`) → обновление услуги с сервера падало; теперь `category_id` передаётся |
+| Фаза 8 тесты и проверки | ✅ сделано | `test/order-draft-store.test.js` — 4 теста на sql.js: справочники и итоги нового заказа, запись заказа с работой/материалом/товаром в очередь синка, перечитывание позиций существующего заказа, правка («удалить и добавить заново», `update`-операция), регрессия «добавить модель из заказа». `npm test` → **107 тестов** (13 файлов), `npm run lint` — 0, SPA-сборка проходит, `npm run dev` → HTTP 200 (модули страницы/компонентов/стора компилируются). Алиасы Quasar (`stores/`, `pages/`, `components/`, …) добавлены в `vitest.config.js` |
+| Фаза 9.4 `api` без импорта | ⏳ кодовая часть сделана | `apiClient` экспортирован из `api.js`; после 8.1 вызов share-ссылки переехал в стор (`useOrderDraftStore.generateShareLink`); рантайм-проверка ссылки — в Фазе 9 |
 
 Коммиты: `8ba14f0` — Фаза 3 (3.1–3.3), `36cb4b0` — 3.4, `85ab900` — 3.7, `f4dff1f` — 3.6 (FE-часть),
 3.5 — FE `aa9b986` + BE `5dc96fc`, 3.6 (BE-часть) — `f21ffd6`, 3.8 — FE `ea3e72c` + BE `e82d435`,
 остаток Фазы 3 (3.9/3.10/3.12) — FE `c14d645` + BE `56f0642`, 3.11 — BE `a7892ed` + FE `—` (docs/TODO,
 этот коммит) (`LedgerCraftDocker03`), Фаза 4 (4.1–4.5) — FE `70d1d59`, Фаза 5 — FE `c8d2e15` (5.1–5.5)
 + BE `6b34f94` (5.6), Фаза 6 — FE `aaaa50c` (6.1–6.3), Фаза 7 — FE `7268298` (7.1–7.3) +
-FE `d002264` (7.4–7.5), BE `bf5a738` (7.4-тест) + BE `753c4bd` (7.6), TODO/README — FE `—`
-(этот коммит) (см. `git log`).
-**Фазы 3–7 закрыты** — vitest (**103 теста**: миграции, репозитории, синк, автосинк, индикатор,
-storage, DEV-моки, вход/PIN и guard) + PHPUnit в бэкенде (`php artisan test` → `35 passed`, exit 0);
-`npm run lint` — 0, прод-сборка SPA проходит, `npm run dev` → HTTP 200 (`.env` подхватывается).
+FE `d002264` (7.4–7.5), BE `bf5a738` (7.4-тест) + BE `753c4bd` (7.6), Фаза 8 (8.1–8.3) — FE
+`f747f3f`, TODO — FE `—` (этот коммит) (см. `git log`).
+**Фазы 3–8 закрыты** — vitest (**107 тестов**: миграции, репозитории, синк, автосинк, индикатор,
+storage, DEV-моки, вход/PIN, guard и стор заказа) + PHPUnit в бэкенде (`php artisan test` →
+`35 passed`, exit 0); `npm run lint` — 0, прод-сборка SPA проходит, `npm run dev` → HTTP 200
+(`.env` подхватывается).
 Тесты 5.3/5.4 нашли и закрыли 4 дефекта (см. таблицу), тесты 7.x закрывают конфиг, storage,
-вход/токен и guard.
-Дальше — Фаза 8 (рефакторинг UI: `OrderDetailsPage.vue` 1042 строки → компоненты).
+вход/токен и guard, тесты 8.x — стор заказа.
+Дальше — Фаза 9 (продукт: аналитика/маржа/склад — `[FE+BE]`, часть требует бэкенд-репо; из
+`[FE]`-остатка почти ничего не осталось).
 ⚠️ вход обязателен: первый запуск требует сети (сервер выдаёт токен), дальше приложение работает
 офлайн по PIN; без входа синк не ходит в сеть, а индикатор показывает «требуется вход» — операции
 копятся в очереди и не теряются.
