@@ -14,6 +14,34 @@ export async function getBySpecializationId(specializationId) {
   return rows;
 }
 
+/**
+ * Идемпотентность пресета (Фаза 10, задача 10.4): есть ли в этой специализации
+ * категория, уже перенесённая пресетом под ключом `templateKey`.
+ *
+ * Учитываем обе формы FK: до синка в `specialization_id` лежит локальный UUID,
+ * после — серверный id (тем же приёмом живёт `productCategoriesRepo`).
+ *
+ * @param {string} specializationId локальный UUID специализации
+ * @param {string} templateKey например `bike:wheels`
+ * @returns {Promise<object|null>}
+ */
+export async function findByTemplateKey(specializationId, templateKey) {
+  if (!templateKey) return null;
+
+  const spec = await dbAdapter.queryOne(
+    'SELECT server_id FROM specializations WHERE id = ?',
+    [specializationId]
+  );
+  const serverId = spec ? spec.server_id : null;
+
+  const rows = await dbAdapter.query(
+    'SELECT * FROM categories WHERE template_key = ? AND (specialization_id = ? OR specialization_id = ?)',
+    [templateKey, specializationId, serverId]
+  );
+
+  return rows.length ? rows[0] : null;
+}
+
 export async function save(category) {
   const id = category.id || uuidv4()
 
@@ -21,7 +49,9 @@ export async function save(category) {
     id,
     category.server_id || null,
     category.specialization_id || null,
-    category.category_name
+    category.category_name,
+    // Пометка «пришло из пресета» + ключ идемпотентности (задача 10.4).
+    category.template_key || null,
   ]
 
   await dbAdapter.execute(queries.insert, params)
@@ -86,6 +116,7 @@ export async function applyServerRecord(record) {
       record.id,
       record.specialization_id || null,
       record.category_name,
+      record.template_key ?? null,
       toEpochSeconds(record.created_at),
       toEpochSeconds(record.updated_at)
     ];
@@ -98,6 +129,7 @@ export async function applyServerRecord(record) {
   if (toEpochSeconds(record.updated_at) > toEpochSeconds(local.updated_at, 0)) {
     const updateParams = [
       record.category_name,
+      record.template_key ?? local.template_key ?? null,
       toEpochSeconds(record.updated_at),
       record.id
     ];

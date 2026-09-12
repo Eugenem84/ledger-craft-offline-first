@@ -6,7 +6,7 @@ import {
   createWebHashHistory,
 } from 'vue-router'
 import routes from './routes'
-import { createAuthGuard } from './authGuard.js'
+import { createAuthGuard, createFeatureGuard } from './authGuard.js'
 
 /*
  * If not building with SSR mode, you can
@@ -37,6 +37,10 @@ export default defineRouter(function (/* { store, ssrContext } */) {
   // Задача 7.5: без входа (а если PIN установлен — без разблокировки) защищённые
   // маршруты недоступны. Публичные помечаются `meta.requiredAuth: false`.
   Router.beforeEach(createAuthGuard())
+
+  // Фаза 10 (10.3): разделы, скрытые пресетом активного профиля, по прямому URL
+  // не открываются — ведём на доступный раздел.
+  Router.beforeEach(createFeatureGuard())
 
   return Router
 })

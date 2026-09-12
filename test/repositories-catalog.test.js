@@ -53,7 +53,16 @@ describe('5.3 specializationsRepo', () => {
     let operations = await queue()
     expect(operations).toHaveLength(2)
     expect(operations[1]).toMatchObject({ type: 'update', table: 'specializations' })
-    expect(operations[1].payload).toEqual({ id: 42, name: 'Ремонт-3' })
+    // Фаза 10 (10.6): в payload едут и поля профиля.
+    expect(operations[1].payload).toEqual({
+      id: 42,
+      name: 'Ремонт-3',
+      preset_key: null,
+      accent: null,
+      features: null,
+      archived: 0,
+      template_version: null,
+    })
 
     await specializationsRepo.remove(id)
 

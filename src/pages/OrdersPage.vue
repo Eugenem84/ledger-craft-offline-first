@@ -1,17 +1,21 @@
 <script setup>
 import { logger } from 'src/utils/logger'
-import { ref, onMounted, computed } from 'vue';
+import { ref, onMounted, computed, watch } from 'vue';
 import { useRouter } from "vue-router";
 import { useOrdersStore } from "stores/useOrdersStore.js"; // Updated import
 import { useQuasar } from "quasar";
 import DeleteConfirmPage from "pages/dialogs/DeleteConfirmPage.vue"; // Corrected import path
-//import { useSpecializationsStore } from "stores/useSpecializationsStore.js";
+// Фаза 10: лексикон ниши (10.1) и перезагрузка списка при смене профиля (10.8).
+import { useSpecializationsStore } from "stores/useSpecializationsStore.js";
+import { useLexicon } from "src/domain/lexicon.js";
 
 const $q = useQuasar()
 
 const deleteConfirmPage = ref(null)
 
 const orderStore = useOrdersStore()
+const specializationsStore = useSpecializationsStore()
+const { t } = useLexicon()
 const router = useRouter()
 const loading = ref(false)
 const orders = computed(() => orderStore.items); // Orders now come from the store
@@ -102,11 +106,19 @@ onMounted(() => {
   getOrders()
 })
 
+// Переключение рабочего профиля (задача 10.8) меняет список заказов — перечитываем.
+watch(
+  () => specializationsStore.selectedId,
+  () => {
+    getOrders()
+  }
+)
+
 </script>
 
 <template>
   <div class="text-center" style="color: gray; font-size: 80% ; background-color: #1c1c1c" >
-    <span>о р д е р ы</span>
+    <span style="letter-spacing: 0.35em">{{ t('order') }}</span>
   </div>
 
   <div class="row items-center no-wrap">

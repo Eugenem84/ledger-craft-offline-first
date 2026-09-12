@@ -203,6 +203,17 @@ async function signOut() {
             class="full-width"
             :loading="submitting || auth.loading"
           />
+
+          <!-- Само-регистрация (Фаза 10, задача 10.5): раньше экрана регистрации не было. -->
+          <q-btn
+            type="button"
+            flat
+            no-caps
+            color="grey-6"
+            label="Нет аккаунта? Зарегистрироваться"
+            class="full-width"
+            @click="router.push('/register')"
+          />
         </q-form>
 
         <q-form v-else-if="mode === 'unlock'" class="q-gutter-y-md" @submit="submitUnlock">

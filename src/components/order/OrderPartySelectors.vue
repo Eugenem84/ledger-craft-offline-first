@@ -3,6 +3,9 @@
 // В режиме просмотра — поля с телефоном/названием, в режиме правки — выбор из справочника
 // и кнопки «+» (быстрое создание клиента/модели прямо из заказа).
 import { ref, watch } from 'vue'
+import { useLexicon } from 'src/domain/lexicon.js'
+
+const { t } = useLexicon()
 
 const props = defineProps({
   editMode: { type: Boolean, default: false },
@@ -10,6 +13,8 @@ const props = defineProps({
   model: { type: Object, default: () => ({ id: null, name: null }) },
   clients: { type: Array, default: () => [] },
   models: { type: Array, default: () => [] },
+  /** Показ блока «модель техники»: у части ниш он не нужен (Фаза 10, задача 10.3). */
+  showModel: { type: Boolean, default: true },
 })
 
 const emit = defineEmits(['update:client', 'update:model', 'add-client', 'add-model'])
@@ -50,7 +55,7 @@ const filterClients = (value, update) => {
         :options="filteredClients"
         option-value="id"
         :option-label="option => (option ? `${option.name} ${option.phone}` : 'Выберите клиента')"
-        label="Клиент"
+        :label="t('client')"
         color="yellow"
         use-input
         fill-input
@@ -67,7 +72,7 @@ const filterClients = (value, update) => {
       <!-- Режим просмотра -->
       <q-field
         v-if="!editMode"
-        label="Клиент"
+        :label="t('client')"
         stack-label
         tabindex="-1"
         style="pointer-events: auto"
@@ -91,8 +96,8 @@ const filterClients = (value, update) => {
       <q-btn class="text-yellow" @click="emit('add-client')">+</q-btn>
     </div>
 
-    <!-- Модель -->
-    <div class="col">
+    <!-- Модель (у части ниш блок скрыт флагом пресета, задача 10.3) -->
+    <div class="col" v-if="props.showModel">
       <!-- Режим редактирования -->
       <q-select
         v-if="editMode"
@@ -101,19 +106,19 @@ const filterClients = (value, update) => {
         outlined
         option-value="id"
         option-label="name"
-        label="Модель"
+        :label="t('model')"
         color="yellow"
         @update:model-value="value => emit('update:model', value)"
       />
 
       <!-- Режим просмотра -->
-      <q-field v-if="!editMode" label="Модель" stack-label tabindex="-1" style="pointer-events: none">
+      <q-field v-if="!editMode" :label="t('model')" stack-label tabindex="-1" style="pointer-events: none">
         <div class="text-subtitle1 text-yellow">{{ model?.name || '—' }}</div>
       </q-field>
     </div>
 
     <!-- Кнопка для добавления модели (если в режиме редактирования) -->
-    <div class="col-auto" v-if="editMode">
+    <div class="col-auto" v-if="editMode && props.showModel">
       <q-btn class="text-yellow" @click="emit('add-model')">+</q-btn>
     </div>
   </div>

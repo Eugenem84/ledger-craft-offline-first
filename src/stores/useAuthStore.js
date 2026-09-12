@@ -77,6 +77,37 @@ export const useAuthStore = defineStore('auth', {
       }
     },
 
+    /**
+     * Само-регистрация (Фаза 10, задача 10.5): создаёт аккаунт и возвращает
+     * сессию — как `login`. Сервер вместе с пользователем создаёт выбранные
+     * специализации (см. `AuthController::register`), поэтому ответ может
+     * содержать `specializations` для локального онбординга.
+     *
+     * @param {{ name: string, email: string, password: string, passwordConfirmation: string,
+     *   specializations?: Array<{ name: string, preset_key?: string }> }} payload
+     */
+    async register({ name, email, password, passwordConfirmation, specializations = [] }) {
+      this.loading = true
+      this.error = null
+
+      try {
+        const { data } = await apiClient.post('/register', {
+          name,
+          email,
+          password,
+          password_confirmation: passwordConfirmation,
+          specializations,
+        })
+        this._applySession(data)
+        return data
+      } catch (err) {
+        this.error = this._registerErrorText(err)
+        throw err
+      } finally {
+        this.loading = false
+      }
+    },
+
     /** Выход: серверу сообщаем по возможности (офлайн — не страшно), локально чистим всё. */
     async logout() {
       try {
@@ -188,6 +219,20 @@ export const useAuthStore = defineStore('auth', {
       if (!err?.response) return 'Нет связи с сервером — для первого входа нужен интернет'
 
       return err?.response?.data?.message || 'Не удалось войти'
+    },
+
+    /** Текст ошибки регистрации: занятый email и прочие 422 приходят как `errors`. */
+    _registerErrorText(err) {
+      const status = err?.response?.status
+      const data = err?.response?.data
+
+      if (!err?.response) return 'Нет связи с сервером — для регистрации нужен интернет'
+      if (status === 422) {
+        const firstError = data?.errors && Object.values(data.errors)[0]
+        return Array.isArray(firstError) ? firstError[0] : data?.message || 'Проверьте данные'
+      }
+
+      return data?.message || 'Не удалось зарегистрироваться'
     },
   },
 })

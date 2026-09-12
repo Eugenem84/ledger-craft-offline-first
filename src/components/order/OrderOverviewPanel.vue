@@ -13,6 +13,11 @@ const props = defineProps({
   products: { type: Array, default: () => [] },
   editMode: { type: Boolean, default: false },
   comments: { type: String, default: '' },
+  // Универсальный идентификатор объекта (задача 10.9): подпись и видимость — из
+  // лексикона/флагов активного профиля.
+  equipmentIdentifier: { type: String, default: '' },
+  equipmentLabel: { type: String, default: 'идентификатор объекта' },
+  showEquipmentIdentifier: { type: Boolean, default: true },
   servicesTotal: { type: Number, default: 0 },
   materialsTotal: { type: Number, default: 0 },
   productsTotal: { type: Number, default: 0 },
@@ -24,6 +29,7 @@ const props = defineProps({
 
 const emit = defineEmits([
   'update:comments',
+  'update:equipmentIdentifier',
   'remove-service',
   'remove-material',
   'remove-product',
@@ -84,6 +90,20 @@ const emit = defineEmits([
       color="yellow"
       autogrow
       placeholder="Коментариев нет"
+      :disable="!props.editMode"
+    />
+
+    <!-- Универсальный идентификатор объекта (задача 10.9): VIN / серийник рамы /
+         адрес объекта. Подпись и показ поля зависят от активного профиля. -->
+    <q-input
+      v-if="props.showEquipmentIdentifier"
+      :model-value="props.equipmentIdentifier"
+      @update:model-value="value => emit('update:equipmentIdentifier', value)"
+      :label="props.equipmentLabel"
+      label-color="yellow"
+      color="yellow"
+      outlined
+      class="q-mt-md"
       :disable="!props.editMode"
     />
   </q-tab-panel>

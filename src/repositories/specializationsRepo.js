@@ -3,6 +3,13 @@ import dbAdapter from 'src/database/db.js'
 import queries from 'src/database/queries/specializations' // <-- Убедись, что этот файл существует
 import operationsRepo from 'src/repositories/operationsRepo'
 import { toEpochSeconds } from 'src/utils/timestamps.js'
+import {
+  specializationInsertParams,
+  specializationUpdateParams,
+  specializationInsertFromServerParams,
+  specializationUpdateFromServerParams,
+  featuresToStorage,
+} from 'src/database/mappers/specializations.js'
 
 /**
  * Получает все специализации из локальной базы данных.
@@ -38,16 +45,20 @@ export async function findByServerId(serverId) {
 export async function save(specialization) {
   const id = specialization.id || uuidv4()
 
-  const params = [
-    id,
-    specialization.server_id || null,
-    specialization.name
-  ]
+  // Фаза 10 (10.6): поля профиля (`preset_key`, `accent`, `features`, `archived`,
+  // `template_version`) — в порядке колонок маппера, как и остальные репозитории
+  // после задачи 8.3.
+  const params = specializationInsertParams({ id, specialization })
 
   await dbAdapter.execute(queries.insert, params)
 
   const payloadForServer = { ...specialization };
   delete payloadForServer.id;
+  // `features` — флаги вкладок: в БД и на сервере это TEXT/JSON, поэтому объект
+  // сериализуем и в payload очереди (иначе Postgres-колонка получит массив/объект).
+  if (payloadForServer.features !== undefined) {
+    payloadForServer.features = featuresToStorage(payloadForServer.features);
+  }
   const opId = uuidv4();
   const opPayload = JSON.stringify({ local_id: id, ...payloadForServer });
   const opParams = [opId, 'insert', 'specializations', opPayload, Date.now()];
@@ -58,20 +69,35 @@ export async function save(specialization) {
 
 /**
  * Обновляет существующую специализацию в локальной базе и добавляет операцию в очередь.
- * @param {object} specialization - Объект специализации. Должен содержать 'id' и 'name'.
+ *
+ * @param {object} specialization - Объект специализации. Должен содержать 'id'.
+ *
+ * ⚠️ До Фазы 10 стор звал этот метод как `update(id, changes)` (двумя аргументами),
+ * а репозиторий — как `update(specialization)` (одним). Переименование/архивирование
+ * профиля (задача 10.8) и смена пресета (10.4) впервые пошли по этому пути, поэтому
+ * сигнатуры приведены к одному виду: стор собирает объект `{ id, ...changes }`.
  */
 export async function update(specialization) {
   const existing = await dbAdapter.queryOne(queries.getById, [specialization.id])
 
-  const params = [specialization.name, specialization.id]
+  const params = specializationUpdateParams(specialization)
   await dbAdapter.execute(queries.update, params)
 
   if (existing && existing.server_id) {
+    const payloadForServer = {
+      id: existing.server_id,
+      name: specialization.name,
+      preset_key: specialization.preset_key ?? existing.preset_key ?? null,
+      accent: specialization.accent ?? existing.accent ?? null,
+      features: featuresToStorage(specialization.features ?? existing.features ?? null),
+      archived: specialization.archived ? 1 : 0,
+      template_version: specialization.template_version ?? existing.template_version ?? null,
+    };
     await operationsRepo.enqueue([
       uuidv4(),
       'update',
       'specializations',
-      JSON.stringify({ id: existing.server_id, name: specialization.name }),
+      JSON.stringify(payloadForServer),
       Date.now(),
     ]);
   }
@@ -130,21 +156,26 @@ export async function applyServerRecord(record) {
     // Новая запись с сервера; время приводим к общему стандарту — UNIX-секунды (задача 3.8).
     const localId = uuidv4()
 
-    const params = [
+    const params = specializationInsertFromServerParams({
       localId,
-      record.id, // server_id
-      record.name,
-      toEpochSeconds(record.created_at),
-      toEpochSeconds(record.updated_at)
-    ]
+      record,
+      createdAt: toEpochSeconds(record.created_at),
+      updatedAt: toEpochSeconds(record.updated_at),
+    })
     await dbAdapter.execute(queries.insertFromServer, params)
+    return localId
   } else {
     // Обновление существующей записи: побеждает более свежий updated_at (last-write-wins).
     const local = existing[0]
 
     if (toEpochSeconds(record.updated_at) > toEpochSeconds(local.updated_at, 0)) {
-      const updateParams = [record.name, toEpochSeconds(record.updated_at), record.id] // WHERE server_id = ?
+      const updateParams = specializationUpdateFromServerParams({
+        record,
+        updatedAt: toEpochSeconds(record.updated_at),
+      })
       await dbAdapter.execute(queries.updateFromServer, updateParams)
     }
+
+    return local.id
   }
 }

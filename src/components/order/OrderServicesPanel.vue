@@ -2,6 +2,11 @@
 // Вкладка «работы» (Фаза 8, задача 8.1): выбор категории и добавление работ в заказ.
 // Раньше кнопка «+» (создать работу) стояла внутри `v-for` и рисовалась на каждой
 // строке — вынесена из списка (найдено при 8.1).
+// Подписи — из лексикона профиля (Фаза 10, задача 10.1).
+import { useLexicon } from 'src/domain/lexicon.js'
+
+const { t } = useLexicon()
+
 const props = defineProps({
   categories: { type: Array, default: () => [] },
   selectedCategory: { type: [String, Number], default: null },
@@ -25,7 +30,7 @@ const isChosen = service => props.chosen.some(chosen => chosen.id === service.id
       emit-value
       map-options
       outlined
-      label="категории работ"
+      :label="`категории: ${t('service')}`"
       placeholder="нет категорий"
       label-color="grey"
       color="yellow"
@@ -34,8 +39,8 @@ const isChosen = service => props.chosen.some(chosen => chosen.id === service.id
     />
 
     <q-list bordered separator>
-      <div class="text-center text-grey">р а б о т ы</div>
-      <q-item-label v-if="props.services.length === 0">Нет сервисов</q-item-label>
+      <div class="text-center text-grey" style="letter-spacing: 0.3em">{{ t('service') }}</div>
+      <q-item-label v-if="props.services.length === 0">Нет: {{ t('service') }}</q-item-label>
       <q-item
         v-for="service in props.services"
         :key="service.id"

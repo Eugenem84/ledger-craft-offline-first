@@ -1,6 +1,11 @@
 <script setup>
 // Диалог «товар со склада» (Фаза 8, задача 8.1): категория товаров → товар → добавить.
 // Категории/товары приходят из стора, выбранные значения уходят наверх событиями.
+// Подписи — из лексикона профиля (Фаза 10, задача 10.1): велосипедисту «запчасть».
+import { useLexicon } from 'src/domain/lexicon.js'
+
+const { t } = useLexicon()
+
 const props = defineProps({
   modelValue: { type: Boolean, default: false },
   categories: { type: Array, default: () => [] },
@@ -27,7 +32,7 @@ const close = () => emit('update:modelValue', false)
   >
     <q-card>
       <q-card-section>
-        <div class="text-h6">Добавление товара со склада</div>
+        <div class="text-h6">Добавление: {{ t('part') }} со склада</div>
         <q-select
           :model-value="props.selectedCategory"
           :options="props.categories"
@@ -43,7 +48,7 @@ const close = () => emit('update:modelValue', false)
           :model-value="props.selectedProduct"
           :options="props.products"
           option-label="name"
-          label="выберите товар"
+          :label="`выберите ${t('part')}`"
           label-color="yellow"
           @update:model-value="value => emit('update:selectedProduct', value)"
         />

@@ -32,6 +32,13 @@ onMounted(async () => {
   productsStore.clear();
 });
 
+// Переключение рабочего профиля (задача 10.8) меняет склад — перечитываем категории.
+watch(selectedSpecialization, async (specialization) => {
+  selectedProductCategory.value = null;
+  productsStore.clear();
+  await productCategoriesStore.load(specialization?.id);
+});
+
 // Следим за изменением выбранной категории
 watch(selectedProductCategory, async (newCategory) => {
   if (newCategory && newCategory.id) {

@@ -60,6 +60,8 @@ export const useOrderDraftStore = defineStore('orderDraft', {
     comments: '',
     status: 'waiting',
     paid: false,
+    /** Внешний идентификатор объекта (задача 10.9): VIN / серийник рамы / адрес объекта. */
+    equipmentIdentifier: null,
 
     // --- Справочники, нужные форме ---
     clients: [],
@@ -174,6 +176,7 @@ export const useOrderDraftStore = defineStore('orderDraft', {
       this.paid = !!this.order.paid
       this.status = this.order.status || 'waiting'
       this.comments = this.order.comments || ''
+      this.equipmentIdentifier = this.order.equipment_identifier || null
       this.client = {
         id: this.order.client_id,
         name: this.order.client_name,
@@ -355,6 +358,7 @@ export const useOrderDraftStore = defineStore('orderDraft', {
         model_id: this.model?.id ?? null,
         total_amount: this.totalAmount,
         comments: this.comments,
+        equipment_identifier: this.equipmentIdentifier || null,
         paid: this.paid,
         status: this.status,
       })
@@ -391,6 +395,7 @@ export const useOrderDraftStore = defineStore('orderDraft', {
         model_id: this.model?.id ?? null,
         total_amount: this.totalAmount,
         comments: this.comments,
+        equipment_identifier: this.equipmentIdentifier || null,
         paid: this.paid,
         status: this.status,
       })
@@ -487,6 +492,7 @@ export const useOrderDraftStore = defineStore('orderDraft', {
       this.client = emptyClient()
       this.model = emptyModel()
       this.comments = ''
+      this.equipmentIdentifier = null
       this.status = 'waiting'
       this.paid = false
       this.clients = []

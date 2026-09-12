@@ -1,6 +1,9 @@
 <script setup>
 // Диалог «добавить модель техники» прямо из заказа (Фаза 8, задача 8.1).
 import { ref, watch } from 'vue'
+import { useLexicon } from 'src/domain/lexicon.js'
+
+const { t } = useLexicon()
 
 const props = defineProps({
   modelValue: { type: Boolean, default: false },
@@ -33,12 +36,12 @@ const submit = () => {
   >
     <q-card>
       <q-card-section>
-        <div class="text-h6">Добавление модели</div>
+        <div class="text-h6">Добавление: {{ t('model') }}</div>
         <q-input
           v-model="form.name"
           label-color="yellow"
           color="yellow"
-          label="Название модели"
+          :label="`Название: ${t('model')}`"
           outlined
           class="q-mb-md"
         />

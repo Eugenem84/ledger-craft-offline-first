@@ -25,6 +25,11 @@
 Отдельно есть настоящая авторизация: `POST /api/register`, `POST /api/login` (Sanctum),
 `/api/me`, `/api/logout`, `/api/delete-account`.
 
+`POST /api/register` (Фаза 10, задача 10.5) принимает необязательный массив
+`specializations: [{ name, preset_key }]`, создаёт рабочие профили и возвращает их
+(`{ access_token, token_type, user, specializations }`); клиент кладёт их локально
+без операции в очередь и материализует пресеты — новый пользователь видит готовый каталог.
+
 С задачи 3.10 синк **требует токен**: `/api/sync` и `/api/sync-updates` — под `auth:sanctum`.
 Клиент подставляет `Authorization: Bearer <token>` из `localStorage.auth_token` (`src/services/api.js`);
 выдача/запись ограничены данными пользователя (напрямую `user_id` или через цепочку родителей).
@@ -98,8 +103,9 @@ Body:
   (`1501`), `''` у услуги → `0`.
 
 **Спец-обработка `orders`** (не все поля!): сервер принимает только
-`specialization_id, client_id, hours, minutes, total_amount, comments` — остальное игнорируется.
-`total_amount` — **в рублях** (без конверсии).
+`specialization_id, client_id, hours, minutes, total_amount, comments, equipment_identifier` —
+остальное игнорируется. `total_amount` — **в рублях** (без конверсии),
+`equipment_identifier` — универсальный идентификатор объекта (Фаза 10, задача 10.9).
 
 **Спец-обработка `order_service`**: сервер ждёт `order_id`/`service_id` уже как **серверные**
 ID и `sale_price`/`quantity`; если `sale_price` не передан, берётся цена из таблицы `services`.
@@ -209,6 +215,7 @@ Headers: X-Sync-ID: <uuid устройства>
 | GET | `/api/get_service/{categoryId}` | `ServiceController::getByCategory` |
 | GET | `/api/get_materials_by_order/{orderId}` | `MaterialController::getMaterialsByOrder` |
 | POST | `/api/order-report/{order}/share-link` | `OrderController::generateShareLink` |
+| GET | `/api/specialization-templates` (sanctum) | `SpecializationTemplateController::index` (пресеты, 10.7) |
 | GET | `/api/orders_by_specialization/{id}` | `OrderController::getBySpecialization` |
 | GET | `/api/get_total_DWYM/{specializationId}`, `/api/get_top_services/{specializationId}`, `/api/get_top_profit_clients/{specializationId}`, `/api/get_top_products/{specializationId}`, `/api/get_top_materials/{specializationId}`, `/api/get_orders_status/{specializationId}`, `/api/income_by_year/{specializationId}` | `StatisticController` (единая методика — §4.16) |
 | GET | `/api/app-quasar-android-version`, `/api/download-apk`, `/api/hcp/chcp.json` | `AppVersionController` |

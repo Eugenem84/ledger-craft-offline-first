@@ -22,11 +22,16 @@ import OrderServicesPanel from 'src/components/order/OrderServicesPanel.vue'
 import OrderStoreProductDialog from 'src/components/order/dialogs/OrderStoreProductDialog.vue'
 import { useOrderDraftStore } from 'src/stores/useOrderDraftStore.js'
 import { shareLinkErrorView } from 'src/utils/shareLinkError.js'
+// Фаза 10: лексикон профиля (10.1) и видимость блока идентификатора объекта (10.9).
+import { useLexicon } from 'src/domain/lexicon.js'
+import { useFeatures } from 'src/domain/features.js'
 
 const $q = useQuasar()
 const route = useRoute()
 const router = useRouter()
 const draft = useOrderDraftStore()
+const { t } = useLexicon()
+const { isEnabled } = useFeatures()
 
 const {
   client,
@@ -45,6 +50,7 @@ const {
   servicesTotal,
   materialsTotal,
   productsTotal,
+  equipmentIdentifier,
 } = storeToRefs(draft)
 
 const isCreateRoute = computed(() => route.name === 'new-order' || route.path === '/orders/new')
@@ -201,6 +207,7 @@ const handleShare = async () => {
     :edit-mode="editMode"
     :clients="draft.clients"
     :models="draft.models"
+    :show-model="isEnabled('models')"
     @add-client="showClientDialog = true"
     @add-model="showModelDialog = true"
   />
@@ -217,11 +224,8 @@ const handleShare = async () => {
         align="justify"
         narrow-indicator
       >
-        <q-tab
-          name="all"
-          :label="`работ: ${services?.length || 0} материалов: ${(materials?.length || 0) + (products?.length || 0)}`"
-        />
-        <q-tab name="servicesChoice" v-if="editMode" label="работы" />
+        <q-tab name="all" :label="`${t('service')}: ${services?.length || 0} материалов: ${(materials?.length || 0) + (products?.length || 0)}`" />
+        <q-tab name="servicesChoice" v-if="editMode" :label="t('service')" />
         <q-tab name="materialsChoice" v-if="editMode" label="материалы" />
       </q-tabs>
 
@@ -241,6 +245,10 @@ const handleShare = async () => {
           :margin="draft.margin"
           :markup-percent="draft.markupPercent"
           :has-unknown-cost="draft.hasUnknownCost"
+          :equipment-identifier="equipmentIdentifier"
+          :equipment-label="t('equipmentIdentifier')"
+          :show-equipment-identifier="isEnabled('equipmentIdentifier')"
+          @update:equipment-identifier="draft.equipmentIdentifier = $event"
           @remove-service="draft.removeService($event)"
           @remove-material="draft.removeMaterial($event)"
           @remove-product="draft.removeProduct($event)"

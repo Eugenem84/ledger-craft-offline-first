@@ -151,6 +151,8 @@ export function modelInsertParams({ id, model }) {
     model.name,
     model.specialization_id || null,
     model.specialization_server_id || null,
+    // Пометка «пришло из пресета» (Фаза 10, задача 10.4).
+    model.template_key || null,
   ]
 }
 
@@ -165,6 +167,7 @@ export function modelUpdateParams(model) {
     model.name,
     model.specialization_id || null,
     model.specialization_server_id || null,
+    model.template_key || null,
     model.id,
   ]
 }
@@ -172,7 +175,7 @@ export function modelUpdateParams(model) {
 /**
  * `queries.models.insertFromServer`.
  *
- * @param {{ localId: string, serverId: number, name: string, localSpecializationId: string|null, specializationServerId: number|null, createdAt: number, updatedAt: number }} input
+ * @param {{ localId: string, serverId: number, name: string, localSpecializationId: string|null, specializationServerId: number|null, templateKey?: string|null, createdAt: number, updatedAt: number }} input
  * @returns {Array<string|number|null>}
  */
 export function modelInsertFromServerParams({
@@ -181,24 +184,35 @@ export function modelInsertFromServerParams({
   name,
   localSpecializationId,
   specializationServerId,
+  templateKey,
   createdAt,
   updatedAt,
 }) {
-  return [localId, serverId, name, localSpecializationId, specializationServerId, createdAt, updatedAt]
+  return [
+    localId,
+    serverId,
+    name,
+    localSpecializationId,
+    specializationServerId,
+    templateKey ?? null,
+    createdAt,
+    updatedAt,
+  ]
 }
 
 /**
  * `queries.models.updateFromServer` (`WHERE server_id = ?` — последний параметр).
  *
- * @param {{ name: string, localSpecializationId: string|null, specializationServerId: number|null, updatedAt: number, serverId: number }} input
+ * @param {{ name: string, localSpecializationId: string|null, specializationServerId: number|null, templateKey?: string|null, updatedAt: number, serverId: number }} input
  * @returns {Array<string|number|null>}
  */
 export function modelUpdateFromServerParams({
   name,
   localSpecializationId,
   specializationServerId,
+  templateKey,
   updatedAt,
   serverId,
 }) {
-  return [name, localSpecializationId, specializationServerId, updatedAt, serverId]
+  return [name, localSpecializationId, specializationServerId, templateKey ?? null, updatedAt, serverId]
 }

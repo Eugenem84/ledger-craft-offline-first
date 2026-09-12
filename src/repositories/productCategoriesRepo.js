@@ -23,6 +23,31 @@ export async function getLocalIdByServerId(serverId) {
   return result ? result.id : null;
 }
 
+/**
+ * Идемпотентность пресета (Фаза 10, задача 10.4): учитываем и локальный UUID,
+ * и серверный id в `specialization_id` (как `getBySpecializationId` выше).
+ *
+ * @param {string} specializationId локальный UUID специализации
+ * @param {string} templateKey например `bike:spares`
+ * @returns {Promise<object|null>}
+ */
+export async function findByTemplateKey(specializationId, templateKey) {
+  if (!templateKey) return null;
+
+  const spec = await dbAdapter.queryOne(
+    'SELECT server_id FROM specializations WHERE id = ?',
+    [specializationId]
+  );
+  const serverId = spec ? spec.server_id : null;
+
+  const rows = await dbAdapter.query(
+    'SELECT * FROM product_categories WHERE template_key = ? AND (specialization_id = ? OR specialization_id = ?)',
+    [templateKey, specializationId, serverId]
+  );
+
+  return rows.length ? rows[0] : null;
+}
+
 export async function save(category) {
   const id = category.id || uuidv4()
 
@@ -30,7 +55,8 @@ export async function save(category) {
     id,
     category.server_id || null,
     category.specialization_id || null, // Здесь будет локальный UUID
-    category.name
+    category.name,
+    category.template_key || null, // Пометка «пришло из пресета» (задача 10.4)
   ]
 
   await dbAdapter.execute(queries.insert, params)
@@ -97,6 +123,7 @@ export async function applyServerRecord(record) {
       record.id,
       record.specialization_id, // Сохраняем серверный ID как есть
       record.name,
+      record.template_key ?? null,
       toEpochSeconds(record.created_at),
       toEpochSeconds(record.updated_at)
     ];
@@ -109,11 +136,12 @@ export async function applyServerRecord(record) {
     const updateParams = [
       record.name,
       record.specialization_id,
+      record.template_key ?? existing.template_key ?? null,
       toEpochSeconds(record.updated_at),
       record.id
     ];
     await dbAdapter.execute(
-      `UPDATE product_categories SET name = ?, specialization_id = ?, updated_at = ? WHERE server_id = ?`,
+      `UPDATE product_categories SET name = ?, specialization_id = ?, template_key = ?, updated_at = ? WHERE server_id = ?`,
       updateParams
     );
   }

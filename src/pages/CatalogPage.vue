@@ -1,5 +1,6 @@
 <script setup>
 import {onMounted, ref, watch} from 'vue'
+import {useRouter} from "vue-router";
 import {useQuasar} from "quasar";
 import DeleteConfirmPage from "pages/dialogs/DeleteConfirmPage.vue";
 import NewClientDialogPage from "pages/dialogs/NewClientDialogPage.vue";
@@ -9,12 +10,50 @@ import NewServiceCategoryDialogPage from "pages/dialogs/NewServiceCategoryDialog
 import { useClientsStore } from 'stores/useClientsStore.js'
 import { useCategoriesStore } from 'stores/useCategoriesStore.js'
 import { useServicesStore } from 'stores/useServicesStore.js'
+// Фаза 10: лексикон ниши (10.1) и запуск каталога из шаблона (10.4).
+import { useSpecializationsStore } from 'stores/useSpecializationsStore.js'
+import { useLexicon } from 'src/domain/lexicon.js'
 
 const $q = useQuasar()
+const router = useRouter()
+const { t } = useLexicon()
 
 const clientsStore = useClientsStore()
 const categoriesStore = useCategoriesStore()
 const servicesStore = useServicesStore()
+const specializationsStore = useSpecializationsStore()
+
+const templateBusy = ref(false)
+
+/** «Начать с шаблона» (10.4): подтягиваем пресет активного профиля одним действием. */
+const startFromTemplate = async () => {
+  const specialization = specializationsStore.getSelectedSpecialization
+
+  if (!specialization?.preset_key) {
+    // Пресет ещё не выбран — ведём в управление профилями.
+    await router.push('/other')
+    return
+  }
+
+  templateBusy.value = true
+  try {
+    const result = await specializationsStore.applyPreset(specialization.id, specialization.preset_key)
+    await clientsStore.load()
+    await categoriesStore.load()
+
+    $q.notify({
+      type: 'positive',
+      message: `Каталог готов: категорий ${result.created.categories}, работ ${result.created.services}`,
+      position: 'top',
+      timeout: 2500,
+    })
+  } catch (error) {
+    console.error('Ошибка применения шаблона:', error)
+    $q.notify({ type: 'negative', message: 'Не удалось применить шаблон' })
+  } finally {
+    templateBusy.value = false
+  }
+}
 
 const newClientDialog = ref(null)
 const newServiceDialog = ref(null)
@@ -40,6 +79,18 @@ onMounted(async () => {
   await clientsStore.load()
   await categoriesStore.load()
 })
+
+// Смена рабочего профиля (задача 10.8) меняет и каталог, и клиентов: перечитываем
+// их при переключении, чтобы страница не показывала данные прошлой ниши.
+watch(
+  () => specializationsStore.selectedId,
+  async () => {
+    selectedServiceCategory.value = null
+    servicesStore.items = []
+    await clientsStore.load()
+    await categoriesStore.load()
+  }
+)
 
 watch(selectedServiceCategory, (newCategory) => {
   servicesStore.load(newCategory?.id)
@@ -165,16 +216,35 @@ const openNewServiceCategoryDialog = () => {
   <q-page class="q-pa-none">
     <q-card>
       <q-tabs v-model="tab" dense class="text-grey sticky-tabs" active-color="yellow" indicator-color="yellow" align="justify" narrow-indicator>
-        <q-tab name="services" label="работы" />
-        <q-tab name="clients" label="клиенты" />
+        <q-tab name="services" :label="t('service')" />
+        <q-tab name="clients" :label="t('client')" />
       </q-tabs>
 
       <q-separator/>
 
       <q-tab-panels v-model="tab" animated>
         <q-tab-panel name="services" style="padding: 0">
+          <!-- «Начать с шаблона» (задача 10.4): готовый каталог одним действием. -->
+          <div class="row items-center q-pa-sm q-gutter-x-sm">
+            <q-btn
+              color="primary"
+              size="sm"
+              icon="auto_awesome"
+              label="Начать с шаблона"
+              :loading="templateBusy"
+              @click="startFromTemplate"
+            />
+            <q-btn
+              flat
+              size="sm"
+              color="grey-6"
+              label="Выбрать пресет"
+              @click="router.push('/other')"
+            />
+          </div>
+
           <div class="row items-center q-pa-sm" >
-            <q-select v-model="selectedServiceCategory" :options="categoriesStore.items" option-label="category_name" label="Категории работ" dense clearable label-color="grey" color="yellow" class="col-9" outlined />
+            <q-select v-model="selectedServiceCategory" :options="categoriesStore.items" option-label="category_name" :label="`Категории: ${t('service')}`" dense clearable label-color="grey" color="yellow" class="col-9" outlined />
             <div class="col-auto self-end">
               <q-btn class="col-1 text-yellow" icon="add" @click="openNewServiceCategoryDialog" />
             </div>

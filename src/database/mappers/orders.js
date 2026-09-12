@@ -31,6 +31,7 @@ import { toEpochSeconds } from 'src/utils/timestamps.js'
  * @property {number|boolean} [paid]
  * @property {string|null} [model_id] локальный UUID модели техники
  * @property {string|null} [share_token]
+ * @property {string|null} [equipment_identifier] VIN/госномер, серийник рамы, адрес объекта (10.9)
  */
 
 /**
@@ -66,6 +67,7 @@ export function orderInsertParams({ id, order, specialization, client }) {
     order.paid || 0,
     order.model_id || null,
     order.share_token || null,
+    order.equipment_identifier || null,
   ]
 }
 
@@ -91,6 +93,7 @@ export function orderUpdateParams({ order, specialization, client }) {
     order.paid || 0,
     order.model_id || null,
     order.share_token || null,
+    order.equipment_identifier || null,
     order.id,
   ]
 }
@@ -124,6 +127,7 @@ export function orderInsertFromServerParams(record, { localId, specialization, c
     record.paid ?? 0,
     localModelId ?? null,
     record.share_token ?? null,
+    record.equipment_identifier ?? null,
     toEpochSeconds(record.created_at),
     toEpochSeconds(record.updated_at),
   ]
@@ -153,6 +157,7 @@ export function orderUpdateFromServerParams(record, { specialization, client, lo
     record.paid ?? 0,
     localModelId ?? null,
     record.share_token ?? null,
+    record.equipment_identifier ?? null,
     toEpochSeconds(record.updated_at),
     record.id,
   ]

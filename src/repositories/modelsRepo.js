@@ -27,6 +27,31 @@ export async function getById(id) {
     return result.length > 0 ? result[0] : null;
 }
 
+/**
+ * Идемпотентность пресета (Фаза 10, задача 10.4): учитываем и локальный UUID,
+ * и серверный id в `specialization_id`.
+ *
+ * @param {string} specializationId локальный UUID специализации
+ * @param {string} templateKey например `bike:mtb`
+ * @returns {Promise<object|null>}
+ */
+export async function findByTemplateKey(specializationId, templateKey) {
+  if (!templateKey) return null;
+
+  const spec = await dbAdapter.queryOne(
+    'SELECT server_id FROM specializations WHERE id = ?',
+    [specializationId]
+  );
+  const serverId = spec ? spec.server_id : null;
+
+  const rows = await dbAdapter.query(
+    'SELECT * FROM equipment_models WHERE template_key = ? AND (specialization_id = ? OR specialization_id = ?)',
+    [templateKey, specializationId, serverId]
+  );
+
+  return rows.length ? rows[0] : null;
+}
+
 export async function save(model) {
   const id = model.id || uuidv4()
 
@@ -58,6 +83,7 @@ export async function update(model) {
       name: model.name,
       specialization_id: model.specialization_id,
       specialization_server_id: model.specialization_server_id,
+      template_key: model.template_key ?? existingModel.template_key ?? null,
     };
     const opPayload = JSON.stringify(payloadForServer);
     const opParams = [opId, 'update', 'equipment_models', opPayload, Date.now()];
@@ -103,6 +129,7 @@ export async function applyServerRecord(record) {
       name: record.name,
       localSpecializationId,
       specializationServerId: record.specialization_id,
+      templateKey: record.template_key,
       createdAt: toEpochSeconds(record.created_at),
       updatedAt: toEpochSeconds(record.updated_at),
     });
@@ -118,6 +145,7 @@ export async function applyServerRecord(record) {
       name: record.name,
       localSpecializationId,
       specializationServerId: record.specialization_id,
+      templateKey: record.template_key ?? local.template_key ?? null,
       updatedAt: toEpochSeconds(record.updated_at),
       serverId: record.id,
     });

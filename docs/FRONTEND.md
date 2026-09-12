@@ -15,6 +15,7 @@ src/
 ├── services/
 │   ├── api.js                    # axios-клиент: baseURL, X-Sync-ID, send()/fetchUpdates()
 │   ├── syncService.js            # движок синхронизации
+│   ├── presetService.js          # пресеты: серверный контент + read-only кэш в `meta` (10.7)
 │   └── backupService.js          # бэкап локальной БД (задача 4.4)
 ├── database/
 │   ├── db.js                     # единая точка доступа к БД (делегат на активный адаптер, 4.3)
@@ -24,7 +25,7 @@ src/
 │   │   ├── sqljs-web-adapter.js       # веб: sql.js (WASM) + localStorage
 │   │   ├── sqlite-capacitor-adapter.js # Android: нативный SQLite (@capacitor-community/sqlite)
 │   │   └── storage-adapter.js         # дамп sql.js в localStorage/IndexedDB
-│   ├── migrations/               # 18 версий схемы (001…023; дубли удалены в 2.1)
+│   ├── migrations/               # 22 версии схемы (001…027; дубли удалены в 2.1)
 │   │   └── index.js              # порядок применения миграций
 │   ├── mappers/                  # именованные мапперы позиционных SQL-аргументов (8.3):
 │   │   ├── orders.js             #   заказы (insert/update/fromServer)
@@ -51,6 +52,12 @@ src/
 │   ├── buyProductPricesRepo.js   # закупочные цены (9.2; маржа — 9.5)
 │   ├── salesProductPricesRepo.js # цены продажи по заказам (9.3)
 │   └── analyticsRepo.js          # аналитика страницы: только SELECT, очередь синка не трогает (9.1)
+├── domain/                       # Фаза 10: лексикон, пресеты, флаги, акцент (без UI-зависимостей)
+│   ├── lexicon.js                # словарь терминов по `preset_key` + useLexicon() (10.1)
+│   ├── presets/                  # пресеты ниш: bike, aquarium, hvac, auto + index.js (10.4)
+│   ├── presetApply.js            # идемпотентная материализация пресета через репозитории (10.4)
+│   ├── features.js               # флаги видимости вкладок/блоков + useFeatures() (10.3)
+│   └── theme.js                  # выбор акцентного цвета профиля (10.2)
 ├── stores/                       # Pinia: useOrdersStore, useOrderDraftStore (черновик заказа, 8.1/8.2),
 │                                 #   useClientsStore, useCategoriesStore, useServicesStore,
 │                                 #   useProductCategoriesStore, useProductsStore,
@@ -72,6 +79,7 @@ src/
 │   ├── AnalyticPage.vue          # аналитика
 │   ├── OthersPage.vue            # «другие» (настройки сервисов и т.п.)
 │   ├── LoginPage.vue             # вход/разблокировка по PIN (7.4)
+│   ├── RegisterPage.vue          # регистрация + выбор специализаций (10.5)
 │   ├── ErrorNotFound.vue
 │   └── dialogs/                  # NewClientDialogPage, ProductDialogPage,
 │                                 #   ArrivalProductDialogPage, ProductCategoryDialogPage,
@@ -93,10 +101,11 @@ src/
 /orders                → OrdersPage               (список ордеров)
 /orders/new            → OrderDetailsPage (name: 'new-order')
 /orders/:id            → OrderDetailsPage (meta: { requiredAuth: true, hideFooter: true })
-/store                 → StorePage                (склад)
+/store                 → StorePage                (склад)   meta: { feature: 'store' }
 /catalog               → CatalogPage              (каталог)
-/analytic              → AnalyticPage             (аналитика)
+/analytic              → AnalyticPage             (аналитика) meta: { feature: 'analytics' }
 /other                 → OthersPage               (другие)
+/register              → RegisterPage             (регистрация, публичный; 10.5)
 /:catchAll(.*)*        → ErrorNotFound
 ```
 
@@ -392,10 +401,11 @@ return id;
    OrderDetailsPage (Фаза 8: страница 300 строк + `components/order/*`, данные — в
    `useOrderDraftStore`, позиционные SQL-параметры — в `database/mappers/*`).
 
-## 9. Рабочие профили (мульти-специализация) и адаптация UI — запланировано (Фаза 10)
+## 9. Рабочие профили (мульти-специализация) и адаптация UI — реализовано (Фаза 10)
 
 Решения **D4**/**D5**, задачи **10.1–10.9** (`docs/PLAN.md`, `TODO.md` §Решения). Схему это не
-меняет — меняется только представление.
+меняет — меняется только представление. Статус: сделано (лексикон, пресеты, онбординг,
+переключатель профиля, акцент, видимость вкладок, поля профиля, `equipment_identifier`).
 
 **Что уже есть в UI.** Единственное место, где специализация видна пользователю, — селект
 «Выберите специализацию» в `pages/OthersPage.vue` (пишет в `useSpecializationsStore.selectedId`).
@@ -404,12 +414,12 @@ return id;
 (`useOrderDraftStore.effectiveSpecializationId`). Маршруты и вкладки от специализации **не зависят**:
 `MainLayout.vue` жёстко рисует «ордеры / склад / каталог / аналитика / другие».
 
-**Что планируется:**
+**Что сделано:**
 
-- **Лексикон терминов** (10.1) — один словарь слов (`order`, `part`, `model`, `stock`, `catalog`),
+- **Лексикон терминов** (10.1) — `src/domain/lexicon.js` (+`useLexicon()`): один словарь слов (`order`, `part`, `model`, `stock`, `catalog`),
   а не подписи по месту. Масштаб: в `src/` «заказ» встречается ~86 раз, «товар» — ~42,
-  «модель техники» — ~8; подписи вкладок — в `MainLayout.vue`. Новая папка `src/domain/` (лексикон
-  и пресеты) в структуре §1 ещё не числится — она появится вместе с 10.1/10.4.
+  «модель техники» — ~8; подписи вкладок — в `MainLayout.vue`. Папка `src/domain/` (лексикон
+  и пресеты) появилась вместе с 10.1/10.4 и числится в структуре §1.
 - **Акцент и «лицо» профиля** (10.2) — runtime `setCssVar` (Quasar 2) + иконка/бейдж активной
   специализации; `quasar.variables.scss` не трогаем, полный ре-скин не делаем (тёмная тема
   `dark: true` — следим за контрастом).
@@ -419,8 +429,8 @@ return id;
   добавление/переименование/**архивирование** (физическое удаление запрещено: у серверных
   `categories`/`product_categories` FK на `specializations` с `onDelete('cascade')`).
 - **Онбординг** (10.4/10.5) — экран «Начать с шаблона» и регистрация с выбором 1..N специализаций.
-  ⚠️ Регистрации в клиенте сейчас нет вовсе: публичный маршрут только `/login` (`router/routes.js`),
-  а на сервере `AuthController::register` создаёт только `users` и **специализацию не создаёт**.
+  ✅ Сделано: `pages/RegisterPage.vue` (публичный `/register`), `AuthController::register`
+  создаёт специализации и возвращает их, клиент материализует пресеты.
 - **Поля профиля** (10.6) — `preset_key`, `accent`, `features`, `archived`, `template_version`
   (локальная миграция `024_*` + серверная миграция). Если оставить их локальными, они не переживут
   `fullReset` и не приедут на второе устройство.

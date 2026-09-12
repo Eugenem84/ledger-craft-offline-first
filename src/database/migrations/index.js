@@ -17,6 +17,10 @@ import m020 from './020_create_order_service_table.js'
 import m022 from './022_add_operations_status.js'
 import m023 from './023_materials_order_lines.js'
 import m024 from './024_order_lines_buy_price.js'
+// Фаза 10 (мульти-профиль): поля профиля, пометка пресета, идентификатор объекта.
+import m025 from './025_specialization_profile_fields.js'
+import m026 from './026_template_key_columns.js'
+import m027 from './027_order_equipment_identifier.js'
 
 const migrations = [
   m001,
@@ -38,6 +42,9 @@ const migrations = [
   m022,
   m023,
   m024,
+  m025,
+  m026,
+  m027,
 ]
 
 export default migrations
