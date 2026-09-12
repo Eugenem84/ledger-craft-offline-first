@@ -99,7 +99,7 @@
 | id | TEXT PK | |
 | server_id | INTEGER | |
 | specialization_id / specialization_server_id | TEXT / INTEGER | |
-| client_id / client_server_id | TEXT / INTEGER | |
+| client_id / client_server_id | TEXT / INTEGER | клиент **необязателен**: заказ можно завести без него, синк отправляет `client_id: null` (на сервере `orders.client_id` — nullable, миграция `2026_09_19_000000`) |
 | hours, minutes | INTEGER | длительность работ |
 | total_amount | INTEGER | **в рублях** (единый стандарт; конверсии нет) |
 | comments | TEXT | |

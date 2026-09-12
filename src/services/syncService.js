@@ -843,10 +843,19 @@ class SyncService {
       );
 
       if (errorResult) {
-        console.error('[SyncService] Ошибка отправки операции. Она останется в очереди.', {
-          operation: op,
-          error: new Error(`Сервер вернул ошибку для операции: ${errorResult.error}`),
-        });
+        // Сервер присылает `details` (message/sql/bindings) — без них отклонённую
+        // операцию невозможно диагностировать: в консоли было только «DATABASE_ERROR».
+        const details = errorResult.details ?? null;
+        const reason = details?.message ? `: ${details.message}` : '';
+
+        console.error(
+          `[SyncService] Сервер отклонил операцию (${errorResult.error})${reason}. Она останется в очереди.`,
+          {
+            operation: op,
+            error: new Error(`Сервер вернул ошибку для операции: ${errorResult.error}`),
+            details,
+          }
+        );
 
         // Возвращаем в pending: повторим в следующем sync(), не в этой волне.
         await operationsRepo.markPending([op.id]);
