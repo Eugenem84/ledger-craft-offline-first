@@ -69,6 +69,12 @@ const notify = (type, message) => $q.notify({ type, message })
 onMounted(async () => {
   try {
     await draft.init({ create: isCreateRoute.value })
+
+    // Новый заказ начинаем сразу с выбора работ: пустая форма не должна выглядеть
+    // «без возможности добавить» (вкладка существует только в режиме правки).
+    if (isCreateRoute.value && draft.editMode) {
+      tab.value = 'servicesChoice'
+    }
   } catch (err) {
     console.error(err)
     notify('negative', 'Ошибка загрузки заказа')

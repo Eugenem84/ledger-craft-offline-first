@@ -38,19 +38,20 @@ const isChosen = service => props.chosen.some(chosen => chosen.id === service.id
         @update:model-value="value => emit('update:selectedCategory', value)"
       />
 
-      <div class="row items-center no-wrap q-mt-sm">
-        <div class="text-caption lc-mute col">
-          выберите {{ t('service') }} — она добавится в заказ
-        </div>
-        <q-btn
-          dense
-          no-caps
-          outline
-          color="secondary"
-          icon="add"
-          :label="`новая ${t('service')}`"
-          @click="emit('create')"
-        />
+      <!-- Главное действие вкладки — заметная кнопка с «+» (раньше был мелкий outline). -->
+      <q-btn
+        class="full-width q-mt-md"
+        unelevated
+        no-caps
+        color="secondary"
+        text-color="black"
+        icon="add"
+        :label="`Добавить ${t('service')}`"
+        @click="emit('create')"
+      />
+
+      <div class="text-caption lc-mute q-mt-sm">
+        Или выберите {{ t('service') }} из списка ниже — она сразу попадёт в заказ.
       </div>
     </div>
 

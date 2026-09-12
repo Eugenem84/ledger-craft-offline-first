@@ -58,29 +58,30 @@ const statusOptions = computed(() => ORDER_STATUSES.map(item => ({ label: item.l
         </div>
       </div>
 
+      <!-- Вход в правку подписан словом: раньше была только иконка-карандаш,
+           и разделы «работа/материалы» выглядели недоступными. -->
       <q-btn
         v-if="!editMode"
-        flat
-        round
         dense
-        icon="edit"
+        no-caps
+        outline
         color="secondary"
+        icon="edit"
+        label="Изменить"
         @click="emit('edit')"
-      >
-        <q-tooltip class="text-caption">редактировать</q-tooltip>
-      </q-btn>
+      />
 
       <q-btn
         v-else
-        flat
-        round
         dense
-        icon="save"
+        no-caps
+        unelevated
         color="secondary"
+        text-color="black"
+        icon="save"
+        label="Сохранить"
         @click="emit('save')"
-      >
-        <q-tooltip class="text-caption">сохранить</q-tooltip>
-      </q-btn>
+      />
 
       <q-btn flat round dense icon="share" color="secondary" :loading="busy" @click="emit('share')">
         <q-tooltip class="text-caption">скопировать ссылку на отчёт</q-tooltip>

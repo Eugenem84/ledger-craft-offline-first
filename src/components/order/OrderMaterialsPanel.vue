@@ -23,30 +23,33 @@ const emit = defineEmits([
 
 <template>
   <q-tab-panel name="materialsChoice" class="q-pa-none">
-    <div class="row items-center no-wrap q-pa-md q-gutter-x-sm">
-      <div class="col text-caption lc-mute">
-        материалы: <span class="lc-money">{{ props.materialsTotal }} р</span>
-        · товары: <span class="lc-money">{{ props.productsTotal }} р</span>
-      </div>
+    <div class="q-pa-md">
+      <!-- Главные действия вкладки — заметные кнопки с «+» (раньше были мелкие dense). -->
       <q-btn
-        dense
-        no-caps
-        outline
-        color="secondary"
-        icon="inventory_2"
-        label="со склада"
-        @click="emit('add-store-product')"
-      />
-      <q-btn
-        dense
-        no-caps
+        class="full-width"
         unelevated
+        no-caps
         color="secondary"
         text-color="black"
         icon="add"
-        label="материал"
+        label="Добавить материал"
         @click="emit('create-material')"
       />
+
+      <q-btn
+        class="full-width q-mt-sm"
+        outline
+        no-caps
+        color="secondary"
+        icon="inventory_2"
+        label="Добавить товар со склада"
+        @click="emit('add-store-product')"
+      />
+
+      <div class="text-caption lc-mute q-mt-sm">
+        материалы: <span class="lc-money">{{ props.materialsTotal }} р</span>
+        · товары: <span class="lc-money">{{ props.productsTotal }} р</span>
+      </div>
     </div>
 
     <OrderMaterialsEditor
