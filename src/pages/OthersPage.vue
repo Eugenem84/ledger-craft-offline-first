@@ -1,15 +1,25 @@
 <script setup>
 import { logger } from 'src/utils/logger'
 
-import { computed, onMounted } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useQuasar } from 'quasar'
 import SyncService from '../services/syncService.js'
+import { createBackup, getLastBackupAt } from 'src/services/backupService.js'
 import { useSpecializationsStore } from 'src/stores/useSpecializationsStore.js'
 
 const $q = useQuasar()
 
 // 1. Получаем экземпляр хранилища
 const specializationsStore = useSpecializationsStore()
+
+// Бэкап локальной БД (задача 4.4): на Android — файл в документах устройства,
+// в браузере — скачивание дампа `.sqlite`.
+const backupLoading = ref(false)
+const lastBackupAtValue = ref(null)
+const lastBackupAt = computed(() => {
+  if (!lastBackupAtValue.value) return 'ещё не делался'
+  return new Date(lastBackupAtValue.value).toLocaleString()
+})
 
 // 2. Создаем вычисляемое свойство для опций селекта
 const specializationOptions = computed(() => specializationsStore.items.map(item => ({
@@ -24,10 +34,9 @@ const selectedSpecialization = computed({
 })
 
 // 4. Загружаем данные при монтировании компонента
-onMounted(() => {
-  specializationsStore.load().then(() => {
-    // Первая специализация будет выбрана по умолчанию в сторе
-  })
+onMounted(async () => {
+  await specializationsStore.load() // Первая специализация будет выбрана по умолчанию в сторе
+  lastBackupAtValue.value = await getLastBackupAt()
 })
 
 const sync = async () => {
@@ -66,6 +75,26 @@ const deleteDB = async () => {
   }
 }
 
+// Бэкап локальной БД (задача 4.4). На Android файл ляжет в документы устройства,
+// в браузере дамп скачается файлом.
+const makeBackup = async () => {
+  backupLoading.value = true
+  try {
+    const backup = await createBackup()
+    lastBackupAtValue.value = backup.createdAt
+    $q.notify({
+      type: 'positive',
+      message: `Бэкап создан: ${backup.fileName}`,
+      timeout: 4000,
+    })
+  } catch (error) {
+    console.error('Ошибка при создании бэкапа:', error)
+    $q.notify({ type: 'negative', message: `Не удалось создать бэкап: ${error.message}` })
+  } finally {
+    backupLoading.value = false
+  }
+}
+
 </script>
 
 <template>
@@ -89,6 +118,16 @@ const deleteDB = async () => {
         color="primary"
         @click="sync"
       />
+
+      <q-btn
+        label="Создать бэкап"
+        color="primary"
+        :loading="backupLoading"
+        @click="makeBackup"
+      >
+        <q-tooltip>Копия локальной базы: на Android — файл в документах, в браузере — скачивание</q-tooltip>
+      </q-btn>
+      <div class="text-caption">Последний бэкап: {{ lastBackupAt }}</div>
 
       <q-btn
         label="Полный сброс (для отладки)"

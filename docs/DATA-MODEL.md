@@ -184,6 +184,11 @@ order_id, sale_price, ...`.
 ### migrations
 `id TEXT PK, applied_at TEXT` — учёт применённых миграций (создаётся в boot-файле).
 
+Версия схемы как целого хранится не в таблице, а в самой БД: `PRAGMA user_version` =
+`SCHEMA_VERSION` (число миграций, `src/database/schema-version.js`). Так версия есть и у
+нативного файла SQLite на Android (её же возвращает `getVersion()` плагина), и у sql.js в
+браузере; сверка — в `src/database/migrate.js` (задача 4.5).
+
 ### operations (очередь синхронизации)
 `id TEXT PK, type TEXT (insert|update|delete), "table" TEXT, payload TEXT (JSON),
 status TEXT (pending|sending|synced), created_at INTEGER, updated_at INTEGER`.
@@ -197,6 +202,11 @@ status TEXT (pending|sending|synced), created_at INTEGER, updated_at INTEGER`.
 `key TEXT PK, value TEXT`. Курсор выдачи ведётся **на таблицу** (задача 3.6): ключ
 `last_synced_at:<table>` (epoch-мс). Старый общий ключ `last_synced_at` читается как начальное
 значение, если у таблицы своего курсора ещё нет — плавный апгрейд без перетягивания всего заново.
+Ключ `last_backup_at` (ISO-строка) — время последнего бэкапа для автобэкапа (задача 4.4).
+
+Запись идёт через `INSERT OR REPLACE` (ключ — PK), а не UPSERT: синтаксис
+`ON CONFLICT … DO UPDATE` требует SQLite ≥ 3.24 (Android 10+), а нативный SQLite берётся из
+системы (у плагина minSdk 23 → Android 6 → SQLite 3.8).
 
 ## Маппинг серверных id в FK
 

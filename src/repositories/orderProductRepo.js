@@ -9,7 +9,7 @@
 // его стоит добавить вместе с рефакторингом страницы (Фаза 8).
 import { logger } from 'src/utils/logger'
 import { v4 as uuidv4 } from 'uuid'
-import dbAdapter from 'src/database/adapters/sqljs-web-adapter'
+import dbAdapter from 'src/database/db.js'
 import queries from 'src/database/queries/order_product.js'
 import operationsRepo from 'src/repositories/operationsRepo'
 import { toEpochSeconds } from 'src/utils/timestamps.js'

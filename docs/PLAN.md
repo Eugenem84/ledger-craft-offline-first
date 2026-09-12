@@ -155,21 +155,25 @@ amount`). В обе позиции добавляется **`buy_price`** (се�
 
 ## Фаза 4 — Нативный SQLite через Capacitor для Android (P1)
 
-**Зачем:** сейчас локальная БД — sql.js (WASM в памяти). На Android правильнее
+**Зачем:** сейчас локальная БД в браузере — sql.js (WASM в памяти). На Android правильнее
 использовать настоящий файл SQLite через `@capacitor-community/sqlite` — он быстрее,
-надёжнее и работает по-настоящему персистентно. В коде уже есть заготовка
-`src/database/adapters/sqlite-capacitor-adapter.js`, но она не подключена, а зависимости
-в `package.json` нет.
+надёжнее и работает по-настоящему персистентно.
+
+**Сделано (12.09.2026):** зависимости стоят (линия 7.x, как в шаблоне `@quasar/app-vite` 2.4),
+`src-capacitor` создан, нативный адаптер переписан под реальный API плагина и подключён,
+версия схемы сверяется с эталоном, бэкап есть. Итоги — в `TODO.md` (Фаза 4).
+Осталось «живое»: генерация платформы Android (`cd src-capacitor && npx cap add android`,
+нужны JDK + Android SDK) и проверка на устройстве.
 
 ### Задачи
 
 | ID | Приоритет | Задача | Действия | Критерий «Готово» |
 |---|---|---|---|---|
-| 4.1 | P1 | Добавить зависимости | `npm i @capacitor/core @capacitor/community/sqlite jeep-sqlite @capacitor/cli` | сборка/запуск не падают |
-| 4.2 | P1 | Довести адаптер | В `sqlite-capacitor-adapter.js`: корректно открыть БД (`open`), `execute` для DDL (`statements` массив), `executeSet` для параметризованных insert/update, `query` с `{statement, values}`, `transaction` (begin/commit/rollback) | тест: создание таблицы миграцией + CRUD на Android |
-| 4.3 | P1 | Переключить boot на платформу | В `src/boot/db.js` выбирать адаптер по `Capacitor.isNativePlatform()`: Android → нативный SQLite, браузер → sql.js (или jeep-sqlite) | на устройстве открывается файл БД; в браузере данные не теряются |
-| 4.4 | P2 | Резервное копирование | `CapacitorSQLite.exportToJson` или копирование файла БД в файловую систему/облако | есть кнопка «бэкап» или автобэкап |
-| 4.5 | P1 | Версионирование схемы нативного SQLite | Синхронизировать «эталон» из Фазы 2 с версионированием плагина (`upgrade`/`setVersion`) | схема на устройстве совпадает с эталоном |
+| 4.1 | P1 | Добавить зависимости | `npm i @capacitor/core @capacitor/cli @capacitor-community/sqlite @capacitor/filesystem jeep-sqlite` (+ `@capacitor/android` в dev; те же плагины — в `src-capacitor/package.json`, откуда их берёт `cap sync`) | сборка/запуск не падают ✅ |
+| 4.2 | P1 | Довести адаптер | `sqlite-capacitor-adapter.js`: `SQLiteConnection` (`checkConnectionsConsistency` → `retrieveConnection`/`createConnection` → `open`), `execute(statements, transaction)` для DDL/батча, `executeSet([{statement, values}])` для параметризованных DML, `query(statement, values)`, `transaction` (begin/commit/rollback, внутри своей транзакции плагину передаётся `transaction: false`) | тест: создание таблицы миграцией + CRUD ✅ (рантайм-прогон в Node с sql.js вместо Android; на устройстве — после генерации платформы) |
+| 4.3 | P1 | Переключить boot на платформу | В `src/boot/db.js` выбирать адаптер по `Capacitor.isNativePlatform()`: Android → нативный SQLite, браузер → sql.js; **репозитории и syncService ходят в БД через единый `src/database/db.js`** (иначе на Android продолжал бы работать sql.js) | на устройстве открывается файл БД (ждать живого прогона); в браузере данные не теряются ✅ |
+| 4.4 | P2 | Резервное копирование | `exportToJson('full')` → `@capacitor/filesystem` (документы устройства, фолбэк — приватная папка), автобэкап раз в сутки; в браузере — скачивание дампа `.sqlite` | есть кнопка «бэкап» и автобэкап ✅ |
+| 4.5 | P1 | Версионирование схемы нативного SQLite | Эталон — `SCHEMA_VERSION` (число миграций Фазы 2). В плагине 7.x нет `setVersion` (был в 4.x), поэтому версия схемы пишется в саму БД (`PRAGMA user_version` — её же читает нативный `getVersion()`), сверка — в `src/database/migrate.js` | схема на устройстве совпадает с эталоном ✅ (число применённых миграций + `user_version`) |
 
 > ⚠️ Любое изменение схемы (Фаза 2) должно быть сделано **до** перевода Android на нативный
 > SQLite, иначе придётся мигрировать данные уже на устройствах. Поэтому Фаза 2 идёт раньше Фазы 4.

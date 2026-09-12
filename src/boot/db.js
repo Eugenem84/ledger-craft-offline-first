@@ -1,31 +1,37 @@
+// src/boot/db.js
+//
+// Инициализация локальной БД: выбор адаптера по платформе (4.3), миграции (Фаза 2),
+// сверка версии схемы с эталоном (4.5), авто-бэкап на нативной платформе (4.4) и
+// запуск синка.
 import { logger } from 'src/utils/logger'
 import { boot } from 'quasar/wrappers'
-import migrations from 'src/database/migrations/index.js'
+import { runMigrations, checkSchemaVersion } from 'src/database/migrate.js'
+import { setAdapter } from 'src/database/db.js'
 import syncService from 'src/services/syncService.js'
+import { autoBackupIfDue } from 'src/services/backupService.js'
 import { isNativePlatform } from 'src/utils/platform'
 
 // Выбор адаптера по платформе:
-//  • нативный Capacitor (Android) → sqlite-capacitor-adapter.js (после Фазы 4)
-//  • браузер/веб (по умолчанию)   → sqljs-web-adapter.js (sql.js в памяти + localStorage)
+//  • нативный Capacitor (Android) → sqlite-capacitor-adapter.js — файл SQLite на диске
+//  • браузер/веб (по умолчанию)   → sqljs-web-adapter.js — sql.js + localStorage
 //
-// Плагин @capacitor-community/sqlite в Фазе 4 ЕЩЁ НЕ установлен, поэтому
-// адаптер грузим динамически по переменной-пути (чтобы Vite не резолвил
-// несуществующий импорт на этапе web-сборки). Пока Фаза 4 не сделана,
-// везде работает sql.js — это и есть «переключатель, прикрученный заранее».
+// Путь импорта — литерал, поэтому Rollup выносит нативный адаптер в отдельный чанк:
+// в вебе он не скачивается, а в приложении подгружается по требованию. Важно: прежний
+// вариант «путь в переменной» Vite не мог проанализировать, и в нативном приложении
+// модуль просто не находился (фолбэк на sql.js).
 async function resolveAdapter() {
   if (isNativePlatform()) {
-    const adapterPath = '../database/adapters/sqlite-capacitor-adapter.js'
     try {
-      const mod = await import(adapterPath)
-      if (mod?.default) {
-        logger.log('[DB] ВЫБРАН адаптер: sqlite (Capacitor, нативный)')
-        return mod.default
-      }
+      const { default: adapter } = await import(
+        '../database/adapters/sqlite-capacitor-adapter.js'
+      )
+      logger.log('[DB] ВЫБРАН адаптер: sqlite (Capacitor, настоящий файл SQLite)')
+      return adapter
     } catch (err) {
-      logger.warn('[DB] Capacitor-адаптер недоступен (плагин не установлен, Фаза 4):', err?.message)
-      logger.warn('[DB] Фолбэк на sql.js')
+      logger.warn('[DB] Нативный адаптер недоступен — фолбэк на sql.js:', err?.message)
     }
   }
+
   const { default: adapter } = await import('../database/adapters/sqljs-web-adapter.js')
   logger.log('[DB] ВЫБРАН адаптер: sql.js (веб, localStorage)')
   return adapter
@@ -35,51 +41,26 @@ export default boot(async () => {
   logger.log('[DB] Boot start') // 1️⃣ запуск boot-файла
 
   try {
-    const dbAdapter = await resolveAdapter()
-    //logger.log('[DB] Adapter loaded:', dbAdapter)
+    const adapter = await resolveAdapter()
+    setAdapter(adapter)
+    await adapter.init()
 
-    await dbAdapter.init()
-    //logger.log('[DB] Adapter initialized')
+    const applied = await runMigrations(adapter)
+    logger.log(`[DB] Миграций применено в этом запуске: ${applied}`)
 
-    await dbAdapter.execute(`
-    CREATE TABLE IF NOT EXISTS migrations (
-      id TEXT PRIMARY KEY,
-      applied_at TEXT
-    )
-  `)
-
-    for (const migration of migrations) {
-      // Проверяем, применялась ли миграция
-      const result = await dbAdapter.query(
-        'SELECT id FROM migrations WHERE id = ?',
-        [migration.id]
-      )
-      if (!result.length) {
-        await migration.up(dbAdapter) // выполняем миграцию
-        await dbAdapter.execute(
-          'INSERT INTO migrations (id, applied_at) VALUES (?, ?)',
-          [migration.id, new Date().toISOString()]
-        )
-      }
-    }
+    await checkSchemaVersion(adapter)
 
     logger.log('sync activated')
     await syncService.sync()
 
-    // dbAdapter.execute(`
-    //   INSERT OR IGNORE INTO clients (id, name) VALUES
-    //     ('1', 'Alice'),
-    //     ('2', 'Bob'),
-    //     ('3', 'Charlie');
-    // `)
-
-    const rows = await dbAdapter.query('SELECT * FROM clients')
-    logger.log('[DB] Проверка: клиенты из базы →', rows)
-
+    // Автобэкап (4.4) — только нативно: у sql.js копия данных уже лежит в
+    // localStorage, а на Android бэкап — это файл, который делает плагин.
+    if (isNativePlatform()) {
+      await autoBackupIfDue()
+    }
   } catch (err) {
     console.error('[DB] Ошибка при инициализации:', err)
   }
 
   logger.log('[DB] Boot end')
-
 })

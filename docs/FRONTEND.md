@@ -14,13 +14,17 @@ src/
 │   └── pinia.js                  # подключение Pinia
 ├── services/
 │   ├── api.js                    # axios-клиент: baseURL, X-Sync-ID, send()/fetchUpdates()
-│   └── syncService.js            # движок синхронизации (517 строк)
+│   ├── syncService.js            # движок синхронизации
+│   └── backupService.js          # бэкап локальной БД (задача 4.4)
 ├── database/
+│   ├── db.js                     # единая точка доступа к БД (делегат на активный адаптер, 4.3)
+│   ├── migrate.js                # прогон миграций + сверка версии схемы (4.5)
+│   ├── schema-version.js         # SCHEMA_VERSION — «эталон» схемы Фазы 2 (4.5)
 │   ├── adapters/
-│   │   ├── sqljs-web-adapter.js      # АКТИВНЫЙ адаптер (sql.js, в памяти)
-│   │   ├── sqlite-capacitor-adapter.js # целевой адаптер под Android (Capacitor SQLite), НЕ подключён
-│   │   └── storage-adapter.js        # заглушка-интерфейс + clear()
-│   ├── migrations/               # 19 файлов версий схемы (001…023; старые дубли удалены в 2.1)
+│   │   ├── sqljs-web-adapter.js       # веб: sql.js (WASM) + localStorage
+│   │   ├── sqlite-capacitor-adapter.js # Android: нативный SQLite (@capacitor-community/sqlite)
+│   │   └── storage-adapter.js         # дамп sql.js в localStorage/IndexedDB
+│   ├── migrations/               # 18 версий схемы (001…023; дубли удалены в 2.1)
 │   │   └── index.js              # порядок применения миграций
 │   └── queries/                  # SQL-строки по сущностям (clients, orders, services, …)
 ├── repositories/
@@ -82,16 +86,38 @@ src/
 
 ## 3. Локальная БД
 
-Работает через адаптер `sqljs-web-adapter.js`: sql.js (SQLite в WASM), БД создаётся
-`new SQL.Database()` при каждом запуске **в памяти**.
+Работа идёт **только через `src/database/db.js`** (задача 4.3) — это делегат, который
+перенаправляет вызовы в активный адаптер. Адаптер выбирает `src/boot/db.js`:
 
-- `execute(sql, params)` → `db.run(sql, params)`
-- `query(sql, params)` → `db.exec(sql, params)`, строки маппятся в объекты
-- `transaction(cb)` → просто `await cb()` без BEGIN/COMMIT (фейковые транзакции)
-- `enqueueOperation()` → заглушка «пока пусть молчит» ⚠️
-- выгрузки на диск / загрузки с диска **нет вообще** (нет `db.export()` → запись в storage)
+| Платформа | Адаптер | Где живут данные |
+|---|---|---|
+| Android (Capacitor) | `adapters/sqlite-capacitor-adapter.js` | настоящий файл SQLite: `data/data/<package>/databases/ledgercraftSQLite.db` (плагин `@capacitor-community/sqlite`) |
+| Браузер (Quasar SPA) | `adapters/sqljs-web-adapter.js` | sql.js (SQLite в WASM) + дамп в localStorage (ключ `sqljs_db`), при переполнении — IndexedDB |
 
-Полный список таблиц и колонок — в `docs/DATA-MODEL.md`.
+Интерфейс адаптера: `init()`, `execute(sql, params)`, `query(sql, params)`, `queryOne()`,
+`transaction(cb)` (реальные `BEGIN`/`COMMIT`/`ROLLBACK`), `deleteDatabase()`,
+`enqueueOperation()` (заглушка — очередь живёт в таблице `operations`) и платформенные
+методы: `getSchemaVersion()`/`setSchemaVersion()` (обёртка над `PRAGMA user_version`) и
+`exportDatabaseJson()` (нативный) / `exportDatabaseBytes()` (веб) — для бэкапа (4.4).
+
+Импорт нативного адаптера — динамический (`await import()` с литеральным путём), поэтому
+Rollup выносит его в отдельный чанк: в браузере он не скачивается, а на устройстве
+подгружается по требованию. Прежний вариант «путь в переменной» Vite не мог
+проанализировать — на Android модуль просто не находился.
+
+Бэкап (задача 4.4): на Android `backupService.createBackup()` выгружает БД через
+`exportToJson('full')` и кладёт JSON в документы устройства (при недоступности публичной
+папки — в приватную папку приложения), автоматически раз в сутки при старте; в браузере
+скачивается дамп `.sqlite`. Кнопка «Создать бэкап» — в `OthersPage.vue`.
+
+### Версия схемы (задача 4.5)
+
+Эталон — список миграций: `SCHEMA_VERSION` в `src/database/schema-version.js`
+(равен числу миграций). Отдельного `setVersion` у плагина `@capacitor-community/sqlite` 7.x
+нет (он был в 4.x), поэтому версия схемы хранится в самой БД — в `PRAGMA user_version`
+(её же возвращает нативный `getVersion()`). После прогона миграций `src/database/migrate.js`
+сверяет число применённых миграций и `user_version` с эталоном и при расхождении записывает
+эталон заново; расхождение попадает в лог ошибок.
 
 ### Миграции
 
@@ -225,10 +251,11 @@ return id;
 ## 7. Известные проблемы (полный список)
 
 ### Критические
-1. **Локальная БД не персистится**: sql.js в памяти, нет `db.export()`/загрузки из
-   localStorage/IndexedDB. После перезапуска приложения все данные исчезают.
-2. **WASM с CDN**: `initSqlJs({ locateFile: ... sql.js.org ... })` — без интернета приложение
-   не стартует.
+1. ~~**Локальная БД не персистится**~~ — исправлено в Фазе 1: sql.js сохраняет дамп
+   (`db.export()`) в localStorage (ключ `sqljs_db`) с fallback в IndexedDB, а на Android
+   Фаза 4 включила настоящий файл SQLite на диске.
+2. ~~**WASM с CDN**~~ — исправлено в Фазе 1: `public/sql-wasm.wasm` +
+   `locateFile: () => '/sql-wasm.wasm'`, приложение стартует без интернета.
 3. **`specializationsRepo` использует `dbAdapter.enqueueOperation()`** — метод-заглушку.
    Изменения специализаций не попадают в очередь и не синхронизируются на сервер.
    ⚠️ Следствие, найденное при задаче 3.2: у специальности не появляется `server_id`

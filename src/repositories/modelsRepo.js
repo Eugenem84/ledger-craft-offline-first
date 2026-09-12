@@ -1,6 +1,6 @@
 import { logger } from 'src/utils/logger'
 import { v4 as uuidv4 } from 'uuid'
-import dbAdapter from 'src/database/adapters/sqljs-web-adapter'
+import dbAdapter from 'src/database/db.js'
 import queries from 'src/database/queries/models'
 import operationsRepo from 'src/repositories/operationsRepo'
 import * as specializationsRepo from 'src/repositories/specializationsRepo'

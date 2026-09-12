@@ -1,7 +1,7 @@
 // services/syncService.js
 
 import { logger } from 'src/utils/logger'
-import dbAdapter from 'src/database/adapters/sqljs-web-adapter';
+import dbAdapter from 'src/database/db.js';
 import api from 'src/services/api';
 import * as metaRepo from 'src/repositories/metaRepo';
 import operationsRepo from 'src/repositories/operationsRepo';

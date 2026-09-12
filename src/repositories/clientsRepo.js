@@ -1,6 +1,6 @@
 import { logger } from 'src/utils/logger'
 import { v4 as uuidv4 } from 'uuid'
-import dbAdapter from 'src/database/adapters/sqljs-web-adapter'
+import dbAdapter from 'src/database/db.js'
 import queries from 'src/database/queries/clients'
 import operationsRepo from 'src/repositories/operationsRepo'
 import * as specializationsRepo from 'src/repositories/specializationsRepo'
@@ -17,6 +17,14 @@ export async function getAll() {
 
 export async function findByServerId(serverId) {
   const result = await dbAdapter.query(queries.findByServerId, [serverId]);
+  return result.length > 0 ? result[0] : null;
+}
+
+// Чтение клиента по локальному UUID (нужно, например, OrderDetailsPage после
+// создания клиента прямо из заказа). Запрос `queries.getById` был, но не экспортирован —
+// из-за этого SPA-сборка падала на «"getById" is not exported by clientsRepo».
+export async function getById(id) {
+  const result = await dbAdapter.query(queries.getById, [id]);
   return result.length > 0 ? result[0] : null;
 }
 

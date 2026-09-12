@@ -21,11 +21,12 @@
 │  Queries (готовые SQL-строки)                                     │
 │         │                                                          │
 │         ▼                                                          │
-│  Adapter БД                                                        │
-│   ├─ sqljs-web-adapter.js   (используется сейчас: sql.js в памяти) │
-│   └─ sqlite-capacitor-adapter.js (заготовка под нативный SQLite)   │
+│  Adapter БД (выбор по платформе, задача 4.3)                        │
+│   ├─ db.js — единая точка доступа (делегат на активный адаптер)      │
+│   ├─ sqljs-web-adapter.js       (браузер: sql.js + localStorage)     │
+│   └─ sqlite-capacitor-adapter.js (Android: нативный SQLite, файл)    │
 │         ▼                                                          │
-│  Локальная БД (SQLite через sql.js)                                │
+│  Локальная БД: файл SQLite на устройстве / дамп sql.js в браузере    │
 └──────────────────────┬─────────────────────────────────────────────┘
                        │  SyncService (services/syncService.js)
                        │    local→server: очередь operations → POST /api/sync
@@ -214,6 +215,37 @@
 натуральному ключу (серверные id), `applyServerRecord` матчит строку по `uuid_id` (а не по
 `server_id`). Правка заказа больше не оставляет дублей работ на сервере.
 
+### 4.5. Платформенный слой: настоящий SQLite на Android (Фаза 4)
+
+- **Один интерфейс — два адаптера.** Репозитории и `syncService` работают через
+  `src/database/db.js` (делегат на активный адаптер), иначе выбор в boot не имел бы смысла:
+  на Android продолжал бы работать sql.js из памяти. Выбирает адаптер `src/boot/db.js`
+  по `Capacitor.isNativePlatform()` (см. `src/utils/platform.js`).
+- **Android** → `@capacitor-community/sqlite` (линия 7.x): соединение создаётся через
+  `SQLiteConnection` (`checkConnectionsConsistency` → `retrieveConnection`/`createConnection`
+  → `open()`), DDL/PRAGMA идут батчем через `execute`, параметризованные INSERT/UPDATE — через
+  `executeSet`, SELECT — через `query`, транзакции — плагинными `begin/commit/rollback`.
+  Внутри своей транзакции адаптер передаёт плагину `transaction: false`, иначе получился бы
+  вложенный `BEGIN` (SQLite так не умеет). БД — файл
+  `data/data/<package>/databases/ledgercraftSQLite.db`, шифрование пока выключено
+  (SQLCipher требует хранения пароля — задача Фазы 7).
+- **Браузер** → sql.js + дамп в localStorage/IndexedDB (Фаза 1).
+- **Версия схемы (4.5).** Эталон — `SCHEMA_VERSION` = число миграций
+  (`src/database/schema-version.js`). В плагине 7.x нет `setVersion`, поэтому версия схемы —
+  это `PRAGMA user_version` в самом файле БД (её же читает нативный `getVersion()`);
+  `src/database/migrate.js` после прогона миграций сверяет её и число применённых миграций
+  с эталоном.
+- **Бэкап (4.4).** На Android — `exportToJson('full')` + `@capacitor/filesystem` (документы
+  устройства, при недоступности — приватная папка приложения), автоматически раз в сутки при
+  старте; в браузере — скачивание дампа `.sqlite`. Кнопка — в `OthersPage.vue`.
+- **Совместимость нативного SQLite.** Плагин использует системный SQLite (minSdk 23 →
+  Android 6 = SQLite 3.8), поэтому синтаксис, требующий SQLite ≥ 3.24, в локальных запросах
+  запрещён: найденный UPSERT (`ON CONFLICT … DO UPDATE`) в `metaRepo` заменён на
+  `INSERT OR REPLACE` (задача 4.x-примечание в TODO).
+- **Что ещё не сделано:** нативная сборка (`src-capacitor` добавлен, но платформа Android не
+  сгенерирована — нужен JDK + Android SDK: `npx cap add android`), проверка на живом
+  устройстве, восстановление из бэкапа (сейчас только создание).
+
 ## 5. UI и состояние
 
 - Страницы напрямую не ходят в БД; они используют Pinia-сторы.
@@ -229,29 +261,38 @@
 | `src/boot/*` | инициализация при старте (axios, БД + миграции + синк, pinia) |
 | `src/services/api.js` | axios-клиент к серверу (единственное место сетевых вызовов) |
 | `src/services/syncService.js` | движок синхронизации |
+| `src/services/backupService.js` | бэкап локальной БД (нативный — файл, веб — дамп) |
 | `src/repositories/*` | работа с локальной БД + постановка операций в очередь |
 | `src/repositories/operationsRepo.js` | очередь `operations` (статусы `pending`/`sending`/`synced`, восстановление in-flight операций) |
-| `src/repositories/metaRepo.js` | метаданные (в т.ч. `last_synced_at`) |
-| `src/database/adapters/*` | абстракция «БД» (sql.js сейчас, Capacitor — заготовка) |
+| `src/repositories/metaRepo.js` | метаданные (`last_synced_at:<table>`, отметка о бэкапе) |
+| `src/database/db.js` | единая точка доступа к БД (делегат на активный адаптер) |
+| `src/database/migrate.js` | прогон миграций + сверка версии схемы с эталоном |
+| `src/database/schema-version.js` | `SCHEMA_VERSION` — эталон схемы (число миграций) |
+| `src/database/adapters/*` | адаптеры БД: sql.js (браузер) и нативный SQLite (Android) |
 | `src/database/migrations/*` | версии схемы локальной БД |
 | `src/database/queries/*` | SQL-запросы для репозиториев |
 | `src/stores/*` | Pinia-сторы (состояние UI-сущностей) |
 | `src/pages/*` | страницы; `src/pages/dialogs/*` — модальные диалоги |
+| `src-capacitor/*` | Capacitor-проект (Android): `capacitor.config.json`, зависимости плагинов |
 
 ## 7. Главные архитектурные проблемы
 
-1. **БД не сохраняется на диск** — offline-first фактически не работает после перезапуска
-   приложения.
-2. **sql.js грузится с CDN** — для старта приложения нужен интернет.
+1. ~~**БД не сохраняется на диск**~~ — исправлено в Фазе 1 (дамп sql.js в
+   localStorage/IndexedDB) и в Фазе 4 (на Android — настоящий файл SQLite на диске).
+2. ~~**sql.js грузится с CDN**~~ — исправлено в Фазе 1 (`public/sql-wasm.wasm`).
 3. **Sync-движок** отправляет операции волнами с топологической сортировкой по FK, статусами
    очереди и устойчивостью к сети (задачи 3.1–3.4, 3.7), курсор выдачи — свой у каждой таблицы
    (3.6, FE-часть), нет координации одновременных `sync()` из разных вкладок (флаг `syncing`
    живёт только в памяти). Повторная отправка «подозрительной» операции дублей не создаёт —
    сервер идемпотентен по `uuid_id` (задача 3.5).
-4. **Платформенный слой** раздвоен: `sqlite-capacitor-adapter.js` — правильный целевой
-   адаптер под Android (Capacitor + нативный SQLite), но он не подключён, а зависимости
-   `@capacitor-community/sqlite` в `package.json` нет; папка `src-capacitor` в репозитории
-   отсутствует, поэтому продакшен-сборка Android из репозитория не воспроизводится.
-5. **Синхронизация связных таблиц** (`order_product`, `order_material`) просто не доработана.
+4. **Платформенный слой собран (Фаза 4):** нативный адаптер подключён, зависимости на месте,
+   `src-capacitor` создан; версия схемы на устройстве сверяется с эталоном, бэкап есть.
+   Осталось: сгенерировать платформу Android (`npx cap add android`, нужен JDK + Android SDK),
+   проверить на живом устройстве, включить шифрование файла БД (Фаза 7).
+5. **Синхронизация связных таблиц** (`order_product`, `materials`) сделана в 3.4; не подключены
+   к офлайн-слою `incoming_products`, `product_stocks`, `buy_product_prices`,
+   `sales_products_prices` (задачи 9.2/9.3).
+6. **Тестов нет** — `npm test` пока заглушка (Фаза 5); проверки Фаз 3–4 выполнялись
+   рантайм-скриптами (Node + esbuild + заглушки плагинов).
 
 Подробности, карта файлов и известные баги — в `docs/FRONTEND.md` и `docs/DATA-MODEL.md`.

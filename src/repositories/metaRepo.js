@@ -2,7 +2,10 @@
 //
 // Метаданные синка. Курсор выдачи ведётся НА ТАБЛИЦУ (задача 3.6): сбой в одной таблице
 // не двигает её курсор и не мешает остальным таблицам забирать своё.
-import db from 'src/database/adapters/sqljs-web-adapter';
+//
+// Работаем через единую точку доступа к БД (задача 4.3), а не через конкретный
+// адаптер: на Android это нативный SQLite, в браузере — sql.js.
+import db from 'src/database/db.js';
 
 // Старый общий ключ (до 3.6). Читаем его как начальное значение, чтобы после обновления
 // приложения не перетягивать все таблицы заново.
@@ -11,17 +14,37 @@ const TABLE_KEY_PREFIX = 'last_synced_at:';
 
 const tableKey = (table) => `${TABLE_KEY_PREFIX}${table}`;
 
+/**
+ * Читает значение метаданных по ключу.
+ * @param {string} key
+ * @returns {Promise<string|null>}
+ */
+export async function getValue(key) {
+  const rows = await db.query('SELECT value FROM meta WHERE key = ?', [key]);
+  return rows.length ? rows[0].value : null;
+}
+
+/**
+ * Пишет значение метаданных (создаёт или заменяет).
+ *
+ * `INSERT OR REPLACE`, а не UPSERT (`ON CONFLICT ... DO UPDATE`): синтаксис UPSERT
+ * требует SQLite ≥ 3.24, то есть Android 10+. Нативный SQLite берётся из системы
+ * (у плагина minSdk 23 → Android 6), поэтому UPSERT там падал бы. `key` — PRIMARY KEY,
+ * так что REPLACE корректен.
+ * @param {string} key
+ * @param {string|number} value
+ */
+export async function setValue(key, value) {
+  await db.execute('INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)', [key, value]);
+}
+
 async function readTimestamp(key) {
-  const rows = await db.query(`SELECT value FROM meta WHERE key = ?`, [key]);
-  return rows.length ? parseInt(rows[0].value) : 0;
+  const value = await getValue(key);
+  return value ? parseInt(value) : 0;
 }
 
 async function writeTimestamp(key, ts) {
-  await db.execute(`
-    INSERT INTO meta (key, value)
-    VALUES (?, ?)
-    ON CONFLICT(key) DO UPDATE SET value = ?
-  `, [key, ts, ts]);
+  await setValue(key, ts);
 }
 
 /**

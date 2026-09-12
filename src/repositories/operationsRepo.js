@@ -10,7 +10,7 @@
 // Сбой между отправкой и ответом операцию не теряет: она остаётся в очереди
 // в статусе sending/synced, а следующий sync() возвращает её в работу
 // (recoverInFlight). См. docs/ARCHITECTURE.md §4.1.
-import db from 'src/database/adapters/sqljs-web-adapter';
+import db from 'src/database/db.js';
 import { toEpochSeconds } from 'src/utils/timestamps.js'
 
 const STATUS = {

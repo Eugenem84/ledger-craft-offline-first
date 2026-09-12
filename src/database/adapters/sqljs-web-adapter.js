@@ -29,6 +29,8 @@ if (typeof window !== 'undefined') {
 }
 
 const dbAdapter = {
+  name: 'sqljs-web',
+
   init: async function() {
     try {
       const SQL = await initSqlJs({
@@ -125,6 +127,36 @@ const dbAdapter = {
 
   dequeueOperations: function() {
     return []
+  },
+
+  /**
+   * Версия схемы (задача 4.5). В браузере это тот же `PRAGMA user_version`, что и на
+   * нативном SQLite: так проверка «схема совпадает с эталоном» работает на обеих
+   * платформах, а номер лежит внутри самой БД.
+   */
+  getSchemaVersion: async function() {
+    const rows = this.query('PRAGMA user_version')
+    return rows.length ? Number(rows[0].user_version) : 0
+  },
+
+  setSchemaVersion: async function(version) {
+    const value = Math.trunc(Number(version))
+    if (!Number.isFinite(value) || value < 0) {
+      throw new Error(`[SQLJS] Некорректная версия схемы: ${version}`)
+    }
+    // bind-параметры в PRAGMA не поддерживаются — подставляем проверенное число.
+    this.execute(`PRAGMA user_version = ${value}`)
+  },
+
+  /**
+   * Дамп БД целиком — для бэкапа в браузере (задача 4.4).
+   * @returns {Uint8Array}
+   */
+  exportDatabaseBytes: async function() {
+    if (!db) {
+      throw new Error('Database not initialized')
+    }
+    return db.export()
   },
 
   /**

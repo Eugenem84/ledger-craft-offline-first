@@ -15,8 +15,12 @@
     "postinstall": "quasar prepare"
   },
   "dependencies": {
+    "@capacitor-community/sqlite": "^7.0.3",
+    "@capacitor/core": "^7.6.9",
+    "@capacitor/filesystem": "^7.1.8",
     "@quasar/extras": "^1.16.4",
     "axios": "^1.2.1",
+    "jeep-sqlite": "^2.8.0",
     "pinia": "^3.0.1",
     "quasar": "^2.16.0",
     "sql.js": "^1.13.0",
@@ -25,6 +29,8 @@
     "vue-router": "^4.0.0"
   },
   "devDependencies": {
+    "@capacitor/android": "^7.6.9",
+    "@capacitor/cli": "^7.6.9",
     "@eslint/js": "^9.14.0",
     "@quasar/app-vite": "^2.1.0",
     "@vue/eslint-config-prettier": "^10.1.0",

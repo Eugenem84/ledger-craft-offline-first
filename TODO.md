@@ -45,7 +45,7 @@
 - [x] **Фаза 1** — Локальная БД реально персистентная · 4/4 · *данные переживают перезапуск*
 - [x] **Фаза 2** — Схема, миграции, деньги, транзакции · 6/6 · *одна истина в схеме, единые деньги* (серверные типы денег → 3.12)
 - [x] **Фаза 3** — Переписать синхронизацию · FE 8/8 · BE 8/8 · *связные таблицы синкаются без «двойного прогона»* (Фаза закрыта полностью: 3.1–3.12; Go-сайдкар вынесен в песочницу)
-- [ ] **Фаза 4** — Нативный SQLite (Capacitor) для Android · 0/5 · *настоящий SQLite на диске*
+- [x] **Фаза 4** — Нативный SQLite (Capacitor) для Android · 5/5 · *настоящий SQLite на диске*
 - [ ] **Фаза 5** — Тесты · FE 0/5 · BE 0/1 · *регрессии ловятся автоматически (особенно по синку)*
 - [ ] **Фаза 6** — UX офлайна и синка · 0/3 · *приложение не блокируется на синке, есть индикатор сети*
 - [ ] **Фаза 7** — Конфигурация и безопасность · FE 0/5 · BE 0/2 · *env, токены, осмысленный вход*
@@ -332,7 +332,6 @@
       серверному, не тронут; delete с версией не ломает `markSynced`; после своей отправки старая
       серверная копия не перетирает запись (LWW), новая — применяется; `npm run lint` — 0; сборка
       SPA — проходит
-- [ ] **3.9** [BE] (P0) Удаления должны доезжать до других устройств
 - [x] **3.9** [BE] (P0) Удаления должны доезжать до других устройств
       → `tableHasSoftDeletes()` знал только `clients, products, services, categories`, а `deleted_at`
       реально есть ещё у `orders` (миграция `2026_02_11_133000`), `equipment_models`, `order_service`
@@ -413,23 +412,106 @@
 
 ## Фаза 4 — Нативный SQLite через Capacitor для Android (P1)
 
-- [ ] **4.1** (P1) Добавить зависимости
-      → `npm i @capacitor/core @capacitor/community/sqlite jeep-sqlite @capacitor/cli`
-      → *критерий:* сборка/запуск не падают
-- [ ] **4.2** (P1) Довести адаптер `sqlite-capacitor-adapter.js`
-      → корректный `open`, `execute` для DDL (`statements` массив), `executeSet` для параметризованных
-      insert/update, `query` с `{statement, values}`, `transaction` (begin/commit/rollback)
-      → *критерий:* тест: создание таблицы миграцией + CRUD на Android
-- [ ] **4.3** (P1) Переключить boot на платформу
-      → в `src/boot/db.js` выбирать адаптер по `Capacitor.isNativePlatform()`:
-      Android → нативный SQLite, браузер → sql.js (или jeep-sqlite)
-      → *критерий:* на устройстве открывается файл БД; в браузере данные не теряются
-- [ ] **4.4** (P2) Резервное копирование
-      → `CapacitorSQLite.exportToJson` или копирование файла БД в файловую систему/облако
-      → *критерий:* есть кнопка «бэкап» или автобэкап
-- [ ] **4.5** (P1) Версионирование схемы нативного SQLite
-      → синхронизировать «эталон» из Фазы 2 с `upgrade`/`setVersion`
-      → *критерий:* схема на устройстве совпадает с эталоном
+- [x] **4.1** (P1) Добавить зависимости
+      → поставлены `@capacitor/core`, `@capacitor-community/sqlite` (линия 7.x — как в шаблоне
+      `@quasar/app-vite` 2.4), `@capacitor/filesystem` (для бэкапа), `jeep-sqlite`; в dev —
+      `@capacitor/cli` и `@capacitor/android`. Дополнительно создан `src-capacitor`
+      (`package.json` + `capacitor.config.json`, `appId` `com.ledgercraft.app`) — без него
+      Android-сборка не воспроизводится (это было отмечено в README как проблема); те же
+      плагины объявлены в `src-capacitor/package.json`, откуда их берёт `cap sync`
+      → *критерий:* сборка/запуск не падают ✅ (`npm run lint` — 0; `npm run build` (SPA) —
+      проходит; нативный адаптер уехал в отдельный чанк `sqlite-capacitor-adapter-*.js`)
+      → ⚠️ платформа Android не сгенерирована: `cd src-capacitor && npx cap add android` нужен
+      JDK + Android SDK (в этом окружении их нет) — иначе нативные сборки/запуск не проверить
+- [x] **4.2** (P1) Довести адаптер `sqlite-capacitor-adapter.js`
+      → переписан под реальный API плагина 7.x: соединение через `SQLiteConnection`
+      (`checkConnectionsConsistency` → `retrieveConnection`/`createConnection` → `open()`),
+      DDL/PRAGMA/батч — `execute(statements, transaction)`, параметризованные DML —
+      `executeSet([{ statement, values }])` (используется и в `execute(sql, params)`),
+      SELECT — `query(statement, values)` → `{ values }`, транзакции — `begin/commit/rollback`
+      с флагом `inTransaction`; внутри своей транзакции плагину передаётся `transaction: false`
+      (иначе вложенный `BEGIN`, которого SQLite не допускает). Плюс `deleteDatabase()`,
+      `getSchemaVersion`/`setSchemaVersion` (`PRAGMA user_version`), `exportDatabaseJson()`
+      → *критерий:* создание таблицы миграцией + CRUD ✅ — 40 рантайм-проверок в Node: заглушка
+      плагина на **настоящем sql.js** (эмулирует API 7.x, «файл на диске», вложенный BEGIN,
+      `transaction: true` по умолчанию): открытие/создание БД, все 18 миграций Фазы 2,
+      повторный прогон не применяет ничего, `clientsRepo.save/getById/getAll/findByServerId`
+      через единую точку доступа, `operationsRepo.markSynced` (реальная транзакция + версия
+      записи секундами), откат по ошибке внутри транзакции (данные откатились, был `ROLLBACK`,
+      нет вложенных `begin`), дамп `exportDatabaseJson`, «свежее открытие файла» видит запись
+      с `server_id`, удаление БД; `npm run lint` — 0; сборка SPA — проходит
+      → ⚠️ проверка на живом Android не выполнена (нет JDK/Android SDK и устройства): перед
+      закрытием «по-настоящему» нужен прогон на устройстве
+- [x] **4.3** (P1) Переключить boot на платформу
+      → найдено при разведке: 13 файлов (`*Repo`, `syncService`) импортировали
+      `sqljs-web-adapter.js` **напрямую** — выбор адаптера в boot ничего бы не изменил, на
+      Android продолжал бы работать sql.js в памяти. Добавлена единая точка доступа
+      `src/database/db.js` (делегат на активный адаптер + `setAdapter`), все репозитории и
+      `syncService` переведены на неё; `src/boot/db.js` выбирает адаптер по
+      `Capacitor.isNativePlatform()` (`src/utils/platform.js` теперь спрашивает `@capacitor/core`,
+      глобал `window.Capacitor` — фолбэк) и ставит его через `setAdapter()`
+      → импорт нативного адаптера стал динамическим **с литеральным путём**: Rollup выносит его
+      в отдельный чанк, который в браузере не скачивается (прежний «путь в переменной» Vite не
+      анализировал — на устройстве модуль просто не находился)
+      → *критерий:* на устройстве открывается файл БД (⚠️ ждёт живого прогона после `cap add
+      android`); в браузере данные не теряются ✅ — 14 рантайм-проверок: веб-адаптер активен по
+      умолчанию, миграции, `PRAGMA user_version`, репозитории через делегат, дамп открывается
+      как SQLite-файл, данные лежат в localStorage, `deleteDatabase()` чистит хранилище
+- [x] **4.4** (P2) Резервное копирование
+      → добавлен `src/services/backupService.js`: на Android `createBackup()` выгружает БД через
+      `exportToJson('full')` и кладёт JSON в документы устройства (`@capacitor/filesystem`,
+      при недоступности публичной папки — фолбэк в приватную папку приложения), автобэкап
+      (`autoBackupIfDue`) раз в сутки при старте нативного приложения, отметка — `meta.last_backup_at`;
+      в браузере бэкап — скачивание дампа `.sqlite` файлом. Кнопка «Создать бэкап» + строка
+      «Последний бэкап» — в `OthersPage.vue`
+      → *критерий:* есть кнопка «бэкап» и автобэкап ✅ — 15 рантайм-проверок с заглушками
+      `@capacitor/core` (нативная платформа) и `@capacitor/filesystem`: формат и имя файла,
+      фолбэк Documents → Data, содержимое — валидный JSON со строкой клиента, отметка времени,
+      повтор в тот же день не делается, через 25 часов бэкап создаётся
+      → ⚠️ восстановление из бэкапа в этой задаче не требовалось критерием: сейчас делается
+      только создание (путь восстановления — `importFromJson` плагина, отдельная задача)
+- [x] **4.5** (P1) Версионирование схемы нативного SQLite
+      → «эталон» Фазы 2 — новый `src/database/schema-version.js` (`SCHEMA_VERSION` = число
+      миграций). В плагине 7.x **нет** `setVersion` (он был в 4.x) и `upgrade`-скрипты плагина
+      рассчитаны на SQL-строки, а миграции Фазы 2 — JS-функции: поэтому единый механизм
+      изменения схемы остаётся наш JS-раннер (`src/database/migrate.js`, вынесен из boot),
+      а версия схемы пишется в саму БД — `PRAGMA user_version` (её же возвращает нативный
+      `getVersion()`). После прогона миграций `checkSchemaVersion()` сверяет число применённых
+      миграций и `user_version` с эталоном и при расхождении записывает эталон заново
+      → *критерий:* схема на устройстве совпадает с эталоном ✅ — проверки: на нативном адаптере
+      свежая БД стартует с версией плагина (1) и после сверки получает `user_version = 18`,
+      искусственно сбитая версия (0) чинится до эталона, число применённых миграций равно
+      эталону; то же на веб-адаптере (свежая БД — 0 → эталон); `user_version` лежит внутри
+      «файла» SQLite (проверено чтением дампа)
+      → ⚠️ расхождение логируется, но не блокирует приложение (данные важнее): громкий
+      `console.error`, если число применённых миграций не совпало с эталоном
+
+> ⚠️ **Найдено при 4.3 (исправлено):** динамический импорт адаптера шёл по пути в переменной —
+> Vite/Rollup такой импорт не анализирует, поэтому в нативном приложении модуль не находился и
+> молча срабатывал фолбэк на sql.js. Теперь путь — литерал, адаптер уезжает в отдельный чанк.
+>
+> ⚠️ **Найдено при 4.1 (исправлено):** `clientsRepo` не экспортировал `getById`, хотя
+> `queries.getById` существует, а `OrderDetailsPage.vue` его вызывает → SPA-сборка падала
+> («"getById" is not exported by clientsRepo»). Добавлен экспорт; рефакторинг самой страницы —
+> задача 8.1 (там же отдельным пунктом стоит убрать прямые вызовы репозиториев из `*.vue`).
+>
+> ⚠️ **Найдено при 4.2 (исправлено):** `metaRepo` писал метаданные через UPSERT
+> (`ON CONFLICT(key) DO UPDATE`) — синтаксис требует SQLite ≥ 3.24 (Android 10+), а нативный
+> SQLite берётся из системы (у плагина minSdk 23 → Android 6 → SQLite 3.8). Заменено на
+> `INSERT OR REPLACE` (ключ — PRIMARY KEY), поведение то же. Проверять «совместимость с
+> системным SQLite» стоит и для будущих запросов: `json_*`, `RETURNING`, оконные функции там
+> доступны не везде.
+>
+> ⚠️ **Осталось по Фазе 4:** генерация платформы Android (`cd src-capacitor && npx cap add android`,
+> нужны JDK + Android SDK) и живой прогон на устройстве; восстановление из бэкапа; шифрование
+> файла БД (SQLCipher) — это уже Фаза 7 (безопасность).
+>
+> **Как проверялось (воспроизводимо):** временные скрипты в Node — esbuild-бандл исходников с
+> подменой `@capacitor-community/sqlite` на заглушку поверх настоящего sql.js (эмулирует API 7.x:
+> `execute`/`executeSet`/`query`, `transaction: true` по умолчанию, ошибка на вложенном `BEGIN`,
+> «файл на диске»), а для бэкапа — ещё и подмена `@capacitor/core`/`@capacitor/filesystem`.
+> Итог: 40 + 15 + 14 = 69 проверок, все зелёные. Скрипты по конвенции репозитория не коммитились —
+> их сценарии стоит перенести в vitest (Фаза 5: 5.2–5.5).
 
 > ⚠️ Любое изменение схемы (Фаза 2) — **до** перевода Android на нативный SQLite, иначе придётся
 > мигрировать данные на устройствах. Поэтому Фаза 2 идёт раньше Фазы 4.
@@ -602,9 +684,10 @@
 
 ---
 
-## Текущее состояние (снимок от 11.09.2026)
+## Текущее состояние (снимок от 12.09.2026)
 
-Снимок фактов на 11.09.2026 (после Фаз 0–2 и всей Фазы 3: 3.1–3.10 и 3.12; 3.11 — кроме выноса Go). Проверенные факты:
+Снимок фактов на 12.09.2026 (после Фаз 0–2, всей Фазы 3 и Фазы 4: 4.1–4.5; по Фазе 4 остаётся
+живой прогон на Android — в окружении нет JDK/Android SDK). Проверенные факты:
 
 | Область | Статус | Улики |
 |---|---|---|
@@ -648,6 +731,15 @@
 | Фаза 3.8 время и конфликты (FE) | ✅ сделано | Единый стандарт времени во всех `applyServerRecord` (`toEpochSeconds`): сравнение и запись `created_at/updated_at`; `specializationsRepo` с мс → секунды; `orderServiceRepo` получил LWW-проверку; из SQL убраны `strftime('%s', ?)` (числовые значения в `strftime` трактуются как Julian day — было бы мусорное время). `operationsRepo.markSynced` теперь применяет версию из ответа `/sync` (`toEpochSeconds`): `insert` — по локальному UUID, `update`/`delete` — по `server_id` (прежний `WHERE id = ?` получал серверный id и не находил строку). ✅ заодно исправлено: `ordersRepo.update` вырезал серверный `id` из payload → каждый UPDATE заказа возвращал `MISSING_ID_FOR_UPDATE`. Проверка: 17 рантайм-проверок на sql.js (версия ложится секундами; update матчится по `server_id`, «декой» не тронут; delete с версией не ломает `markSynced`; LWW — старая копия не перетирает) |
 | Фаза 3.8 версия записи (BE) | ✅ сделано | `/sync` отдаёт `updated_at` (ISO-8601 UTC) по каждой подтверждённой операции — ровно то значение, что записано в БД (`Carbon::now()->startOfSecond()`, колонки `timestamp(0)`): insert (`orders`/`order_service`/generic), update, delete; soft-delete двигает и `updated_at`. `/sync-updates` тоже отдаёт `created_at`/`updated_at`/`deleted_at` в ISO-8601 UTC (`normalizeTimestamps`) — «сырую» строку Postgres клиентский `Date.parse` принимал за локальное время устройства. Тесты: `insert`/`order_service`/`update` сверены с БД, soft-delete двигает версию вперёд, выдача — ISO-8601 UTC |
 | Фаза 3.7 устойчивость к сети | ✅ сделано | `syncService`: классификация ошибок (`network`/`server`/`request`), backoff `5с→15с→60с→5мин` через `status.nextRetryAt`, пропуск `sync()` в офлайне и в паузе, `sync({ force: true })` для ручного повтора, состояние `getStatus()`/`subscribe()` + `operationsRepo.countPending()`; события `online`/`offline` снимают паузу. Проверка: 6 рантайм-сценариев на sql.js (сеть, 4xx, два 5xx, офлайн, `force`, подписка) — в паузе новых попыток нет, 4xx не блокирует очередь, backoff растёт, офлайн не ходит на сервер; lint 0; SPA-сборка ok |
+| Фаза 4.1 зависимости | ✅ сделано | в root `package.json`: `@capacitor/core@^7.6.9`, `@capacitor-community/sqlite@^7.0.3`, `@capacitor/filesystem@^7.1.8`, `jeep-sqlite@^2.8.0`; dev: `@capacitor/cli@^7.6.9`, `@capacitor/android@^7.6.9`. Создан `src-capacitor` (`package.json` c `@capacitor/app`-набором + плагины, `capacitor.config.json` с `appId` `com.ledgercraft.app`, `webDir` `www`). `npm run lint` — 0; `npm run build` (SPA) — проходит |
+| Фаза 4.2 нативный адаптер | ✅ сделано | `sqlite-capacitor-adapter.js` переписан под API 7.x: `SQLiteConnection` + `checkConnectionsConsistency`/`isConnection`/`retrieveConnection`/`createConnection`/`open`; `execute(statements, transaction)` (DDL/PRAGMA/батч), `executeSet([{statement, values}])` (параметризованные DML), `query(statement, values)` → `{values}`, `queryOne`, `transaction` (begin/commit/rollback + `inTransaction`; внутри своей транзакции плагину идёт `transaction: false`), `getSchemaVersion`/`setSchemaVersion` (`PRAGMA user_version`), `exportDatabaseJson` (`exportToJson('full')`), `deleteDatabase` (`connection.delete()`), `name` для логов. Проверка: 40 рантайм-проверок в Node на **настоящем sql.js** (заглушка плагина: «файл на диске», `transaction: true` по умолчанию, ошибка на вложенном BEGIN) — 18 миграций, повторный прогон 0, CRUD через репозитории, `markSynced` (реальная транзакция, версия секундами), откат, дамп, повторное открытие файла, удаление БД |
+| Фаза 4.3 выбор платформы | ✅ сделано | `src/database/db.js` — единая точка доступа (делегат + `setAdapter`), 13 файлов (`*Repo` + `syncService`) переведены с прямого импорта `sqljs-web-adapter`; `boot/db.js` выбирает адаптер по `Capacitor.isNativePlatform()` и ставит его; `platform.js` спрашивает `@capacitor/core` (глобал — фолбэк); динамический импорт нативного адаптера — литеральным путём (свой чанк, в вебе не скачивается). Проверка: 14 рантайм-проверок веб-пути (адаптер по умолчанию, миграции, `user_version`, репозитории через делегат, дамп как SQLite-файл, localStorage, `deleteDatabase`) |
+| Фаза 4.4 бэкап | ✅ сделано | `src/services/backupService.js` (`createBackup`, `autoBackupIfDue`, `getLastBackupAt`): нативно — `exportToJson('full')` → `@capacitor/filesystem` (Documents, фолбэк Data), автобэкап раз в сутки, отметка `meta.last_backup_at`; в браузере — скачивание `.sqlite`-дампа. UI: кнопка «Создать бэкап» + «Последний бэкап» в `OthersPage.vue`; вызов автобэкапа — в `boot/db.js`. Проверка: 15 рантайм-проверок с заглушками `@capacitor/core`/`@capacitor/filesystem` (формат, фолбэк папки, содержимое JSON, интервал 24 ч). ⚠️ восстановления из бэкапа нет (в 4.4 не требовалось) |
+| Фаза 4.5 версия схемы | ✅ сделано | `src/database/schema-version.js` (`SCHEMA_VERSION` = число миграций = 18), `src/database/migrate.js` (`runMigrations` вынесен из boot + `checkSchemaVersion`): сверка числа применённых миграций и `PRAGMA user_version` с эталоном, при расхождении эталон записывается заново, расхождение — в `console.error`. В плагине 7.x нет `setVersion`, поэтому версия живёт в `PRAGMA user_version` (её читает нативный `getVersion()`). Проверка: свежая БД 1 → 18, сбитая версия чинится, `user_version` лежит в самом файле |
+| Фаза 4 живой прогон | ⚠️ не сделано | в окружении нет JDK и Android SDK: платформа не сгенерирована (`cd src-capacitor && npx cap add android`), запуска на устройстве не было. Критерии 4.2/4.3 «на Android» подтверждены только рантайм-проверками на sql.js с заглушкой плагина |
+| Фаза 4 `metaRepo` UPSERT | ✅ исправлено | `ON CONFLICT(key) DO UPDATE` требует SQLite ≥ 3.24 (Android 10+), а нативный SQLite системный (minSdk 23 → Android 6). Заменено на `INSERT OR REPLACE`; добавлены `getValue`/`setValue` в `metaRepo` (нужны бэкапу). Проверено рантайм-проверками (повторная запись обновляет строку, дублей нет) |
+| Фаза 8.1 `clientsRepo.getById` | ✅ исправлено | найден при 4.1: `OrderDetailsPage.vue` зовёт `clientsRepo.getById`, а экспорта не было → SPA-сборка падала (`"getById" is not exported`). Добавлен `getById` (запрос `queries.getById` уже существовал); сам рефакторинг страницы — по-прежнему 8.1 |
+
 | Фаза 5.3 `servicesRepo` binding | ❌ | найдено при 3.3: `servicesRepo.save()` передаёт `service.category_id` без `|| null` → при отсутствии категории sql.js падает «tried to bind a value of an unknown type (undefined)»; локальная схема требует `services.category_id NOT NULL`, т.е. услугу без категории создать нельзя |
 | Фаза 5.1 тест-раннер | ❌ | `"test": "echo \"No test specified\" && exit 0"` |
 | Фаза 6.1 блокирующий синк | ❌ | `await syncService.sync()` в `src/boot/db.js` |
@@ -656,9 +748,10 @@
 Коммиты: `8ba14f0` — Фаза 3 (3.1–3.3), `36cb4b0` — 3.4, `85ab900` — 3.7, `f4dff1f` — 3.6 (FE-часть),
 3.5 — FE `aa9b986` + BE `5dc96fc`, 3.6 (BE-часть) — `f21ffd6`, 3.8 — FE `ea3e72c` + BE `e82d435`,
 остаток Фазы 3 (3.9/3.10/3.12) — FE `c14d645` + BE `56f0642`, 3.11 — BE `a7892ed` + FE `—` (docs/TODO,
-этот коммит) (`LedgerCraftDocker03`) (см. `git log`).
-**Фаза 3 закрыта полностью.** Дальше — Фаза 4 (нативный SQLite) или Фаза 5 (тест-раннер и перенос
-рантайм-проверок в vitest);
+этот коммит) (`LedgerCraftDocker03`), Фаза 4 (4.1–4.5) — FE `ФАЗА4_КОММИТ` (см. `git log`).
+**Фаза 3 закрыта полностью; Фаза 4 закрыта по чек-листу** (кроме живого прогона на Android —
+в окружении нет JDK/Android SDK и устройства). Дальше — Фаза 5 (тест-раннер и перенос
+рантайм-проверок Фаз 3–4 в vitest) или Фаза 6 (UX офлайна и синка);
 ⚠️ синк требует токен, поэтому **7.4 (вход/получение токена на клиенте) стала блокирующей для
 синхронизации** — до неё устройства получают 401 (данные не теряются, очередь растёт).
 Снимок состояния обновлять при каждом существенном
