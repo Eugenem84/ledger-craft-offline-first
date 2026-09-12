@@ -51,6 +51,7 @@ const {
   servicesTotal,
   materialsTotal,
   productsTotal,
+  positionsCount,
   equipmentIdentifier,
 } = storeToRefs(draft)
 
@@ -263,7 +264,7 @@ const handleShare = async () => {
             <q-tab
               name="all"
               icon="list_alt"
-              :label="`обзор · ${(materials?.length || 0) + (products?.length || 0)}`"
+              :label="`обзор · ${positionsCount}`"
             />
             <!-- Вкладки видны всегда: разделы «работа»/«материалы» не должны
                  исчезать в режиме просмотра (правку включает первое же действие). -->

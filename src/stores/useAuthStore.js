@@ -12,12 +12,16 @@ import { defineStore } from 'pinia'
 import { logger } from 'src/utils/logger'
 import storage from 'src/utils/storage'
 import { apiClient } from 'src/services/api.js'
+import syncService from 'src/services/syncService.js'
 import { generateSalt, hashPin, verifyPinHash } from 'src/utils/pin.js'
 
 const TOKEN_KEY = 'auth_token'
 const USER_KEY = 'auth_user'
 const PIN_HASH_KEY = 'auth_pin_hash'
 const PIN_SALT_KEY = 'auth_pin_salt'
+// Кто владеет локальными данными устройства. Ключ НЕ чистится при выходе:
+// только так следующий вход может понять, что пришёл другой аккаунт (см. ниже).
+const OWNER_KEY = 'auth_owner_id'
 
 function readStoredUser() {
   const raw = storage.getItem(USER_KEY)
@@ -68,6 +72,7 @@ export const useAuthStore = defineStore('auth', {
       try {
         const { data } = await apiClient.post('/login', { email, password })
         this._applySession(data)
+        await this._resetLocalDataIfOwnerChanged(data?.user)
         return data
       } catch (err) {
         this.error = this._loginErrorText(err)
@@ -99,6 +104,7 @@ export const useAuthStore = defineStore('auth', {
           specializations,
         })
         this._applySession(data)
+        await this._resetLocalDataIfOwnerChanged(data?.user)
         return data
       } catch (err) {
         this.error = this._registerErrorText(err)
@@ -210,6 +216,42 @@ export const useAuthStore = defineStore('auth', {
       if (this.user) {
         storage.trySetItem(USER_KEY, JSON.stringify(this.user))
       }
+    },
+
+    /**
+     * Смена аккаунта на устройстве (дефект живого прогона, 11.6).
+     *
+     * Локальная БД и очередь операций **общие для всех пользователей устройства**
+     * (`docs/ARCHITECTURE.md`: разделение данных — на сервере, задача 3.10). Из этого
+     * следуют две беды, если аккаунт сменился, а локальные данные остались:
+     *   • операции предыдущего аккаунта уезжают на сервер под НОВЫМ токеном и
+     *     привязываются к новому пользователю;
+     *   • курсоры синка (`meta.last_synced_at:*`) остаются от предыдущего аккаунта,
+     *     поэтому `/sync-updates` вернёт новому только свежие записи — старые
+     *     потеряются.
+     *
+     * Поэтому при смене владельца полностью сбрасываем локальное состояние
+     * (`syncService.fullReset()` чистит таблицы, очередь и курсоры). Повторный вход
+     * тем же аккаунтом ничего не трогает — офлайн-работа продолжается.
+     *
+     * @param {{ id?: number|string }|null|undefined} user пользователь из ответа сервера
+     */
+    async _resetLocalDataIfOwnerChanged(user) {
+      const nextOwner = user?.id != null ? String(user.id) : null
+      const previousOwner = storage.getItem(OWNER_KEY)
+
+      if (previousOwner && nextOwner && previousOwner !== nextOwner) {
+        try {
+          await syncService.fullReset()
+          logger.log(
+            `[Auth] Смена аккаунта (${previousOwner} → ${nextOwner}): локальные данные сброшены`
+          )
+        } catch (err) {
+          logger.error('[Auth] Не удалось сбросить локальные данные при смене аккаунта:', err)
+        }
+      }
+
+      if (nextOwner) storage.trySetItem(OWNER_KEY, nextOwner)
     },
 
     _loginErrorText(err) {

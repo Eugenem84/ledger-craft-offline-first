@@ -86,6 +86,18 @@ export default {
     return db.query('SELECT * FROM operations ORDER BY created_at ASC');
   },
 
+  /**
+   * Полная очистка очереди операций.
+   *
+   * Нужна `syncService.fullReset()`: раньше сброс чистил только таблицы сущностей,
+   * а очередь оставалась — после смены аккаунта её операции уезжали на сервер под
+   * новым токеном. `operations` — outbox, а не сущность, поэтому в `this.repos`
+   * синка её нет и вызывается эта функция явно.
+   */
+  async clearAll() {
+    await db.execute('DELETE FROM operations');
+  },
+
   async markSending(ids) {
     await this._setStatus(ids, STATUS.SENDING);
   },

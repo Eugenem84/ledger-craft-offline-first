@@ -99,6 +99,12 @@ export const useOrderDraftStore = defineStore('orderDraft', {
       return this.servicesTotal + this.materialsTotal + this.productsTotal
     },
     /**
+     * Сколько всего позиций в заказе — счётчик на вкладке «обзор».
+     * Работы раньше в счётчик не попадали, поэтому при добавлении работы он оставался 0.
+     */
+    positionsCount: state =>
+      state.services.length + state.materials.length + state.products.length,
+    /**
      * Себестоимость позиций заказа (задачи 9.5/9.6): закупка × количество по товарам
      * со склада и по ручным позициям. У работ себестоимости нет — это труд мастера,
      * поэтому в стоимость они не входят (так же считает серверный `StatisticRepository`).

@@ -977,6 +977,9 @@ class SyncService {
         await repo.clearAll();
       }
     }
+    // Очередь операций — это outbox, а не сущность: в `this.repos` её нет, поэтому
+    // чистим явно. Иначе после смены аккаунта старые операции уедут под новым токеном.
+    await operationsRepo.clearAll();
     await metaRepo.resetLastSyncedAt();
 
     // Сбрасываем и состояние сети: после полного сброса ждём первой попытки без паузы.

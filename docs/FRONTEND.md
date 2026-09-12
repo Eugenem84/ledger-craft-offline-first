@@ -475,3 +475,16 @@ return id;
   (`operationsRepo.listAll`), буфер логов (`logger.getLogBuffer`/`clearLogBuffer`, лимит 200),
   дата бэкапа, `logAllServicesForDebugging` и перенесённые сюда «полный сброс»/«удалить локальную
   БД». Форматтеры — `src/utils/devInfo.js`, регрессы — `test/phase12-dev.test.js`.
+
+### Дефекты живого прогона (11.6), найденные на dev
+
+- **Счётчик вкладки «обзор»** в карточке заказа считал только `materials + products`, поэтому при
+  добавлении работы оставался `0`. Теперь единый геттер `useOrderDraftStore.positionsCount`
+  (работы + материалы + товары); вкладка — `` `обзор · ${positionsCount}` ``.
+- **Смена аккаунта на устройстве.** Локальная БД и очередь операций общие для всех пользователей,
+  а `syncService.fullReset()` очередь не чистил: после входа другим аккаунтом его операции уезжали
+  под новым токеном, а курсоры синка (`meta.last_synced_at:*`) оставались от прежнего владельца —
+  новый аккаунт видел только свежие записи. Теперь `fullReset()` чистит и `operations`
+  (`operationsRepo.clearAll()`), а `useAuthStore` помнит владельца (`auth_owner_id`) и при **смене**
+  аккаунта делает полный сброс (`_resetLocalDataIfOwnerChanged`). Повторный вход тем же аккаунтом
+  офлайн-данные не трогает. Регрессы — `test/account-switch.test.js`.

@@ -18,6 +18,7 @@ function freshStore() {
 function clearAuthStorage() {
   storage.removeItem('auth_token')
   storage.removeItem('auth_user')
+  storage.removeItem('auth_owner_id')
   storage.removeItem('auth_pin_hash')
   storage.removeItem('auth_pin_salt')
 }
