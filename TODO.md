@@ -1183,6 +1183,14 @@ BE: миграции полей профиля, `template_key`, `equipment_ident
       серверный id модели, сигнальное поле на сервер не уходит; Б — чистая БД: модель и заказ
       приезжают, `model_id` = локальный UUID модели, `model_server_id` = серверный id);
       `npm test` → **202 теста** (было 201), `npm run lint` — 0, прод-сборка SPA проходит
+      → ⚠️ **живой прогон нашёл дефект уже на сервере** (BE `05dac8b`): `SyncController` при
+      вставке заказа мапит колонки по «белому списку», и `model_id` там **не было**, а заодно
+      терялись `status`, `paid` и `user_order_number` (в `update` они проходят generic-путём,
+      поэтому расхождение было незаметно). Теперь: `model_id` (int), `status` (строка), `paid`
+      (bool), `user_order_number` (int); BE-тест
+      `test_order_insert_keeps_model_status_paid_and_user_order_number`; `php artisan test` →
+      **73 passed**. Живая проверка на dev-VPS (клиент → модель → заказ → выдача второму
+      устройству): заказ приходит с `model_id = 1` — связь на месте (до фикса был `null`)
 - [ ] **11.3** [BE] (P1) Сид пресетов `specialization_templates` (бывший O-7)
       → seeder/команда на 4 строки (`bike`/`aquarium`/`hvac`/`auto`) с контентом в формате клиентских
       пресетов (`content` JSON + `version`), идемпотентно (`updateOrCreate` по `preset_key`)
@@ -1401,7 +1409,7 @@ BE: миграции полей профиля, `template_key`, `equipment_ident
 | Фаза 10 тесты и проверки | ✅ сделано | FE `npm test` → **201 тест** (25 файлов; новые — лексикон, пресеты, применение пресета, сервис пресетов, флаги/`featureGuard`, схема Фазы 10), BE `php artisan test` → **72 passed** (401 assertion; `Phase10OnboardingTest` — 5 тестов: регистрация создаёт специализации, занятый email → 422, синк специализации, endpoint пресетов); `npm run lint` — 0, прод-сборка SPA проходит. ⚠️ живой онлайн-прогон (регистрация/шапка/лексикон/пресеты на dev-VPS) — задачи **11.4/11.5** |
 | Среды и выкат (dev-VPS → prod-VPS) | ✅ зафиксировано | два контура с 12.09.2026: **dev-VPS** `dev.medovf2h.beget.tech` — песочница (обкатка фич, БД не жалко), **prod-VPS** — боевой контур (только проверенное на dev, с бэкапом БД). Описано: FE `README.md` §«Среды и выкат», BE `README.md` §«Среды: dev-VPS и prod-VPS», `docs/ARCHITECTURE.md` §1.1, таблицы Base URL в `docs/API-INTEGRATION.md` и BE `docs/API.md`, `docs/PLAN.md` (Фаза 11), `TODO.md` (правило в «Правилах» + задача 11.1). ⚠️ боевой домен ещё не выбран — вписать по задаче 11.1 |
 | Фаза 11.4 — dev-VPS переустановлен | ✅ сделано (12.09.2026) | вход по SSH-ключу (`dev-vps` → `root@217.114.0.27`); `git fetch`+`reset --hard`+`clean` (сохранены `.env`, `letsencrypt/`), том БД снесён, `up -d --build --remove-orphans`, `composer install`, **63 миграции Ran / 0 Pending**; smoke: `/` 302, `/login` 200, `POST /api/sync` 401, `POST /api/register` 422. Живой API-прогон: регистрация создаёт user + 2 специализации (`user_id`, `preset_key`); sync `categories` → `server_id=1`, затем `services` с FK родителя (порядок «родитель → ребёнок»); `/sync-updates` отдаёт запись другому устройству и не отдаёт автору (анти-эхо). Найдено и закрыто: `index index.php` в nginx (403 на `/`, BE `ed43eb0`), Traefik не подхватывал nginx-контейнер (404; `docker compose restart traefik`), `@vite`-manifest → 500 на `/login` (ассеты собираются на сервере). Бэкап до сноса — `/root/ledgercraft_dev_backup_2026-09-12_1947.sql` |
-| Фаза 11.2 — модель техники в заказе | ✅ сделано (12.09.2026) | FE `47c90bb`: `ordersRepo` не вырезает локальный `model_id`, а отдаёт сигнальное `model_server_id` (даже `null` = «модель ещё не на сервере»), `syncService` строит ребро и подставляет серверный id; закрыта пара `orders.model_id`+`orders.model_server_id` (колонка была в 014, но не заполнялась) — 4 SQL-запроса + 4 маппера + `getModelData`. Тест поймал и закрыл ещё один дефект: `modelsRepo.applyServerRecord` биндил `undefined` в `specializationServerId` → модель с сервера не применялась вовсе (глушилось per-table `catch`). Тест: «11.2: заказ с новой моделью техники уезжает одним `sync()` и сохраняет связь»; `npm test` → **202 теста**, lint 0, SPA-сборка ok |
+| Фаза 11.2 — модель техники в заказе | ✅ сделано (12.09.2026) | FE `47c90bb`: `ordersRepo` не вырезает локальный `model_id`, а отдаёт сигнальное `model_server_id` (даже `null` = «модель ещё не на сервере»), `syncService` строит ребро и подставляет серверный id; закрыта пара `orders.model_id`+`orders.model_server_id` (колонка была в 014, но не заполнялась) — 4 SQL-запроса + 4 маппера + `getModelData`. Тест поймал и закрыл ещё один дефект: `modelsRepo.applyServerRecord` биндил `undefined` в `specializationServerId` → модель с сервера не применялась вовсе (глушилось per-table `catch`). Тест: «11.2: заказ с новой моделью техники уезжает одним `sync()` и сохраняет связь»; `npm test` → **202 теста**, lint 0, SPA-сборка ok. Серверная часть — BE `05dac8b`: «белый список» колонок при вставке заказа не содержал `model_id` (терялись и `status`/`paid`/`user_order_number`), теперь их принимают; BE-тест `test_order_insert_keeps_model_status_paid_and_user_order_number` (`php artisan test` → 73 passed). Живой прогон на dev: второй девайс получает заказ с `model_id = 1` (до фикса — `null`) |
 
 Коммиты: `8ba14f0` — Фаза 3 (3.1–3.3), `36cb4b0` — 3.4, `85ab900` — 3.7, `f4dff1f` — 3.6 (FE-часть),
 3.5 — FE `aa9b986` + BE `5dc96fc`, 3.6 (BE-часть) — `f21ffd6`, 3.8 — FE `ea3e72c` + BE `e82d435`,
@@ -1411,7 +1419,7 @@ BE: миграции полей профиля, `template_key`, `equipment_ident
 FE `d002264` (7.4–7.5), BE `bf5a738` (7.4-тест) + BE `753c4bd` (7.6), Фаза 8 (8.1–8.3) — FE
 `f747f3f`, Фаза 9 (9.1–9.6) — FE `74655ee` + BE `019b16c`, Фаза 10 (10.1–10.9) — FE
 `5f60606` + BE `3657933` (гигиена `.DS_Store` — BE `593bf53`), Фаза 11 (среды и выкат: доки) — FE
-`cad31d7` + BE `b7fcb2e`, Фаза 11.2 — FE `47c90bb`, Фаза 11.4 (dev-VPS + фикс nginx) — BE
+`cad31d7` + BE `b7fcb2e`, Фаза 11.2 — FE `47c90bb` + BE `05dac8b`, Фаза 11.4 (dev-VPS + фикс nginx) — BE
 `ed43eb0` + `b92fc8a` (`LedgerCraftDocker03`), TODO — FE `—` (этот коммит) (см. `git log`).
 **Фазы 3–10 закрыты** — vitest (**201 тест** в 25 файлах: миграции, репозитории, синк,
 автосинк, индикатор, storage, DEV-моки, вход/PIN, guard, стор заказа, аналитика, приход товара,
