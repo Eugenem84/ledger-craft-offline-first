@@ -46,7 +46,7 @@
 - [x] **Фаза 2** — Схема, миграции, деньги, транзакции · 6/6 · *одна истина в схеме, единые деньги* (серверные типы денег → 3.12)
 - [x] **Фаза 3** — Переписать синхронизацию · FE 8/8 · BE 8/8 · *связные таблицы синкаются без «двойного прогона»* (Фаза закрыта полностью: 3.1–3.12; Go-сайдкар вынесен в песочницу)
 - [x] **Фаза 4** — Нативный SQLite (Capacitor) для Android · 5/5 · *настоящий SQLite на диске*
-- [ ] **Фаза 5** — Тесты · FE 0/5 · BE 0/1 · *регрессии ловятся автоматически (особенно по синку)*
+- [x] **Фаза 5** — Тесты · FE 5/5 · BE 1/1 · *регрессии ловятся автоматически (особенно по синку)*
 - [ ] **Фаза 6** — UX офлайна и синка · 0/3 · *приложение не блокируется на синке, есть индикатор сети*
 - [ ] **Фаза 7** — Конфигурация и безопасность · FE 0/5 · BE 0/2 · *env, токены, осмысленный вход*
 - [ ] **Фаза 8** — Рефакторинг UI · 0/3 · *OrderDetailsPage 1042 строки → компоненты*
@@ -162,7 +162,7 @@
       `npm run lint` — 0 ошибок; `npm run build` (SPA) — проходит)
       → ⚠️ найдено при 3.2: `specializationsRepo` не имеет `updateServerId`, а его insert-payload
         не содержит `local_id` → цепочка `clients.specialization_id → specializations` не резолвится,
-        операция висит в очереди вечно (кейс для 5.3; см. снимок состояния)
+        операция висит в очереди вечно (кейс для 5.3 — исправлено тестами 5.3; см. снимок состояния)
 - [x] **3.3** [FE] (P0) Статусы операций (не удалять сразу)
       → `operations`: новые колонки `status` (`pending`/`sending`/`synced`) и `updated_at`;
       эталон — миграция 002, плюс новая `022_add_operations_status` (идемпотентный `ALTER` по
@@ -188,7 +188,7 @@
       → ⚠️ найдено при 3.3: `servicesRepo.save()` биндит `undefined`, если не передан
         `category_id` (sql.js падает «tried to bind a value of an unknown type»), а локальная
         схема требует `services.category_id NOT NULL` → создать услугу «без категории» нельзя
-        (кейс для 5.3)
+        (кейс для 5.3 — исправлено тестами 5.3)
 - [x] **3.4** [FE+BE] (P0) Подключить связные таблицы
       → FE: `orderProductRepo` переписан (локальный UUID строки + операция INSERT + `applyServerRecord`),
       вместо `orderMaterialRepo` — `materialsRepo` (таблица `materials` = ручные позиции заказа,
@@ -511,7 +511,8 @@
 > `execute`/`executeSet`/`query`, `transaction: true` по умолчанию, ошибка на вложенном `BEGIN`,
 > «файл на диске»), а для бэкапа — ещё и подмена `@capacitor/core`/`@capacitor/filesystem`.
 > Итог: 40 + 15 + 14 = 69 проверок, все зелёные. Скрипты по конвенции репозитория не коммитились —
-> их сценарии стоит перенести в vitest (Фаза 5: 5.2–5.5).
+> их сценарии перенесены в vitest (Фаза 5: 5.2–5.4 — `test/helpers`, `test/repositories-*.test.js`,
+> `test/sync.test.js`).
 
 > ⚠️ Любое изменение схемы (Фаза 2) — **до** перевода Android на нативный SQLite, иначе придётся
 > мигрировать данные на устройствах. Поэтому Фаза 2 идёт раньше Фазы 4.
@@ -520,37 +521,85 @@
 
 ## Фаза 5 — Тесты (P1)
 
-- [ ] **5.1** [FE] (P1) Поднять тест-раннер
-      → `npm i -D vitest`, скрипт `"test": "vitest run"`
-      → *критерий:* `npm test` работает в CI и локально
-- [ ] **5.2** [FE] (P1) Мок-адаптер БД
-      → in-memory sql.js (или заглушка с тем же API) + фейковый `api` (`USE_MOCK` уже есть)
-      → *критерий:* репозитории тестируются без сети
-- [ ] **5.3** [FE] (P1) Тесты репозиториев
-      → save/update/delete кладут запись в БД И операцию в очередь (особенно кейс `specializationsRepo`)
-      ⚠️ найдено при 3.2: `specializationsRepo` — insert-payload содержит локальный `id` (уезжает на
-      сервер вместо `local_id`), нет `updateServerId`, а `save/update/remove` зовут
-      `dbAdapter.enqueueOperation()` (заглушка) → у специальности никогда не появляется `server_id`,
-      и все записи с `specialization_id` висят в очереди (цепочки FK не резолвятся)
-      ⚠️ найдено при 3.3: `servicesRepo.save()` биндит `undefined` вместо `null`, если не передан
-      `category_id` (падение биндинга в sql.js; локальная схема требует `category_id NOT NULL`);
-      в `queries/services.js` есть и другие несогласованности (`insertFromServer` использует
-      `strftime('%s', ?)`, а репозиторий передаёт уже готовые timestamps)
-      → *критерий:* покрыты все `*Repo`
-- [ ] **5.4** [FE] (P1) Тесты синка
-      → топологическая сортировка, отложенные операции, повторный прогон, `applyServerRecord` с FK → локальные UUID
-      → *критерий:* Фаза 3 подтверждается тестами
-- [ ] **5.5** [FE] (P2) Тесты миграций
-      → прогнать все миграции на чистой БД; проверить отсутствие конфликтов колонок
-      → *критерий:* схема из Фазы 2 стабильна
-- [ ] **5.6** [BE] (P1) Тесты `SyncController` (PHPUnit в бэкенд-репо)
+- [x] **5.1** [FE] (P1) Поднять тест-раннер
+      → `vitest` 5.x (`npm i -D vitest`), скрипт `"test": "vitest run"` (+ `test:watch`),
+      `vitest.config.js` (алиас `src`, Node-окружение, `test/setup.js` с заглушками
+      `localStorage`/`navigator`, `silent: 'passed-only'`), `test/**` добавлен в `npm run lint`
+      → *критерий:* `npm test` работает в CI и локально ✅ — `65 тестов` в 5 файлах;
+      `npm run lint` — 0; SPA-сборка — проходит
+- [x] **5.2** [FE] (P1) Мок-адаптер БД
+      → `test/helpers/testDb.js` — **настоящий sql.js в памяти** с тем же интерфейсом, что у
+      веб-адаптера (`execute`/`query`/`queryOne`/`transaction`/`getSchemaVersion`/…), плюс прогон
+      реальных миграций Фазы 2 (так ловятся биндинг `undefined`, NOT NULL и «фейковые» транзакции);
+      `test/helpers/fakeServer.js` — фейковый сервер синка по контракту `SyncController`
+      (батч → `{synced, errors}`, `server_id`/`updated_at`, идемпотентность по
+      `uuid_id`/натуральному ключу, tombstones, запись порядка приёма операций для проверки
+      сортировки); сеть подменяется `vi.spyOn(api, 'send' | 'fetchUpdates')`
+      → *критерий:* репозитории тестируются без сети ✅ (и без браузера — DOM не нужен)
+- [x] **5.3** [FE] (P1) Тесты репозиториев
+      → 43 теста (`test/repositories-catalog.test.js`, `-orders.test.js`, `-infra.test.js`) на все
+      `*Repo`: `save`/`update`/`remove` кладут запись в БД **и** операцию в очередь (включая
+      «отмену» незаезженного INSERT и delete по `server_id`/натуральному ключу),
+      `applyServerRecord` переводит серверные FK в локальные UUID и применяет LWW по `updated_at`;
+      `operationsRepo` — статусы, атомарный `markSynced`, `recoverInFlight`; `metaRepo` — курсор
+      на таблицу + fallback на старый общий ключ
+      ✅ тесты **нашли и починили** (не только «покрытие»):
+        • `specializationsRepo` — очередь ставилась через `dbAdapter.enqueueOperation()`
+          (заглушка) и payload содержал локальный `id` вместо `local_id`; не было `updateServerId`.
+          Следствие: у специальности никогда не появлялся `server_id`, и цепочки
+          `clients`/`categories`/`product_categories`/`equipment_models`/`orders` по
+          `specialization_id` висели в очереди вечно
+        • `syncService._adaptPayloadForServer` — исходящий маппинг `name → specializationName`
+          и `popularCounter = 0`: без него специальность не уезжала и после фикса очереди
+          (сервер отвечал `DATABASE_ERROR` на обязательные колонки)
+        • `servicesRepo.save` — `category_id || null` вместо биндинга `undefined`; ошибка стала
+          понятной (`NOT NULL constraint failed: services.category_id`)
+        • `productsRepo.save/update` — `?? null` для необязательных полей и пропуск запроса
+          категории, если она не передана (раньше `save` «частичного» товара падал на биндинге
+          `undefined`)
+        • `operationsRepo.markSynced` — для связок без PK (`order_service`) запоминает серверные id
+          родителей (`order_server_id`/`service_server_id`); без них удаление работы на
+          устройстве-авторе не доезжало до сервера (кейс 3.5)
+        • `syncService` — debug-хук `window.debugShowServices` под
+          `import.meta.env?.DEV && typeof window !== 'undefined'` (раньше падал вне браузера:
+          `process.env.DEV` + голый `window`)
+      → *критерий:* покрыты все `*Repo` ✅
+- [x] **5.4** [FE] (P1) Тесты синка
+      → 14 сценариев (`test/sync.test.js`) на sql.js + фейковом сервере: топологическая
+      сортировка (в т.ч. `_sortByDependencies` напрямую — цикл не вешает), категория → услуга,
+      цепочка категория → услуга → заказ → `order_service` уезжает волнами за один `sync()`,
+      отложенная операция с неразрешимым FK не держит остальной батч (одна отправка, без цикла),
+      повторный INSERT не даёт дублей (клиент и `order_service` по натуральному ключу),
+      `applyServerRecord` переводит FK серверных записей в локальные UUID, tombstones
+      (заказ — каскадом и со снятием «висящей» операции; связка — по `uuid_id` с отменой
+      незаезженного INSERT), сетевой сбой → `pending` + пауза/`force`, серверная ошибка по одной
+      операции не срывает батч, «200 OK без ответа по операции» → `pending`, офлайн — без сети
+      → *критерий:* Фаза 3 подтверждается тестами ✅ (сценарии рантайм-проверок 3.2–3.7 перенесены)
+- [x] **5.5** [FE] (P2) Тесты миграций
+      → `test/migrations.test.js`: `SCHEMA_VERSION` = число миграций, id уникальны; на чистой БД
+      применяются все миграции, повтор — 0; набор таблиц и `order_product.quantity/sale_price`
+      (без `amount`/`price`), `materials` — строки заказа (без `specialization_id`), нет
+      `order_material`/`materials_legacy`; `operations.status`/`updated_at` + `user_version`;
+      022 идемпотентна на «старой» таблице `operations`; у синкаемых таблиц есть `server_id`
+      и timestamps
+      → *критерий:* схема из Фазы 2 стабильна ✅
+- [x] **5.6** [BE] (P1) Тесты `SyncController` (PHPUnit в бэкенд-репо)
       → SAVEPOINT-изоляция (битая операция не валит батч), идемпотентность (повтор не даёт дублей),
       порядок «родитель → ребёнок», удаления/tombstones, вырезание `*_server_id`
-      → *критерий:* `php artisan test` покрывает критерии задач 3.5, 3.9, 3.11
-      → ⏳ частично: `tests/Feature/SyncControllerTest.php` покрывает 3.5 и SAVEPOINT-часть 3.11
-      (в том числе вырезание `*_server_id`); удаления/tombstones (3.9) и порядок «родитель →
-      ребёнок» ещё нет. Инфра: отдельная тестовая БД `ledgercraft_test` + `phpunit.xml`
-      (пишет `SyncControllerTest`; скаффолд `ExampleTest` на PHP 8.5 падает — см. 3.5)
+      → *критерий:* `php artisan test` покрывает критерии задач 3.5, 3.9, 3.11 ✅ —
+      `30 passed` (198 assertions), exit code 0
+      → добавлен `test_parent_id_is_usable_by_child_and_orphan_is_rejected` (5.6): серверный id
+      родителя пригоден как FK для ребёнка (специализация → категория), а ребёнок без родителя
+      отвергается и не пишется в БД (`FORBIDDEN_NOT_OWNER` — существование чужой/несуществующей
+      записи сервер не подтверждает, 3.10)
+      → инфра: скаффолд `tests/Feature/ExampleTest.php` (`GET /` → 200) **заменён** на
+      `tests/Feature/ApiSmokeTest.php`: `/` — это web-часть на Blade (гость получает 302 на
+      `/login`), к API синка отношения не имеет (судьба web-версии — 7.6); smoke проверяет, что
+      публичный `/api/register` валидирует вход, а оба роута синка без токена дают 401
+      → ⚠️ остаточный шум: PHP 8.5 + старые vendor-пакеты (`termwind`/`collision`) и
+      `config/database.php:62` (`PDO::MYSQL_ATTR_SSL_CA`) дают E_DEPRECATED, поэтому PHPUnit
+      помечает 2 теста как «deprecated» — на результат не влияют (не fail), но вывод «грязный»;
+      лечится обновлением зависимостей/конфига (вне 5.6)
 
 ---
 
@@ -679,14 +728,17 @@
   коммит `5dc96fc`), анти-эхо `last_sync_id` (3.6, коммит `f21ffd6`), версия записи `updated_at`
   в ответе `/sync` + ISO-8601 UTC в выдаче (3.8), удаления — soft-delete по схеме + `sync_tombstones`
   (3.9), владелец данных под `auth:sanctum` + закрытый IDOR (3.10), деньги-целые рубли (3.12);
-  тест `tests/Feature/SyncControllerTest.php` (26 тестов, инфра тестовой БД). Открытый
-  продуктовый вопрос — web-версия (влияет на 7.6).
+  `tests/Feature/SyncControllerTest.php` (**29 тестов**, инфра тестовой БД `ledgercraft_test`) покрывает
+  3.5/3.9/3.10/3.11/3.12 и порядок «родитель → ребёнок» (5.6); скаффолд `ExampleTest` заменён на
+  `ApiSmokeTest` (5.6). `php artisan test` → `30 passed`, exit 0. Открытый продуктовый вопрос —
+  web-версия (влияет на 7.6).
 
 ---
 
 ## Текущее состояние (снимок от 12.09.2026)
 
-Снимок фактов на 12.09.2026 (после Фаз 0–2, всей Фазы 3 и Фазы 4: 4.1–4.5; по Фазе 4 остаётся
+Снимок фактов на 12.09.2026 (после Фаз 0–2, всей Фазы 3, Фазы 4: 4.1–4.5 и Фазы 5: 5.1–5.6; по Фазе 4
+остаётся
 живой прогон на Android — в окружении нет JDK/Android SDK). Проверенные факты:
 
 | Область | Статус | Улики |
@@ -717,7 +769,7 @@
 | Фаза 7.6 гигиена API бэка | ❌ | `GET /get_orders_by_user` объявлен 3 раза (публичный падает в 500 на `Auth::user()`); `update_paid_status` + `switch_paid_status` дублируют операцию; `auth:api` без `api_token`; scaffold `app/Http/Controllers/Auth/*`; `MaterialController::create` не зароутен и с перепутанными аргументами |
 | Фаза 3.1 двойной вызов | ✅ сделано | `syncService.js`: в `sync()` остался один вызов `_syncLocalToServer()` (двойной прогон убран); комментарий и docs (`ARCHITECTURE` §4.1, `README`) синхронизированы; `npm run lint` — 0 ошибок; прод-сборка SPA проходит; рантайм-проверка (esbuild-бандл в Node): 1 вызов. ⚠️ до 3.2 дети, чей родитель получил `server_id` в этом же прогоне, дожимаются на следующем `sync()` (в очереди, не теряются) |
 | Фаза 3.2 топосортировка | ✅ сделано | `syncService.js`: `_syncLocalToServer()` — «волны» (`MAX_SYNC_WAVES = 5`) + `_prepareOperations()` (парсинг, сигнальные `*_server_id`, точечное откладывание) + граф зависимостей (`fkTransformationMap` + локальные id родительских операций батча) + `_sortByDependencies()` (алгоритм Кана; тай-брейк `TABLE_ORDER` → `created_at`); ответ сервера — `_findSyncResult()`/`_sendOperations()` (insert по `local_id`/`op.id`, update/delete по `server_id` — как отдаёт `SyncController`). Проверка: 6 рантайм-сценариев в Node (временный esbuild-бандл, фейковые БД/api/репо; переносятся в 5.4) — клиент → заказ → «заказ-услуга» уезжает за 3 волны и очередь пуста, битый FK откладывается точечно, серверная ошибка не зацикливает и не теряет операцию, граф важнее статического `TABLE_ORDER`, цикл не вешает сортировку; `npm run lint` — 0; прод-сборка SPA — проходит |
-| Фаза 5.3 `specializationsRepo` | ❌ | найдено при 3.2: insert-payload без `local_id` (и локальный `id` уезжает на сервер), нет `updateServerId`, `save/update/remove` зовут `dbAdapter.enqueueOperation()` — заглушку. Следствие: у специальности нет `server_id`, цепочки `clients`/`categories`/`product_categories`/`equipment_models`/`orders` по `specialization_id` висят в очереди |
+| Фаза 5.3 `specializationsRepo` | ✅ исправлено | найдено при 3.2 и починено тестами 5.3: insert-payload без `local_id` (локальный `id` уезжал на сервер), нет `updateServerId`, `save/update/remove` звали `dbAdapter.enqueueOperation()` — заглушку. Теперь очередь ставится через `operationsRepo.enqueue` (`local_id`), `update`/`remove` работают по `server_id`, добавлен `updateServerId`; в `syncService` — исходящий маппинг `name → specializationName` + `popularCounter = 0` (без него сервер отвечал `DATABASE_ERROR`). Следствие до фикса: у специальности не появлялся `server_id`, и цепочки `clients`/`categories`/`product_categories`/`equipment_models`/`orders` по `specialization_id` висели в очереди. Тесты: `repositories-catalog.test.js` (save/update/remove/applyServerRecord/updateServerId) + `sync.test.js` (специальность уезжает и получает `server_id`) |
 | Фаза 3.3 статусы операций | ✅ сделано | `operations` получила `status` (`pending`/`sending`/`synced`) и `updated_at`: эталон 002 + новая миграция `022_add_operations_status` (идемпотентный `ALTER`, проверка `PRAGMA table_info`) для уже установленных БД — миграций в `index.js` стало 19. `operationsRepo`: `enqueue`→`pending`, `dequeue` — только `pending`, `markSending`/`markPending`, `markSynced` (коммит `synced` + транзакция «delete + server_id из ответа»), `recoverInFlight` (`sending`→`pending`, `synced`+insert→`pending`, `synced`+update/delete→снять). `syncService`: `recoverInFlight()` перед волнами, `markSending` до `api.send()`, `markPending` на сетевой/серверной ошибке; снят избыточный `repo.updateServerId()` из 2.5. Проверка: 8 рантайм-сценариев на настоящем SQLite (sql.js) с реальными миграциями/репозиториями/`operationsRepo`/`syncService`; `npm run lint` — 0; сборка SPA — проходит |
 | Фаза 3.4 связные таблицы | ✅ сделано | `order_product` и `materials` (ручные позиции заказа) добавлены в `syncService.repos`/`fkTransformationMap`/`TABLE_ORDER`; `orderProductRepo` переписан (UUID строки, операция, `applyServerRecord`), `orderMaterialRepo` → `materialsRepo` (таблица `materials`, решение D2); миграции 018/021 удалены, новая 023 переносит ручные позиции (имя из справочника) и создаёт `materials` в серверной семантике, защищена guard'ом по `specialization_id` → идемпотентна; удаление строк ставит delete по `server_id`; добавлен `src/utils/timestamps.js` (ISO → локальные секунды). UI: ручная позиция = `name/price/amount`. Проверка: 5 рантайм-сценариев на sql.js с двумя БД-«устройствами» (А → сервер → Б), lint 0, SPA-сборка ok. BE: правок не потребовалось (обе таблицы уже в `$tables`, timestamps есть, generic-путь ок); живая проверка на dev-сервере не выполнена (недоступен из окружения) |
 | Фаза 3.4 `null` в `*_server_id` | ✅ исправлено | `_prepareForeignKeys`: сигнальное поле со значением `null` больше не считается готовым FK (`productsRepo` отправлял `product_category_server_id: null` → категория товара терялась, товар не приезжал на второе устройство) |
@@ -725,7 +777,7 @@
 | Фаза 3.5 `order_service` delete | ✅ исправлено | найдено при 3.4: сервер отвечал `server_id: null` (у связки нет PK), а `deleteRecord` требует `id` → строку работ нельзя было ни удалить, ни обновить. Теперь `orderServiceRepo.remove*` ставит delete-операцию по натуральному ключу `order_server_id + service_server_id`, сервер удаляет по `order_id + service_id` (`deleteRecord`), строка матчится по `uuid_id` (`applyServerRecord`) |
 | Фаза 3.5 идемпотентность (BE) | ✅ сделано | миграция `2026_09_12_000000_add_uuid_id_to_sync_tables`: `uuid_id` (nullable, unique) всем синкаемым таблицам; `SyncController::upsertRecord` — «найти или вставить/обновить» по `uuid_id = local_id` (у `order_service` — по `order_id + service_id`), `created_at` не перезаписывается; `stripClientFields` убирает `server_id`/`*_server_id`; `SAVEPOINT sync_op` + `ROLLBACK TO SAVEPOINT` на операцию; `update`/`delete` подтверждаются всегда, `update` несуществующей записи → `RECORD_NOT_FOUND`. Коммит `5dc96fc` |
 | Фаза 3.5 идемпотентность (FE) | ✅ сделано | `syncService._sendOperations`: «200 OK без ответа по операции» больше не `markSynced`, а `markPending` (операция не теряется, сервер подтверждает каждую); `orderServiceRepo.remove*` ставит delete по натуральному ключу либо отменяет незаезженный INSERT; `applyServerRecord` матчит связку по `uuid_id` (новый запрос `getLinesByOrderId`, `updateFromServer` по `id`). Коммит `aa9b986` |
-| Фаза 5.6 тесты `SyncController` | ⏳ частично | `tests/Feature/SyncControllerTest.php` (**26 тестов**, **PostgreSQL**): дубли не создаются, битая операция изолирована SAVEPOINT'ом, `order_service` по натуральному ключу, `server_id` вырезается, `updated_at` в ответе `/sync` сверен с БД, ISO-8601 UTC в `/sync-updates` (3.8), удаления/tombstones (3.9), изоляция по владельцу и 401 (3.10), деньги-integer и нормализация payload (3.12); инфра — отдельная БД `ledgercraft_test` + `phpunit.xml` (тест пропускается, если в имени БД нет `test`). Осталось: порядок «родитель → ребёнок» |
+| Фаза 5.6 тесты `SyncController` | ✅ сделано | `tests/Feature/SyncControllerTest.php` (**29 тестов**, **PostgreSQL**): дубли не создаются, битая операция изолирована SAVEPOINT'ом, `order_service` по натуральному ключу, `server_id` вырезается, `updated_at` в ответе `/sync` сверен с БД, ISO-8601 UTC в `/sync-updates` (3.8), удаления/tombstones (3.9), изоляция по владельцу и 401 (3.10), деньги-integer и нормализация payload (3.12), порядок «родитель → ребёнок» (5.6 — добавлен: id родителя пригоден как FK для ребёнка, «сирота» отвергается и не пишется в БД). Инфра — отдельная БД `ledgercraft_test` + `phpunit.xml` (тест пропускается, если в имени БД нет `test`); скаффолд `ExampleTest` заменён на `ApiSmokeTest` (см. 5.6). `php artisan test` → `30 passed`, exit 0 (⚠️ 2 теста помечены «deprecated» из-за E_DEPRECATED в vendor на PHP 8.5) |
 | Фаза 3.6 курсор на таблицу (FE) | ✅ сделано | `metaRepo`: ключ `last_synced_at:<table>` + fallback на старый общий и `resetLastSyncedAt(table?)`; `_syncServerToLocal()` — `since` по таблице, курсор двигается только после успешного разбора её выдачи и не назад (`Math.max(Date.now(), maxRecordMs + 1)` через новый `toEpochMs`). Проверка: 4 рантайм-сценария на sql.js (падение одной таблицы, до-получение с прежнего курсора, legacy-fallback, «только новое» + отставание часов) |
 | Фаза 3.6 анти-эхо (BE) | ✅ сделано | миграция `2026_09_13_000000_add_last_sync_id_to_sync_tables`: `last_sync_id` (nullable, index) всем 15 синкаемым таблицам; `SyncController` проставляет `X-Sync-ID` при insert (generic/orders/`order_service`), update, soft-delete; `fetchUpdates` — `last_sync_id != X-Sync-ID OR last_sync_id IS NULL`. Тесты на PostgreSQL: автор не получает своё изменение, другое устройство получает, без `X-Sync-ID` фильтра нет, правка чужого устройства возвращает запись автору (правщику — нет), у `order_service` метка тоже есть. Коммит `f21ffd6` |
 | Фаза 3.8 время и конфликты (FE) | ✅ сделано | Единый стандарт времени во всех `applyServerRecord` (`toEpochSeconds`): сравнение и запись `created_at/updated_at`; `specializationsRepo` с мс → секунды; `orderServiceRepo` получил LWW-проверку; из SQL убраны `strftime('%s', ?)` (числовые значения в `strftime` трактуются как Julian day — было бы мусорное время). `operationsRepo.markSynced` теперь применяет версию из ответа `/sync` (`toEpochSeconds`): `insert` — по локальному UUID, `update`/`delete` — по `server_id` (прежний `WHERE id = ?` получал серверный id и не находил строку). ✅ заодно исправлено: `ordersRepo.update` вырезал серверный `id` из payload → каждый UPDATE заказа возвращал `MISSING_ID_FOR_UPDATE`. Проверка: 17 рантайм-проверок на sql.js (версия ложится секундами; update матчится по `server_id`, «декой» не тронут; delete с версией не ломает `markSynced`; LWW — старая копия не перетирает) |
@@ -740,18 +792,26 @@
 | Фаза 4 `metaRepo` UPSERT | ✅ исправлено | `ON CONFLICT(key) DO UPDATE` требует SQLite ≥ 3.24 (Android 10+), а нативный SQLite системный (minSdk 23 → Android 6). Заменено на `INSERT OR REPLACE`; добавлены `getValue`/`setValue` в `metaRepo` (нужны бэкапу). Проверено рантайм-проверками (повторная запись обновляет строку, дублей нет) |
 | Фаза 8.1 `clientsRepo.getById` | ✅ исправлено | найден при 4.1: `OrderDetailsPage.vue` зовёт `clientsRepo.getById`, а экспорта не было → SPA-сборка падала (`"getById" is not exported`). Добавлен `getById` (запрос `queries.getById` уже существовал); сам рефакторинг страницы — по-прежнему 8.1 |
 
-| Фаза 5.3 `servicesRepo` binding | ❌ | найдено при 3.3: `servicesRepo.save()` передаёт `service.category_id` без `|| null` → при отсутствии категории sql.js падает «tried to bind a value of an unknown type (undefined)»; локальная схема требует `services.category_id NOT NULL`, т.е. услугу без категории создать нельзя |
-| Фаза 5.1 тест-раннер | ❌ | `"test": "echo \"No test specified\" && exit 0"` |
+| Фаза 5.3 `servicesRepo` binding | ✅ исправлено | найдено при 3.3: `servicesRepo.save()` передаёт `service.category_id` без `|| null` → при отсутствии категории sql.js падал «tried to bind a value of an unknown type (undefined)». Теперь — `|| null`, ошибка понятная (`NOT NULL constraint failed: services.category_id`); тест фиксирует это поведение |
+| Фаза 5.1 тест-раннер | ✅ сделано | `vitest` 5.x, `"test": "vitest run"` + `test:watch`; `vitest.config.js` (алиас `src`, Node-окружение, `test/setup.js`); `test/**` и `vitest.config.js` добавлены в `npm run lint`. `npm test` → `65 тестов` в 5 файлах, lint 0, SPA-сборка проходит |
+| Фаза 5.2 инфра тестов | ✅ сделано | `test/helpers/testDb.js` — реальный sql.js в памяти с интерфейсом веб-адаптера + миграции; `test/helpers/fakeServer.js` — фейковый сервер по контракту `SyncController` (идемпотентность, tombstones, порядок приёма); сеть через `vi.spyOn(api, …)`. Рантайм-скрипты Фаз 3–4 перенесены в `test/sync.test.js` и `test/repositories-*.test.js` |
+| Фаза 5.3 `productsRepo` binding | ✅ исправлено | найдено тестами 5.3: `productsRepo.save/update` биндили `undefined` для необязательных полей (`description`, `manufacturer`, `product_number`, `weight`, `base_sale_price`) и всегда спрашивали категорию по `product_category_id` → `save` «частичного» товара падал «tried to bind a value of an unknown type». Теперь `?? null`/`?? ''` и запрос категории только если она передана |
+| Фаза 5.4 `order_service` reconcile | ✅ исправлено | найдено тестами 5.4: после INSERT связки сервер не возвращает `server_id`, поэтому на устройстве-авторе не появлялись `order_server_id`/`service_server_id`, и удаление работы (кейс 3.5) уходило не по натуральному ключу — строка оставалась на сервере. `operationsRepo.markSynced` теперь запоминает серверные id родителей (`RECONCILE_PARENT_IDS`); тест `sync.test.js` (цепочка) + `repositories-infra.test.js` |
+| Фаза 5.4 debug-хук `window` | ✅ исправлено | найдено тестами 5.4: `syncService` ставил `window.debugShowServices` под `process.env.DEV` без проверки `window` — модуль падал при импорте вне браузера (тесты/SSR). Теперь `import.meta.env?.DEV && typeof window !== 'undefined'` (как в `logger`) |
 | Фаза 6.1 блокирующий синк | ❌ | `await syncService.sync()` в `src/boot/db.js` |
 | Фаза 9.4 `api` без импорта | ⏳ кодовая часть сделана | `apiClient` экспортирован из `api.js` и используется в `generateAndCopyLink` (рамках 0.4); рантайм-проверка ссылки — в Фазе 9 |
 
 Коммиты: `8ba14f0` — Фаза 3 (3.1–3.3), `36cb4b0` — 3.4, `85ab900` — 3.7, `f4dff1f` — 3.6 (FE-часть),
 3.5 — FE `aa9b986` + BE `5dc96fc`, 3.6 (BE-часть) — `f21ffd6`, 3.8 — FE `ea3e72c` + BE `e82d435`,
 остаток Фазы 3 (3.9/3.10/3.12) — FE `c14d645` + BE `56f0642`, 3.11 — BE `a7892ed` + FE `—` (docs/TODO,
-этот коммит) (`LedgerCraftDocker03`), Фаза 4 (4.1–4.5) — FE `70d1d59` (см. `git log`).
+этот коммит) (`LedgerCraftDocker03`), Фаза 4 (4.1–4.5) — FE `70d1d59`, Фаза 5 — FE `c8d2e15` (5.1–5.5)
++ BE `6b34f94` (5.6) (см. `git log`).
 **Фаза 3 закрыта полностью; Фаза 4 закрыта по чек-листу** (кроме живого прогона на Android —
-в окружении нет JDK/Android SDK и устройства). Дальше — Фаза 5 (тест-раннер и перенос
-рантайм-проверок Фаз 3–4 в vitest) или Фаза 6 (UX офлайна и синка);
+в окружении нет JDK/Android SDK и устройства); **Фаза 5 закрыта** — vitest (65 тестов: миграции,
+репозитории, синк) + PHPUnit в бэкенде (`php artisan test` → `30 passed`, exit 0), из рантайм-проверок
+Фаз 3–4 перенесено всё, что описывало критерии. Тесты 5.3/5.4 нашли и закрыли 4 дефекта
+(см. таблицу: `specializationsRepo`, `productsRepo` binding, `order_service` reconcile, debug-хук).
+Дальше — Фаза 6 (UX офлайна и синка: неблокирующий синк + индикатор);
 ⚠️ синк требует токен, поэтому **7.4 (вход/получение токена на клиенте) стала блокирующей для
 синхронизации** — до неё устройства получают 401 (данные не теряются, очередь растёт).
 Снимок состояния обновлять при каждом существенном
