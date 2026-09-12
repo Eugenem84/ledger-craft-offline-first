@@ -12,6 +12,8 @@ import LcEmptyState from 'src/components/ui/LcEmptyState.vue'
 import LcFab from 'src/components/ui/LcFab.vue'
 import LcPageHeader from 'src/components/ui/LcPageHeader.vue'
 import LcStatusChip from 'src/components/ui/LcStatusChip.vue'
+// Фильтр списка: прячем только «готово И оплачено» (дефект живого прогона, 11.6).
+import { isOrderVisible } from 'src/utils/orderFilters.js'
 
 const $q = useQuasar()
 
@@ -22,13 +24,21 @@ const router = useRouter()
 const loading = ref(false)
 const orders = computed(() => orderStore.items); // Orders now come from the store
 
-const filterDone = ref(false) // Стейт для фильтрации завершенных заказов
+// Тумблер «показывать готовые и оплаченные». Выключен — скрываем только заказы,
+// у которых выполнены ОБА условия: статус «готово» И оплата. В БД `paid` — это 0/1,
+// поэтому проверка живёт в `isOrderVisible` (строгое сравнение с `false` не работало).
+const showCompleted = ref(false)
 
-const filteredOrders = computed(() => {
-  return orders.value.filter(
-    order => filterDone.value || order.status !== 'done' || order.paid === false
-  )
-})
+const filteredOrders = computed(() =>
+  orders.value.filter(order => isOrderVisible(order, showCompleted.value))
+)
+
+/** Подпись «всего/показано» — честно отражает, сколько скрыл фильтр. */
+const listSubtitle = computed(() =>
+  filteredOrders.value.length === orders.value.length
+    ? `всего: ${orders.value.length}`
+    : `показано: ${filteredOrders.value.length} из ${orders.value.length}`
+)
 
 
 function formatDate(dateInput) {
@@ -118,13 +128,9 @@ watch(
 
 <template>
   <q-page class="lc-page lc-shell">
-    <LcPageHeader
-      :title="t('order')"
-      :subtitle="`всего: ${filteredOrders.length}`"
-      icon="receipt_long"
-    >
+    <LcPageHeader :title="t('order')" :subtitle="listSubtitle" icon="receipt_long">
       <template #actions>
-        <q-toggle v-model="filterDone" dense color="secondary" icon="visibility" size="sm">
+        <q-toggle v-model="showCompleted" dense color="secondary" icon="visibility" size="sm">
           <q-tooltip class="text-caption">показывать готовые и оплаченные</q-tooltip>
         </q-toggle>
       </template>
@@ -136,8 +142,8 @@ watch(
         icon="receipt_long"
         :title="loading ? 'Загружаем заказы…' : 'Заказов пока нет'"
         :hint="
-          filterDone
-            ? 'Включён фильтр — снимите его, чтобы увидеть завершённые.'
+          orders.length
+            ? 'Готовые и оплаченные заказы скрыты — включите тумблер в шапке.'
             : 'Нажмите «+», чтобы завести первый заказ.'
         "
       />

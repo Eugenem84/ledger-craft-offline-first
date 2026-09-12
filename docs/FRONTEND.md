@@ -488,3 +488,8 @@ return id;
   (`operationsRepo.clearAll()`), а `useAuthStore` помнит владельца (`auth_owner_id`) и при **смене**
   аккаунта делает полный сброс (`_resetLocalDataIfOwnerChanged`). Повторный вход тем же аккаунтом
   офлайн-данные не трогает. Регрессы — `test/account-switch.test.js`.
+- **Тумблер «показывать готовые и оплаченные»** в списке заказов (`OrdersPage.vue`) скрывал и
+  неоплаченные «готовые» заказы: сравнение `order.paid === false` не срабатывало, потому что в БД
+  `paid` — целое 0/1. Фильтр вынесен в чистую `src/utils/orderFilters.js` (`isOrderVisible` прячет
+  только «готово И оплачено»), подпись шапки стала «показано N из M», подсказка пустого состояния —
+  по факту. Регрессы — `test/orders-filter.test.js`.
