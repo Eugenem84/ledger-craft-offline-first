@@ -91,7 +91,8 @@
 - [x] **Фаза 8** — Рефакторинг UI · 3/3 · *OrderDetailsPage 300 строк: форма разбита на компоненты, данные — в сторе*
 - [x] **Фаза 9** — Продукт (аналитика, склад, материалы) · FE 6/6 · BE 6/6 · *аналитика, маржа, ручные позиции*
 - [x] **Фаза 10** — Специализации и пресеты (мульти-профиль) · FE 9/9 · BE 4/4 · *новый юзер получает готовый каталог своей ниши, UI говорит на его языке*
-- [ ] **Фаза 11** — Среды и выкат: dev-VPS → prod-VPS · 4/12 · *новые фичи обкатываем на dev, боевой контур обновляем по чек-листу*
+- [ ] **Фаза 11** — Среды и выкат: dev-VPS → prod-VPS · 5/12 · *новые фичи обкатываем на dev, боевой контур обновляем по чек-листу*
+- [x] **Фаза 12** — Правки по ревью интерфейса: профили и отладка · 5/5 · *специализацию только выбираем из доступных и не меняем после выбора, в карточке заказа статус/оплата одним органом управления, отладка — в dev-вкладке*
 
 ---
 
@@ -903,9 +904,9 @@
       перезапись цены, отказ на нулевом количестве, отъезд с серверным `product_id` и получение
       `server_id`, приём остатка/чужих приходов без дублей); `npm test` → **126 тестов**,
       `npm run lint` — 0, прод-сборка SPA проходит
-      → ⚠️ `/api/arrival_product` остался **без `auth`** (web-версия вызывает его без токена):
-        приходовать чужой товар технически может кто угодно; синк-путь закрыт владельцем.
-        Закрытие ручки — отдельная задача безопасности (не смешивали с 9.2)
+      → ✅ `/api/arrival_product` закрыт позже — задача **11.7** (BE `ce7e16e`): `auth:sanctum` +
+        проверка владельца товара; без токена/сессии `401`, чужой товар → `403`
+        `FORBIDDEN_NOT_OWNER` (отдельная задача безопасности — не смешивали с 9.2)
       → ⚠️ остаток **пока не выводится** в `StorePage` (`product.quantity` без источника) — это
         задача 9.3; локально величина уже ведётся, и приход показывает новый остаток в уведомлении
 - [x] **9.3** [FE+BE] (P2) Цены и остатки
@@ -1267,6 +1268,10 @@ BE: миграции полей профиля, `template_key`, `equipment_ident
       **не** отдаёт автору (анти-эхо, 3.6); без токена — 401 (3.10); после выката в БД
       1 user / 2 specializations (с `user_id` и `preset_key`) / 1 category / 1 service
       → остаётся **UI-часть** (проверяем локальным клиентом, ниже):
+      - [x] чистый профиль браузера (Application → **Clear site data**, включая IndexedDB) → приложение
+            стартует на пустой БД: первый же вход поймал 3 дефекта FE (IndexedDB-ветка хранилища —
+            чёрный экран; `QPage` вне `QLayout` на `/login`/`/register`; двойная Pinia) — исправлены
+            с тестами, см. таблицу «Проверенные факты»
       - [ ] **10.5** регистрация нового email → в БД появились `specializations` (1..N) с `user_id`;
             повторный email → 422
       - [ ] **10.4/10.6/10.7** «Начать с шаблона» → каталог появился, повтор не дублирует; кэш
@@ -1288,21 +1293,49 @@ BE: миграции полей профиля, `template_key`, `equipment_ident
 
 - [ ] **11.6** [FE+BE] (P1) Дефекты, найденные живым прогоном
       → каждый баг с 11.5: воспроизводимый тест → фикс → повторная проверка на dev
+      → ✅ закрыты 3 дефекта FE (12.09.2026, вход на **чистом** storage): IndexedDB-ветка `load()`
+      (чёрный экран — `storage-adapter.js`, 8 тестов + фейк IndexedDB), `QPage` вне `QLayout`
+      на `/login`/`/register` (обёртка в `QLayout` + структурный `test/pages-layout.test.js`),
+      двойная Pinia (`boot/pinia.js` удалён — стор ставит Quasar из `src/stores/index.js`);
+      `npm test` → **215 тестов**, lint 0, SPA-сборка ok. Остальное — по мере прогона 11.5
       → *критерий:* ничего «нашли на живом сервере, но не завели»: всё либо исправлено с тестом,
       либо явно отложено записью в этом файле
-- [ ] **11.7** [BE] (P1) `/api/arrival_product` под `auth:sanctum` (бывший O-6)
+- [x] **11.7** [BE] (P1) `/api/arrival_product` под `auth:sanctum` (бывший O-6)
       → закрыть ручку токеном (сейчас приходовать чужой товар может кто угодно; синк-путь уже под
       владельцем, 3.10) и поправить web-вызов, который ходит без токена
       → *критерий:* без токена — 401, чужой товар — `FORBIDDEN_NOT_OWNER`; web-приход работает;
       тест в `tests/Feature`
+      → ✅ **сделано 13.09.2026** (BE `ce7e16e`): маршрут под `auth:sanctum` +
+      `EnsureFrontendRequestsAreStateful` — web-версия работает по сессии, а bearer-токену сессия
+      не нужна (middleware для него no-op). Владелец товара проверяется той же цепочкой, что в синке
+      (3.10: товар → категория → специализация) — `ProductRepository::belongsToUser()`, чужой товар
+      → `403 FORBIDDEN_NOT_OWNER`; «ничьи» legacy-звенья остаются общими. Web-вызов
+      `ArrivalProductModal.vue` шлёт `withCredentials` + `X-CSRF-TOKEN` (meta-тег) и обрабатывает
+      401/403 (заодно поправлен сброс поля: `this.quantity` → `this.arrivalQuantity`)
+      → проверено: `ArrivalProductTest` +3 (401 без токена и без сессии, чужой товар → 403,
+      web-приход по сессии без bearer-токена); `php artisan test` → **82 passed**, 627 assertions;
+      маршрут в `route:list` — `EnsureFrontendRequestsAreStateful` + `Authenticate:sanctum`
 - [ ] **11.8** [FE] (P1) Живой прогон Android (бывший O-3)
       → JDK + Android SDK, `cd src-capacitor && npx cap add android`, `npx cap sync`, запуск на
       устройстве: файл БД на диске, миграции, CRUD, синк, бэкап
       → *критерий:* критерии 4.2/4.3 подтверждены на устройстве, а не заглушкой плагина поверх sql.js
-- [ ] **11.9** [FE] (P2) Восстановление из бэкапа (бывший O-4)
-      → `importFromJson` + пункт «Восстановить из бэкапа» в `OthersPage.vue`, подтверждение
-      перезаписи, сверка версии схемы после импорта
+- [ ] **11.9** [FE] (P2) Аварийное восстановление из бэкапа (бывший O-4)
+      → формулировка «восстановление на чистом устройстве» вводила в заблуждение: обычный
+      перенос на новый телефон — это **вход и синк** (на чистой БД курсор `since=0`, и выгрузка
+      отдаёт все синкаемые таблицы владельца). Бэкап нужен для другого случая — когда сервера
+      нет (потерян/недоступен, аккаунт удалён) и данные остались только в локальной копии
+      → реализация: `importDatabaseJson` в нативном адаптере (`SQLiteConnection.importFromJson`),
+      `listBackups()`/`restoreBackup()` в `backupService` (чтение JSON из документов, сверка
+      `SCHEMA_VERSION` **до** импорта, обязательный `overwrite: true` — иначе плагин при
+      совпадающей версии делает no-op), кнопка «Восстановить из бэкапа» в `OthersPage.vue`
+      только на устройстве (в браузере бэкап — дамп `.sqlite`, только выгрузка), двойное
+      подтверждение и явное предупреждение «заменяет БД, это аварийный путь без сервера»
+      → ✅ код и тесты сделаны: `test/backup-restore.test.js` (9 тестов — разбор файла и обёртки
+      `{ export }`, список файлов и порядок «новые первыми», отказ на дампе другой версии схемы,
+      обязательный `overwrite`); `npm test` → **229 тестов**, lint 0, SPA-сборка ok
       → *критерий:* из ранее созданного бэкапа данные возвращаются на чистом устройстве
+      ⚠️ живая проверка на Android не выполнена (нет JDK/SDK и устройства) — снимается прогоном
+      **11.8**, там же подтвердить восстановление на устройстве
 - [ ] **11.10** [FE] (P2) Шифрование локальной БД, SQLCipher (бывший O-5)
       → SQLCipher-режим нативного адаптера + хранение ключа вне репозитория, миграция существующих БД
       → *критерий:* файл БД не читается без ключа; приложение работает как раньше
@@ -1319,6 +1352,112 @@ BE: миграции полей профиля, `template_key`, `equipment_ident
 
 > **Правило выката:** сначала **dev** → проверка по чек-листу (11.5) → и только потом **prod**
 > (11.12). Фичи, не прогонявшиеся на dev, в бой не уходят.
+
+## Фаза 12 — Правки по ревью интерфейса: профили и отладка (P1/P2)
+
+> Находки ручного ревью UI (12.09.2026). Это продуктовая полировка Фаз 10 (мульти-профиль) и 8
+> (карточка заказа): схему и синк не трогаем. Нумерация — продолжение Фазы 11, но выкат в бой
+> (11.12) эти правки не блокируют.
+
+- [x] **12.1** [FE] (P1) Специализацию можно только выбрать из доступных — свою создать нельзя
+      → в `OthersPage.vue` блок «добавить профиль» (`newProfileName` + `addProfile()` →
+      `specializationsStore.add({ name })`) позволяет ввести **произвольное название**; у такого
+      профиля нет пресета — значит нет ни каталога, ни лексикона, ни флагов разделов (Фаза 10)
+      → заменить свободный ввод на выбор из доступного перечня: клиентские пресеты `PRESETS`
+      (`src/domain/presets/index.js`; сейчас `presetOptions` задействован только в блоке «шаблон»)
+      и серверные `specialization_templates` (`presetService.refreshTemplates` → read-only кэш в
+      `meta`); выбор создаёт профиль сразу с применённым пресетом — как при регистрации
+      (`RegisterPage.vue`, `specializationsStore.onboardFromServer`/`onboardLocal`)
+      → *критерий:* в «Добавить специализацию» нет поля свободного ввода; завести можно только одну
+      из доступных ниш, и у неё сразу есть каталог; профилей «без пресета» больше не появляется
+      → ✅ сделано: свободный ввод убран, добавление — `q-select` из `presetOptions` и новая
+      экшен стора `createFromPreset(presetKey)`: профиль создаётся сразу с `preset_key`/`accent`/
+      `features`/`template_version` и материализованным каталогом (как `onboardLocal`+`applyPreset`),
+      затем выбирается активным. Тесты: `test/phase12-profile.test.js` (профиль из пресета, каталог,
+      отказ на неизвестном пресете). ⚠️ попутно найден и исправлен дефект `specializationsRepo.update`
+      (см. итог фазы ниже)
+
+- [x] **12.2** [FE] (P1) После выбора специализацию нельзя менять — можно лишь добавить ещё одну
+      → сейчас существующий профиль можно «сменить» двумя путями: переименовать (`renameProfile` →
+      `specializationsStore.update(id, { name })`) и переприменить другой шаблон (блок «шаблон
+      специализации» → `applyPreset(activeSpecialization.id, presetKey)`), то есть поменять нишу
+      у уже созданного профиля
+      → убрать из `OthersPage.vue` переименование и блок «шаблон специализации»; применение пресета
+      оставить только в момент создания профиля (онбординг/регистрация); переключатель активного
+      профиля в шапке (`MainLayout.vue`, `selectProfile`) — это смена рабочего контекста, он остаётся
+      → кнопку «добавить» переименовать в «Добавить ещё одну специализацию»
+      ⚠️ уточнить у продукта судьбу первичной привязки пресета к старым профилям без `preset_key`
+      (созданным до Фазы 10): если она нужна — оставить применение шаблона **только** когда
+      `preset_key` пуст, а смену уже выставленного значения блокировать
+      → *критерий:* у существующего профиля нет UI-пути изменить `name`/`preset_key`; кнопка
+      «добавить ещё одну» создаёт новый профиль из списка доступных
+      → ✅ сделано: из «Ещё» убраны поле названия/«Сохранить название» и весь блок «шаблон
+      специализации»; «разделы профиля» вынесены отдельной read-only карточкой; переключатель
+      активного профиля (шапка + селект в «Ещё») остался как смена рабочего контекста; кнопка —
+      «Добавить ещё одну специализацию». ⚠️ решение по старого-профилям: выбран строгий вариант
+      критерия — UI-пути трогать `preset_key` нет даже для профилей без пресета (такой профиль можно
+      архивировать и завести заново из списка); если продукт решит иначе, блок «привязать шаблон»
+      возвращается **только** при пустом `preset_key`
+
+- [x] **12.3** [FE] (P1) Режим просмотра заказа: статус и оплату показывать только переключателями
+      → в `OrderHeaderActions.vue` в просмотре дублируется одно и то же: сверху `LcStatusChip` +
+      чип «оплачено» (строки ~52–58), снизу — `q-btn-toggle` статуса + кнопка «оплачено»
+      (строки ~108–133); выглядит как два независимых органа управления
+      → оставить **только переключатели** (нижний ряд); верхние чипы убрать (либо показывать их
+      лишь там, где переключателей нет — например в списке заказов, а не в карточке)
+      ⚠️ учесть, что `q-btn-toggle`/«оплачено» активны и в режиме просмотра и сразу пишут в БД
+      (`useOrderDraftStore.setStatus`/`togglePaid` → `useOrdersStore.update`), в отличие от формы,
+      которая ждёт «Сохранить»; решить, оставить это или тоже перевести на общий «Сохранить»
+      → *критерий:* в карточке заказа статус и оплата видны и управляются в одном месте — без
+      повторяющихся чипов над переключателями
+      → ✅ сделано: верхние чипы (`LcStatusChip` + «оплачено») и импорт компонента удалены, остались
+      только `q-btn-toggle` статуса и кнопка «оплачено». Чип статуса по-прежнему живёт в списке
+      заказов (`OrdersPage.vue`), где переключателей нет. ⚠️ решение по записи: моментальная запись
+      статуса/оплаты в режиме просмотра сохранена — это быстрый рабочий сценарий, а общий
+      «Сохранить» относится к составу позиций; поведение зафиксировано тестом
+      `test/phase12-profile.test.js`
+
+- [x] **12.4** [FE] (P1) Убрать «очистить локальную базу» из настроек
+      → в `OthersPage.vue` блок «опасная зона» дёргает `SyncService.fullReset()` («Полный сброс
+      (для отладки)» — «Локальная база будет очищена…») и `SyncService.deleteLocalDB()` («Удалить
+      локальную БД»); для обычного пользователя это не настройка, а отладочный инструмент
+      → убрать блок из пользовательских настроек, а саму функциональность не удалять — перенести в
+      «Режим разработчика» (12.5). Блок «данные и синхронизация» (ручной синк + бэкап) остаётся
+      → *критерий:* в «Ещё» нет кнопок очистки/удаления локальной БД; ручной синк и бэкап на месте
+      → ✅ сделано: карточка «опасная зона» и хендлеры `fullReset`/`deleteDB` из `OthersPage.vue`
+      удалены; «данные и синхронизация» (ручной синк, бэкап, восстановление на устройстве) не тронуты.
+      Сама функциональность живёт в `DeveloperPanel.vue` (12.5) с прежним подтверждением
+      (`DeleteConfirmPage`). Тест: `test/phase12-dev.test.js`
+
+- [x] **12.5** [FE] (P2) Вкладка «Режим разработчика» в настройках (пишется только в dev-сборке)
+      → показывать только при `import.meta.env.DEV === true` (тот же признак, что в
+      `src/utils/logger.js`; проект уже вырезает DEV-код по точечным `import.meta.env.*`, поэтому
+      в проде секции нет вовсе)
+      → полезное для отладки: снимок окружения (`API_URL` из `src/config.js`, `USE_MOCK`,
+      платформа `isNativePlatform()`), версия схемы (`SCHEMA_VERSION` /
+      `adapter.getSchemaVersion()`), состояние синка (`SyncService.getStatus()` → `online`,
+      `syncing`, `pendingCount`, `lastError`, `nextRetryAt`), просмотр очереди операций и буфера
+      логов (обёртка над `logger`), последняя дата бэкапа (`meta`), запуск `debugShowServices`,
+      а также перенесённые из 12.4 `fullReset`/`deleteLocalDB`
+      → *критерий:* в dev-сборке в «Ещё» есть вкладка «Режим разработчика» с перечисленным; в
+      prod-сборке её нет (проверено по собранному бандлу)
+      → ✅ сделано: новый `src/components/dev/DeveloperPanel.vue` (секция-карточка) собирает снимок
+      окружения/схемы/синка, очередь операций и буфер логов с обновлением/очисткой, дату бэкапа,
+      запуск `logAllServicesForDebugging` и опасную зону. Поддержка: `src/utils/devInfo.js`
+      (чистые форматтеры), кольцевой буфер в `src/utils/logger.js` (`getLogBuffer`/`clearLogBuffer`,
+      лимит 200), `operationsRepo.listAll()` (видит и in-flight). Подключение — динамический
+      `defineAsyncComponent` под `import.meta.env.DEV`, поэтому код панели и её чанк в prod-бандл не
+      попадают. Проверка: `npm test` (13 тестов `test/phase12-dev.test.js` + регрессия `logger`),
+      `npm run lint` 0, `npm run build` ок; по собранному `dist/spa` — `режим разработчика`,
+      `DeveloperPanel`, `буфер логов`, `Полный сброс`, `Удалить локальную БД` **отсутствуют**
+
+> **Фаза 12 закрыта (13.09.2026).** Схему и синк не трогали: все пять задач — представление.
+> ⚠️ Найденный при 12.1 дефект: `specializationsRepo.update()` перезаписывал ВСЕ колонки из
+> переданного объекта, а стор (Фаза 10) зовёт его частичным набором (`{ id, preset_key, … }`,
+> `{ id, archived }`) — `name` уходил в биндинг как `undefined`, и sql.js падал. До 12.1 этот путь
+> (архивирование/применение пресета через стор) тестами не покрывался. Исправлено слиянием с текущей
+> строкой БД; регресс закреплён в `test/phase12-profile.test.js`.
+> Итог прогонов: `npm test` — **250 тестов** (было 229), `npm run lint` — 0, SPA-сборка — ок.
 
 ## Ориентир по бэкенду (без отдельного чек-листа)
 
@@ -1431,7 +1570,7 @@ BE: миграции полей профиля, `template_key`, `equipment_ident
 | Фаза 8.3 типизация SQL-аргументов | ✅ сделано | `src/database/mappers/{orders,orderLines,catalog}.js` — именованные мапперы позиционных аргументов (JSDoc `OrderAttributes`/`ForeignKeyRef`); на них переведены `ordersRepo` (16/15 значений), `orderServiceRepo`, `orderProductRepo`, `materialsRepo`, `clientsRepo`, `servicesRepo`, `modelsRepo`. ✅ найдено и исправлено: `servicesRepo.applyServerRecord` (update) передавал 4 значения в запрос с 5 `?` (`category_id`) → обновление услуги с сервера падало; теперь `category_id` передаётся |
 | Фаза 8 тесты и проверки | ✅ сделано | `test/order-draft-store.test.js` — 4 теста на sql.js: справочники и итоги нового заказа, запись заказа с работой/материалом/товаром в очередь синка, перечитывание позиций существующего заказа, правка («удалить и добавить заново», `update`-операция), регрессия «добавить модель из заказа». `npm test` → **107 тестов** (13 файлов), `npm run lint` — 0, SPA-сборка проходит, `npm run dev` → HTTP 200 (модули страницы/компонентов/стора компилируются). Алиасы Quasar (`stores/`, `pages/`, `components/`, …) добавлены в `vitest.config.js` |
 | Фаза 9.1 аналитика | ✅ сделано | Единая методика выручки на обеих сторонах: `StatisticRepository::billedOrdersSubquery()` (BE) и `utils/analytics.js` (FE) — учтённый заказ = `status='done'` + `paid` + не удалён, выручка = позиции (работы + товары со склада + ручные материалы), цена позиции важнее каталожной, период — по `orders.updated_at`, средний чек = выручка / число учтённых заказов. BE: DWMY, топы, `getStatsByPeriod` (+`avg`), выручка по дням/неделям/месяцам/году — через один подзапрос; ушёл `SUM(orders.total_amount)`, добавлен `deleted_at IS NULL`, масштабы выровнены (день 30 / неделя 15 ISO / месяц 12 / год 5); новые ручки `getTopProducts`, `getTopMaterials`, `getStatusDistribution`. FE: `database/queries/analytics.js` + `analyticsRepo` (только SELECT) + `utils/analytics.js` + `useAnalyticsStore` + переписанная `AnalyticPage.vue` — считает по **локальной** БД (офлайн-первый). Тесты: BE `tests/Feature/StatisticRepositoryTest.php` (6 тестов на PostgreSQL), FE `test/analytics.test.js` (9) + `test/analytics-repo.test.js` (5) — контрольная цифра набора одна (1700 ₽ / 2 заказа / чек 850 ₽); `php artisan test` → `41 passed`, `npm test` → **121 тест**, lint 0, SPA-сборка ok. ⚠️ распределение по статусам — по всем не удалённым заказам мастерской, без периода |
-| Фаза 9.2 приход товаров | ✅ сделано | Источник истины разведён, чтобы остаток не удваивался: приход (`incoming_products`) и закупочная цена (`buy_product_prices`) — данные клиента (офлайн-очередь), остаток (`product_stocks`) ведёт **сервер**. FE: `ArrivalProductDialogPage` больше не шлёт `POST /arrival_product` через `boot/axios.js` с фиктивным `baseURL`; `useProductsStore.receiveArrival` → `incomingProductsRepo.receiveArrival()` пишет три таблицы одной локальной транзакцией и ставит в очередь `incoming_products` + `buy_product_prices`, `productStocksRepo` (локально + приём серверного значения по товару), `buyProductPricesRepo` (одна актуальная цена на товар, незаезженный INSERT переписывается), `queries/{incoming_products,product_stocks,buy_product_prices}.js` + `mappers/warehouse.js`, все три таблицы в `syncService.repos`/`fkTransformationMap`/`TABLE_ORDER`. BE: `IncomingProductRepository::recordArrival()` — идемпотентность по `uuid_id` (повтор не растит склад), строка остатка создаётся по требованию, всё в транзакции; `ProductController::arrival` — явный ответ 201/200 (`message`/`idempotent`/`stock_quantity`), валидация по `products`, разбор денег; `SyncController` — ветка `incoming_products`, владелец `product_stocks` по `product_id`; не-UUID `uuid_id` не роняет операцию. Тесты: BE `tests/Feature/ArrivalProductTest.php` (8) → `php artisan test` 49 passed; FE `test/incoming-products.test.js` (5) → 126 тестов, lint 0, SPA-сборка ok. ⚠️ `/api/arrival_product` без `auth` (отдельная задача); остаток в `StorePage` — 9.3 |
+| Фаза 9.2 приход товаров | ✅ сделано | Источник истины разведён, чтобы остаток не удваивался: приход (`incoming_products`) и закупочная цена (`buy_product_prices`) — данные клиента (офлайн-очередь), остаток (`product_stocks`) ведёт **сервер**. FE: `ArrivalProductDialogPage` больше не шлёт `POST /arrival_product` через `boot/axios.js` с фиктивным `baseURL`; `useProductsStore.receiveArrival` → `incomingProductsRepo.receiveArrival()` пишет три таблицы одной локальной транзакцией и ставит в очередь `incoming_products` + `buy_product_prices`, `productStocksRepo` (локально + приём серверного значения по товару), `buyProductPricesRepo` (одна актуальная цена на товар, незаезженный INSERT переписывается), `queries/{incoming_products,product_stocks,buy_product_prices}.js` + `mappers/warehouse.js`, все три таблицы в `syncService.repos`/`fkTransformationMap`/`TABLE_ORDER`. BE: `IncomingProductRepository::recordArrival()` — идемпотентность по `uuid_id` (повтор не растит склад), строка остатка создаётся по требованию, всё в транзакции; `ProductController::arrival` — явный ответ 201/200 (`message`/`idempotent`/`stock_quantity`), валидация по `products`, разбор денег; `SyncController` — ветка `incoming_products`, владелец `product_stocks` по `product_id`; не-UUID `uuid_id` не роняет операцию. Тесты: BE `tests/Feature/ArrivalProductTest.php` (8) → `php artisan test` 49 passed; FE `test/incoming-products.test.js` (5) → 126 тестов, lint 0, SPA-сборка ok. ✅ `/api/arrival_product` закрыт (11.7: `auth:sanctum` + проверка владельца); остаток в `StorePage` — 9.3 |
 | Фаза 9.3 цены и остатки | ✅ сделано | Дубль «где лежит товар» убран: миграция `2026_09_16_000000` удалила `product_stocks.product_categories_id` (категорию знает только `products.product_category_id`) и добила недостающие строки остатка (`quantity = 0`) существующим товарам; `ProductStockRepository::getByProductCategory` собирает список категории из товаров (`LEFT JOIN` — товар без строки виден с нулём, soft-deleted исключены), товар из синка получает строку остатка (0) в `SyncController`. `buy_product_prices`/`sales_products_prices` начали читаться: `ProductRepository::getByCategory` → `quantity`/`buy_price`/`last_sale_price`. FE: `salesProductPricesRepo` (запись в момент продажи, снятие вместе со строкой заказа, синк по `order_id`/`product_id`), `queries/products.js` (остаток + закупка + последняя продажа — переносимый SQL), `StorePage` показывает 4 колонки. Тесты: BE `tests/Feature/ProductStockTest.php` (5) → `php artisan test` 54 passed; FE `test/product-stock.test.js` (5) → 131 тест, lint 0, SPA-сборка ok. ⚠️ маржа — 9.5 |
 | Фаза 9.4 публичная ссылка | ✅ сделано | FE: `generateShareLink` в сторе (`apiClient`), без `server_id` — ошибка `ORDER_NOT_SYNCED` без запроса в сеть; причины отказа — чистая `src/utils/shareLinkError.js` (нет сети / 401 / 404 / не синхронизирован), страница только показывает сообщение. BE: `share-link` под `auth:sanctum` + проверка владельца (чужой/несуществующий → 404), токен создаётся один раз (та же ссылка при повторе); `showReport` **проверяет `token`** (`hash_equals`, без/с чужим → 404) — раньше параметр игнорировался и отчёт читался по одному `id`; blade защищён от заказа без клиента и пустых сумм; `share_token` — серверное поле (`stripClientFields` вырезает из payload синка, иначе правка заказа с клиента затирала бы ссылку). Тесты: BE `tests/Feature/OrderShareLinkTest.php` (9, PostgreSQL) → `php artisan test` `63 passed` на тот момент; FE `test/share-link.test.js` (8). ⚠️ локальный `php artisan serve` отдаёт https-ссылку (глобальный `URL::forceScheme('https')`) |
 | Фаза 9.5 маржа и наценка | ✅ сделано | Схема: `buy_price` (INTEGER, nullable) в `order_product` и `materials` — FE-миграция `024_order_lines_buy_price` (идемпотентна, `SCHEMA_VERSION` 18 → 19) и серверная `2026_09_17_000000`; `order_service` не трогали (у работы себестоимости нет). FE: `buy_price` в queries/мапперах/репозиториях и `applyServerRecord`, «закупка» в редакторах и диалоге ручной позиции, у товара со склада — из последней закупки (9.3), в итогах «закупка / маржа / наценка» (геттеры `costTotal`/`margin`/`markupPercent`, предупреждение `hasUnknownCost`), в аналитике — `*_cost`/`margin` в SQL, `orderCost`/`orderMargin`/`marginPercent` и `summary.cost/margin/marginPercent`. BE: `MONEY_COLUMNS` нормализует `buy_price`; нет в payload — `ProductRepository::lastBuyPrice()` (`buy_product_prices` → приход); web-путь `OrderRepository` пишет сам; `StatisticRepository` — `cost` в подзапросе, `margin_day/…/margin_year`, `cost`/`margin`/`margin_percent` по периодам, `margin` в топах (без закупок `margin_percent = null`). Тесты: BE `StatisticRepositoryTest` (1700/740 → 960 ₽, наценка 130 %) + `SyncControllerTest` (нормализация, подстановка), FE `order-draft-store`/`analytics`/`analytics-repo`/`migrations` → `php artisan test` `67 passed`; `npm test` **146 тестов**, lint 0, SPA-сборка ok |
@@ -1443,6 +1582,10 @@ BE: миграции полей профиля, `template_key`, `equipment_ident
 | Фаза 11.2 — модель техники в заказе | ✅ сделано (12.09.2026) | FE `47c90bb`: `ordersRepo` не вырезает локальный `model_id`, а отдаёт сигнальное `model_server_id` (даже `null` = «модель ещё не на сервере»), `syncService` строит ребро и подставляет серверный id; закрыта пара `orders.model_id`+`orders.model_server_id` (колонка была в 014, но не заполнялась) — 4 SQL-запроса + 4 маппера + `getModelData`. Тест поймал и закрыл ещё один дефект: `modelsRepo.applyServerRecord` биндил `undefined` в `specializationServerId` → модель с сервера не применялась вовсе (глушилось per-table `catch`). Тест: «11.2: заказ с новой моделью техники уезжает одним `sync()` и сохраняет связь»; `npm test` → **202 теста**, lint 0, SPA-сборка ok. Серверная часть — BE `05dac8b`: «белый список» колонок при вставке заказа не содержал `model_id` (терялись и `status`/`paid`/`user_order_number`), теперь их принимают; BE-тест `test_order_insert_keeps_model_status_paid_and_user_order_number` (`php artisan test` → 73 passed). Живой прогон на dev: второй девайс получает заказ с `model_id = 1` (до фикса — `null`) |
 | Фаза 11.1 — среды в документации | ✅ сделано (12.09.2026) | канон — BE `docs/ENVIRONMENTS.md` (FE `b007110` + BE `f5e4455`): контуры dev/prod, где прописан домен (Traefik `Host(...)`, `APP_URL`, `VITE_API_URL`, `config/cors.php`), CORS и его симптомы, доступ к dev-VPS по ключу, что где лежит на машине, проверенные команды выката dev/prod, smoke, «грабли», чек-лист поднятия prod. Клиентский раздел README переписан (env-файлы `.env`/`.env.local`/`.env.prod`, локальный dev на `:9000`, CORS-предупреждение); `docs/ARCHITECTURE.md` §1.1 ссылается на канон; в README бэкенда поправлено «53 миграции» → 63. Боевой домен пока заглушка `<prod-домен>` (задача 11.12) |
 | Фаза 11.3 — сид пресетов | ✅ сделано (12.09.2026) | BE `821c209`: `database/seeders/SpecializationTemplateSeeder.php` — 4 ниши v1 (`bike`/`aquarium`/`hvac`/`auto`), `content` сверен **байт-в-байт** с клиентскими JSON (19 категорий / 54 услуги с ценами / 14 категорий товаров / 18 моделей), в `content` только каталог — метаданные UI остаются на клиенте (их читает `presetService.mergePreset()`, D5). Идемпотентно `updateOrCreate(['preset_key' => …])`: повтор не плодит дубли и освежает контент (правка без релиза клиента, критерий 10.7). Сид подключён в `DatabaseSeeder`; шаг `db:seed --class=SpecializationTemplateSeeder --force` добавлен в выкат dev/prod (`docs/ENVIRONMENTS.md` §4/§5/§6/§8). Проверено: `SpecializationTemplateSeederTest` — 4 теста (каталог, идемпотентность + перезапись устаревшего контента, `DatabaseSeeder`, endpoint отдаёт 4 пресета под `auth:sanctum`), `php artisan test` → **77 passed**, 607 assertions; живьём на тестовой БД повторный `db:seed` → 4 строки |
+| Фаза 11.7 — `arrival_product` под `auth:sanctum` | ✅ сделано (13.09.2026) | BE `ce7e16e`: ручку больше не может дёрнуть кто угодно. Маршрут переведён под `auth:sanctum`, плюс `EnsureFrontendRequestsAreStateful` — web-версия входит по сессии (`withCredentials` + `X-CSRF-TOKEN` из meta-тега) и проходит как first-party, а bearer-токену (мобильное приложение) сессия не нужна. Владелец товара проверяется той же цепочкой, что в синке (задача 3.10): `products` → `product_categories` → `specializations.user_id` — новый `ProductRepository::belongsToUser()`, чужой товар → `403 FORBIDDEN_NOT_OWNER` (без записи в БД); «ничьи» legacy-звенья остаются общими, как в выдачах синка. Web-вызов `ArrivalProductModal.vue` шлёт cookie + CSRF и обрабатывает 401/403 (заодно закрыт сброс поля после прихода: `this.quantity` → `this.arrivalQuantity`). Тесты: `ArrivalProductTest` +3 (401 без токена и сессии, чужой товар → 403, web-приход по сессии без bearer-токена); `php artisan test` → **82 passed**, 627 assertions. Документация: BE `docs/API.md` §3/§4/§7, FE `docs/ARCHITECTURE.md`, `docs/FRONTEND.md`, `docs/API-INTEGRATION.md` §2.3 |
+| Фаза 1.3 IndexedDB-ветка хранилища | ✅ исправлено (11.6, 12.09.2026) | найдено живым прогоном 11.5 на **пустом localStorage** (перед прогоном почистили storage): `load()` падал `NotFoundError: One of the specified object stores was not found` и **не завершался**, `boot/db.js` висел на `await adapter.init()` → SPA показывала чёрный экран (в консоли обрыв после `[DB] Boot start`). Три дефекта в `src/database/adapters/storage-adapter.js`: (1) `db.transaction('readonly')`/`('readwrite')` — режим передан первым аргументом вместо имени стора (нужно `transaction(IDB_STORE_NAME, mode)`); (2) не было `onupgradeneeded` → стор `kv` не создавался никогда; (3) завершение ждали через `tx.done` (API Dexie) вместо `oncomplete`/`onerror`/`onabort`, а исключение летело из `onsuccess` мимо `try` — промис не завершался. Теперь: `openIdb()` (версия 2 + создание стора + лечение «битой» БД без стора пересозданием) и `withStore()` (промис завершается всегда, `db.close()`), `load()` деградирует к пустой БД + страховка по времени 3 с. Тесты: `test/storage-adapter.test.js` (8) + честный фейк `test/helpers/fakeIndexedDB.js`; регресс подтверждён мутацией — с прежним вызовом транзакции round-trip через IndexedDB падает с тем же `NotFoundError`. `npm test` → **215 тестов**, lint 0, SPA-сборка ok |
+| `QPage` вне `QLayout` (`/login`, `/register`) | ✅ исправлено (11.6, 12.09.2026) | находка живого прогона 11.5: экран входа не монтировался (`[Vue warn] QPage needs to be a deep child of QLayout`), а индикатор «требуется вход» вёл на уже открытый (и пустой) `/login` — со стороны выглядело как «кнопка с замком не реагирует». Причина: `/login` и `/register` — маршруты **верхнего уровня** (вне `MainLayout`), а корнем их шаблонов был `<q-page>`. Оба шаблона обёрнуты в `QLayout` + `QPageContainer` (с пояснением в комментарии), добавлен структурный тест `test/pages-layout.test.js` — идёт по реальному `src/router/routes.js` и требует каркас от каждой страницы вне `MainLayout`, использующей `<q-page>` (5 тестов) |
+| Двойная Pinia | ✅ исправлено (11.6, 12.09.2026) | находка живого прогона 11.5: `[Vue warn] App already provides property with key "Symbol(pinia)"`. Quasar сам ставит стор из `src/stores/index.js` (`.quasar/<mode>/app.js` → `app.use(store)` **до** boot-файлов), а `src/boot/pinia.js` создавал вторую инстанцию (риск разъехавшегося состояния у `useStore()` из разных мест). Boot-файл удалён, из `quasar.config.js` убран пункт `pinia` с комментарием-ссылкой на сгенерированный entry |
 
 Коммиты: `8ba14f0` — Фаза 3 (3.1–3.3), `36cb4b0` — 3.4, `85ab900` — 3.7, `f4dff1f` — 3.6 (FE-часть),
 3.5 — FE `aa9b986` + BE `5dc96fc`, 3.6 (BE-часть) — `f21ffd6`, 3.8 — FE `ea3e72c` + BE `e82d435`,
@@ -1454,8 +1597,9 @@ FE `d002264` (7.4–7.5), BE `bf5a738` (7.4-тест) + BE `753c4bd` (7.6), Фа
 `5f60606` + BE `3657933` (гигиена `.DS_Store` — BE `593bf53`), Фаза 11 (среды и выкат: доки) — FE
 `cad31d7` + BE `b7fcb2e`, Фаза 11.1 (среды в доках) — FE `b007110` + BE `f5e4455`, Фаза 11.2 —
 FE `47c90bb` + BE `05dac8b`, Фаза 11.4 (dev-VPS + фикс nginx) — BE
-`ed43eb0` + `b92fc8a`, Фаза 11.3 (сид пресетов) — BE `821c209` (все три —
-`LedgerCraftDocker03`), TODO — FE `—` (этот коммит) (см. `git log`).
+`ed43eb0` + `b92fc8a`, Фаза 11.3 (сид пресетов) — BE `821c209`, Фаза 11.7
+(`arrival_product` под `auth:sanctum`) — BE `ce7e16e` (все — `LedgerCraftDocker03`),
+TODO — FE `—` (этот коммит) (см. `git log`).
 **Фазы 3–10 закрыты** — vitest (**201 тест** в 25 файлах: миграции, репозитории, синк,
 автосинк, индикатор, storage, DEV-моки, вход/PIN, guard, стор заказа, аналитика, приход товара,
 склад/цены, share-ссылка, маржа, лексикон/пресеты/флаги Фазы 10) + PHPUnit в бэкенде

@@ -1,7 +1,7 @@
 <script setup>
 import { logger } from 'src/utils/logger'
 
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, defineAsyncComponent, onMounted, ref } from 'vue'
 import { useQuasar } from 'quasar'
 import { useRouter } from 'vue-router'
 import SyncService from '../services/syncService.js'
@@ -16,6 +16,14 @@ import DeleteConfirmPage from 'pages/dialogs/DeleteConfirmPage.vue'
 import LcPageHeader from 'src/components/ui/LcPageHeader.vue'
 import LcSectionCard from 'src/components/ui/LcSectionCard.vue'
 import LcDialogShell from 'src/components/ui/LcDialogShell.vue'
+
+// Задача 12.5: «Режим разработчика» — только dev-сборка. Флаг и динамический
+// импорт стоят под «точечным» `import.meta.env.DEV`: в проде Vite подставляет
+// `false`, условие сворачивается, и чанк панели в бандл не попадает.
+const DeveloperPanel =
+  import.meta.env.DEV === true
+    ? defineAsyncComponent(() => import('src/components/dev/DeveloperPanel.vue'))
+    : null
 
 const $q = useQuasar()
 const router = useRouter()
@@ -33,14 +41,14 @@ const signOut = async () => {
 // 1. Получаем экземпляр хранилища
 const specializationsStore = useSpecializationsStore()
 
-// --- Управление рабочими профилями (Фаза 10, задача 10.8) --------------------
-// Активный профиль переключается в шапке (`MainLayout.vue`); здесь — добавление,
-// переименование и архивирование. Архивируем, а не удаляем: у серверных
-// `categories`/`product_categories` FK на `specializations` с `onDelete('cascade')`,
-// физическое удаление снесло бы весь каталог и осиротило заказы.
-const newProfileName = ref('')
-const profileName = ref('')
-const selectedPreset = ref(null)
+// --- Управление рабочими профилями (Фаза 10, задача 10.8; Фаза 12, 12.1/12.2) ---
+// Активный профиль переключается в шапке (`MainLayout.vue`). Здесь можно добавить
+// **ещё одну** специализацию — только выбором из доступных ниш: у нового профиля
+// сразу есть пресет (каталог/лексикон/флаги разделов), как при регистрации.
+// Переименовать профиль или сменить его пресет нельзя (12.2). Архивируем, а не
+// удаляем: у серверных `categories`/`product_categories` FK на `specializations`
+// с `onDelete('cascade')`, физическое удаление снесло бы весь каталог.
+const newProfilePreset = ref(null)
 const busy = ref(false)
 
 const activeSpecialization = computed(() => specializationsStore.getSelectedSpecialization)
@@ -50,25 +58,25 @@ const presetOptions = computed(() =>
   PRESETS.map(preset => ({ label: preset.label, value: preset.key, icon: preset.icon }))
 )
 
-watch(activeSpecialization, value => {
-  profileName.value = value?.name || ''
-})
-
 const addProfile = async () => {
-  const name = newProfileName.value.trim()
-  if (!name) return
+  if (!newProfilePreset.value) return
 
-  await specializationsStore.add({ name })
-  newProfileName.value = ''
-  $q.notify({ type: 'positive', message: 'Профиль добавлен', position: 'top', timeout: 1000 })
-}
-
-const renameProfile = async () => {
-  const name = profileName.value.trim()
-  if (!activeSpecialization.value || !name) return
-
-  await specializationsStore.update(activeSpecialization.value.id, { name })
-  $q.notify({ type: 'positive', message: 'Профиль переименован', position: 'top', timeout: 1000 })
+  busy.value = true
+  try {
+    await specializationsStore.createFromPreset(newProfilePreset.value)
+    newProfilePreset.value = null
+    $q.notify({
+      type: 'positive',
+      message: 'Специализация добавлена',
+      position: 'top',
+      timeout: 1200,
+    })
+  } catch (error) {
+    console.error('Ошибка добавления специализации:', error)
+    $q.notify({ type: 'negative', message: 'Не удалось добавить специализацию' })
+  } finally {
+    busy.value = false
+  }
 }
 
 const archiveProfile = async () => {
@@ -84,30 +92,6 @@ const archiveProfile = async () => {
 
 const restoreProfile = async id => {
   await specializationsStore.unarchive(id)
-}
-
-// Применение пресета к активному профилю (задача 10.4): идемпотентно.
-const applyPreset = async () => {
-  if (!activeSpecialization.value || !selectedPreset.value) return
-
-  busy.value = true
-  try {
-    const result = await specializationsStore.applyPreset(
-      activeSpecialization.value.id,
-      selectedPreset.value
-    )
-    $q.notify({
-      type: 'positive',
-      message: `Шаблон применён: категорий ${result.created.categories}, работ ${result.created.services}, товарных категорий ${result.created.productCategories}, моделей ${result.created.models}`,
-      position: 'top',
-      timeout: 3000,
-    })
-  } catch (error) {
-    console.error('Ошибка применения шаблона:', error)
-    $q.notify({ type: 'negative', message: 'Не удалось применить шаблон' })
-  } finally {
-    busy.value = false
-  }
 }
 
 // Бэкап локальной БД (задача 4.4): на Android — файл в документах устройства,
@@ -149,53 +133,8 @@ const sync = async () => {
   }
 }
 
-// Разрушительные действия подтверждаются: раньше кнопка «полный сброс» срабатывала сразу.
-const fullReset = () => {
-  dangerConfirm.value.open(
-    'Полный сброс',
-    'Локальная база будет очищена, данные перечитаются с сервера. Продолжить?',
-    async () => {
-      try {
-        await SyncService.fullReset()
-        logger.log('Полный сброс локальной базы выполнен.')
-        await specializationsStore.load() // Перезагружаем данные в сторе (теперь они будут пустыми)
-      } catch (error) {
-        console.error('Ошибка при полном сбросе:', error)
-        $q.notify({ type: 'negative', message: 'Не удалось выполнить сброс' })
-      }
-    }
-  )
-}
-
-const deleteDB = () => {
-  dangerConfirm.value.open(
-    'Удалить локальную БД',
-    'Локальные данные будут удалены без возможности восстановления. Уверены?',
-    async () => {
-      try {
-        await SyncService.deleteLocalDB()
-        $q.notify({
-          type: 'positive',
-          message: 'Локальная база данных удалена. Перезагрузите страницу.',
-          timeout: 0, // не скрывать автоматически
-          // noinspection JSUnusedGlobalSymbols
-          actions: [
-            {
-              label: 'Перезагрузить',
-              color: 'white',
-              handler: () => {
-                window.location.reload()
-              },
-            },
-          ],
-        })
-      } catch (error) {
-        console.error('Ошибка при удалении БД:', error)
-        $q.notify({ type: 'negative', message: 'Не удалось удалить базу данных.' })
-      }
-    }
-  )
-}
+// Разрушительные действия (полный сброс, удаление локальной БД) перенесены в
+// «Режим разработчика» (`DeveloperPanel.vue`, задачи 12.4/12.5).
 
 // Бэкап локальной БД (задача 4.4). На Android файл ляжет в документы устройства,
 // в браузере дамп скачается файлом.
@@ -291,20 +230,11 @@ const confirmRestore = () => {
   <q-page class="lc-page lc-shell">
     <LcPageHeader title="ещё" subtitle="профили, шаблоны, данные и аккаунт" icon="tune" />
 
-    <!-- Рабочие профили (Фаза 10, задача 10.8): добавление, переименование, архивирование. -->
+    <!-- Рабочие профили (Фаза 10, задача 10.8; Фаза 12, 12.1/12.2): переключение
+         активного контекста, добавление ещё одной специализации из списка, архив.
+         Переименования и смены пресета у существующего профиля нет. -->
     <LcSectionCard title="рабочий профиль" icon="badge">
       <div class="q-gutter-y-sm">
-        <q-input v-model="profileName" dense outlined color="secondary" label="Название профиля" />
-        <q-btn
-          size="sm"
-          no-caps
-          color="secondary"
-          text-color="black"
-          label="Сохранить название"
-          :disable="!activeSpecialization"
-          @click="renameProfile"
-        />
-
         <q-select
           v-model="selectedSpecialization"
           :loading="specializationsStore.loading"
@@ -319,23 +249,30 @@ const confirmRestore = () => {
 
         <q-separator dark class="q-my-sm" />
 
-        <div class="lc-eyebrow">добавить профиль</div>
-        <q-input
-          v-model="newProfileName"
-          dense
+        <div class="lc-eyebrow">добавить ещё одну специализацию</div>
+        <q-select
+          v-model="newProfilePreset"
+          :options="presetOptions"
+          label="Специализация"
           outlined
+          dense
+          emit-value
+          map-options
           color="secondary"
-          label="Название новой специализации"
         />
         <q-btn
           size="sm"
           no-caps
           outline
           color="secondary"
-          label="Добавить"
-          :disable="!newProfileName.trim()"
+          label="Добавить ещё одну специализацию"
+          :loading="busy"
+          :disable="!newProfilePreset"
           @click="addProfile"
         />
+        <div class="text-caption lc-mute">
+          Выбрать можно только из доступных ниш — каталог и разделы появятся сразу.
+        </div>
 
         <q-btn
           class="full-width"
@@ -375,34 +312,9 @@ const confirmRestore = () => {
       </div>
     </LcSectionCard>
 
-    <!-- Шаблон специализации: стартовый каталог (10.4) + видимость разделов (10.3). -->
-    <LcSectionCard title="шаблон специализации" icon="auto_awesome">
+    <!-- Разделы профиля — только просмотр (10.3): пресет задаётся при создании профиля. -->
+    <LcSectionCard title="разделы профиля" icon="visibility">
       <div class="q-gutter-y-sm">
-        <q-select
-          v-model="selectedPreset"
-          :options="presetOptions"
-          label="Шаблон"
-          outlined
-          dense
-          emit-value
-          map-options
-          color="secondary"
-        />
-        <q-btn
-          class="full-width"
-          no-caps
-          color="secondary"
-          text-color="black"
-          label="Применить шаблон"
-          :loading="busy"
-          :disable="!activeSpecialization || !selectedPreset"
-          @click="applyPreset"
-        />
-        <div class="text-caption lc-mute">Повторное применение не создаёт дублей.</div>
-
-        <q-separator dark class="q-my-sm" />
-
-        <div class="lc-eyebrow">разделы профиля</div>
         <div
           v-for="(label, flag) in FEATURE_LABELS"
           :key="flag"
@@ -466,29 +378,9 @@ const confirmRestore = () => {
       </div>
     </LcSectionCard>
 
-    <!-- Опасная зона: действия подтверждаются (см. `fullReset`/`deleteDB`). -->
-    <LcSectionCard title="опасная зона" icon="warning_amber">
-      <div class="q-gutter-y-sm">
-        <q-btn
-          class="full-width"
-          no-caps
-          flat
-          color="negative"
-          icon="restart_alt"
-          label="Полный сброс (для отладки)"
-          @click="fullReset"
-        />
-        <q-btn
-          class="full-width"
-          no-caps
-          flat
-          color="deep-orange"
-          icon="delete_forever"
-          label="Удалить локальную БД"
-          @click="deleteDB"
-        />
-      </div>
-    </LcSectionCard>
+    <!-- Режим разработчика (задача 12.5): только dev-сборка. `DeveloperPanel`
+         равен `null` в проде, поэтому секции там нет вовсе. -->
+    <component :is="DeveloperPanel" v-if="DeveloperPanel" />
 
     <LcSectionCard title="аккаунт" icon="person">
       <div class="q-gutter-y-sm">

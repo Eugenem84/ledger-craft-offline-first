@@ -74,6 +74,18 @@ export default {
     return rows.length ? rows[0].count : 0;
   },
 
+  /**
+   * Вся очередь операций в порядке постановки (задача 12.5).
+   *
+   * `dequeue()` отдаёт только `pending`, а отладочной панели нужно видеть и
+   * in-flight (`sending`/`synced`) записи, поэтому читаем без фильтра.
+   *
+   * @returns {Promise<Array<object>>}
+   */
+  async listAll() {
+    return db.query('SELECT * FROM operations ORDER BY created_at ASC');
+  },
+
   async markSending(ids) {
     await this._setStatus(ids, STATUS.SENDING);
   },

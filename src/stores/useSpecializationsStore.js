@@ -76,6 +76,39 @@ export const useSpecializationsStore = defineStore('specializations', {
       }
     },
 
+    /**
+     * Создаёт профиль из **доступного** пресета (задача 12.1): пользователь выбирает
+     * нишу из списка, а не вводит произвольное название. Каталог, лексикон и флаги
+     * разделов появляются сразу — тот же путь, что при регистрации
+     * (`onboardLocal` + `applyPreset`).
+     *
+     * @param {string} presetKey `bike` / `aquarium` / `hvac` / `auto`
+     * @returns {Promise<string>} локальный id нового профиля
+     */
+    async createFromPreset(presetKey) {
+      const preset = getPreset(presetKey)
+      if (!preset) throw new Error(`Неизвестный пресет: ${presetKey}`)
+
+      const id = crypto.randomUUID()
+
+      // Метаданные профиля кладём сразу, чтобы они уехали тем же INSERT'ом.
+      await this.add({
+        id,
+        name: preset.label,
+        preset_key: preset.key,
+        accent: preset.accent,
+        features: serializeFeatures(preset.features),
+        template_version: preset.version ?? null,
+      })
+
+      // Материализуем каталог: «профилей без пресета» больше не появляется (12.1).
+      await this.applyPreset(id, preset.key)
+
+      await this.select(id)
+
+      return id
+    },
+
     async update(id, changes) {
       const index = this.items.findIndex(s => s.id === id)
       if (index === -1) return

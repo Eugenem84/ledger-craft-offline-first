@@ -79,19 +79,26 @@ export async function save(specialization) {
  */
 export async function update(specialization) {
   const existing = await dbAdapter.queryOne(queries.getById, [specialization.id])
+  if (!existing) return
 
-  const params = specializationUpdateParams(specialization)
+  // ⚠️ Дефект, найденный тестом Фазы 12 (12.1): стор зовёт `update` частичным
+  // набором полей (`{ id, preset_key, ... }`, `{ id, archived }`), а `queries.update`
+  // перезаписывает ВСЕ колонки — `name` из частичного объекта попадал в биндинг
+  // как `undefined`, и sql.js падал («tried to bind … unknown type»). Поэтому
+  // сначала сливаем изменение с текущей строкой БД.
+  const merged = { ...existing, ...specialization }
+  const params = specializationUpdateParams(merged)
   await dbAdapter.execute(queries.update, params)
 
   if (existing && existing.server_id) {
     const payloadForServer = {
       id: existing.server_id,
-      name: specialization.name,
-      preset_key: specialization.preset_key ?? existing.preset_key ?? null,
-      accent: specialization.accent ?? existing.accent ?? null,
-      features: featuresToStorage(specialization.features ?? existing.features ?? null),
-      archived: specialization.archived ? 1 : 0,
-      template_version: specialization.template_version ?? existing.template_version ?? null,
+      name: merged.name,
+      preset_key: merged.preset_key ?? null,
+      accent: merged.accent ?? null,
+      features: featuresToStorage(merged.features),
+      archived: merged.archived ? 1 : 0,
+      template_version: merged.template_version ?? null,
     };
     await operationsRepo.enqueue([
       uuidv4(),

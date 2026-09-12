@@ -34,7 +34,7 @@ src/
 │   │   └── warehouse.js          #   склад (9.2/9.3): приходы, остатки, закупочные и продажные цены
 │   └── queries/                  # SQL-строки по сущностям (clients, orders, services, analytics, склад, …)
 ├── repositories/
-│   ├── operationsRepo.js         # очередь операций (enqueue/dequeue/markSending/markPending/markSynced/recoverInFlight)
+│   ├── operationsRepo.js         # очередь операций (enqueue/dequeue/listAll(12.5)/markSending/markPending/markSynced/recoverInFlight)
 │   ├── metaRepo.js               # last_synced_at и пр. метаданные
 │   ├── clientsRepo.js
 │   ├── ordersRepo.js
@@ -68,11 +68,12 @@ src/
 │   ├── ui/                       # общие элементы дизайн-системы (см. docs/UI.md):
 │   │                             #   LcPageHeader, LcSectionCard, LcStatusChip, LcEmptyState,
 │   │                             #   LcFab, LcDialogShell, AuthShell
-│   └── order/                    # компоненты страницы заказа (8.1): OrderHeaderActions,
+│   ├── order/                    # компоненты страницы заказа (8.1): OrderHeaderActions,
 │                                 #   OrderPartySelectors, OrderOverviewPanel, OrderServicesPanel,
 │                                 #   OrderMaterialsPanel, OrderServicesBlock, OrderMaterialsBlock,
 │                                 #   OrderProductsBlock, OrderMaterialsEditor, OrderProductsEditor,
 │                                 #   OrderTotals, dialogs/* (5 диалогов)
+│   └── dev/                      # DeveloperPanel.vue — «Режим разработчика» (12.5, только DEV)
 ├── pages/
 │   ├── OrdersPage.vue            # список ордеров
 │   ├── OrderDetailsPage.vue      # 300 строк: «клей» страницы заказа (стор + уведомления + диалоги);
@@ -436,8 +437,12 @@ return id;
 - **Видимость вкладок** (10.3) — флаги пресета (`features`); прямые переходы по URL ведут на
   доступный раздел, а не на пустой экран.
 - **Переключатель профиля в шапке** (10.8) — вместо спрятанного селекта в «Другие»; там же
-  добавление/переименование/**архивирование** (физическое удаление запрещено: у серверных
+  добавление/**архивирование** (физическое удаление запрещено: у серверных
   `categories`/`product_categories` FK на `specializations` с `onDelete('cascade')`).
+  Фаза 12 (12.1/12.2) ужесточила правила: новый профиль создаётся **только выбором из доступных
+  ниш** (`createFromPreset` — сразу с пресетом и каталогом, как при регистрации), а переименование
+  и смена пресета у существующего профиля убраны. Легаси-профили без `preset_key` пресет в UI
+  не получают (см. TODO 12.2); профиль при необходимости архивируют и заводят заново.
 - **Онбординг** (10.4/10.5) — экран «Начать с шаблона» и регистрация с выбором 1..N специализаций.
   ✅ Сделано: `pages/RegisterPage.vue` (публичный `/register`), `AuthController::register`
   создаёт специализации и возвращает их, клиент материализует пресеты.
@@ -450,3 +455,23 @@ return id;
 по владельцу (3.10). Фаза 10 — надстройка, а не рефакторинг (детали — `docs/DATA-MODEL.md`,
 раздел «Рабочие профили…»).
 5. Добавить `.env` (VITE_API_URL), продумать auth и неблокирующий синк + индикатор сети.
+
+## 10. Фаза 12 — полировка профилей и отладка — реализовано
+
+Задачи **12.1–12.5** (`TODO.md`). Схему и синк не трогали — только представление.
+
+- **Профили только из списка** (12.1/12.2) — `useSpecializationsStore.createFromPreset(presetKey)`:
+  профиль создаётся сразу с `preset_key`/`accent`/`features`/`template_version` и материализованным
+  каталогом (как `onboardLocal` + `applyPreset`). В «Ещё» нет свободного ввода названия,
+  переименования и блока «шаблон специализации»; изменить `name`/`preset_key` у готового профиля
+  нельзя. ⚠️ попутно починен `specializationsRepo.update` (слияние с текущей строкой БД).
+- **Карточка заказа** (12.3) — `OrderHeaderActions.vue` показывает статус и оплату ровно одним
+  органом управления (`q-btn-toggle` + кнопка «оплачено»), без дублирующих чипов сверху; чип статуса
+  остался в списке заказов (`OrdersPage.vue`). Моментальная запись статуса/оплаты в просмотре
+  сохранена — это быстрый рабочий сценарий, общий «Сохранить» относится к позициям.
+- **Режим разработчика** (12.4/12.5) — `components/dev/DeveloperPanel.vue` подключается
+  динамическим импортом под `import.meta.env.DEV` (в prod-бандле его нет, проверено по `dist/spa`):
+  окружение (`API_URL`, `USE_MOCK`, платформа), версия схемы, снимок синка, очередь операций
+  (`operationsRepo.listAll`), буфер логов (`logger.getLogBuffer`/`clearLogBuffer`, лимит 200),
+  дата бэкапа, `logAllServicesForDebugging` и перенесённые сюда «полный сброс»/«удалить локальную
+  БД». Форматтеры — `src/utils/devInfo.js`, регрессы — `test/phase12-dev.test.js`.

@@ -6,9 +6,12 @@
 //   • назад / правка / сохранение — иконки с подсказками;
 //   • второстепенные действия (ссылка, очистка, удаление) — в меню «⋮»;
 //   • статус — сегментированный переключатель со словами, оплата — отдельной кнопкой.
+//
+// Задача 12.3: статус и оплата в карточке показаны ровно одним органом управления —
+// переключателями ниже. Дублирующих чипов (`LcStatusChip` + «оплачено») в шапке нет;
+// чип статуса остаётся в списке заказов (`OrdersPage.vue`), где переключателей нет.
 import { computed } from 'vue'
 import { ORDER_STATUSES } from 'src/utils/analytics.js'
-import LcStatusChip from 'src/components/ui/LcStatusChip.vue'
 
 // Пропсы только читаются из шаблона — присваивание не нужно.
 defineProps({
@@ -48,13 +51,6 @@ const statusOptions = computed(() => ORDER_STATUSES.map(item => ({ label: item.l
           <span class="lc-eyebrow">заказ</span>
           <span class="lc-money text-subtitle2">№ {{ orderNumber ?? '—' }}</span>
           <span v-if="isNewOrder" class="text-caption lc-mute">не сохранён</span>
-        </div>
-        <div class="row items-center no-wrap q-gutter-x-sm q-mt-xs">
-          <LcStatusChip :status="status" />
-          <span v-if="paid" class="lc-status lc-status--paid">
-            <q-icon name="paid" size="14px" />
-            оплачено
-          </span>
         </div>
       </div>
 
