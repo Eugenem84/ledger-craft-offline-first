@@ -281,9 +281,10 @@ Headers: X-Sync-ID: <uuid устройства>
     категорию (`product_stocks.product_categories_id` vs `products.product_category_id` —
     два источника «где лежит»); `buy_product_prices`/`sales_products_prices` не читаются ни в одном
     расчёте → маржа не считается (задачи 9.3, 9.5).
-20. **Go-сайдкар `sync/`** дублирует контракт с устаревшим списком таблиц
-    (`service_categories`, `by_product_prices`, `sales_product_prices`), `tablesWithLastSyncID` пуст,
-    к nginx/Traefik не подключён → решение D1 (задача 3.11).
+20. ✅ **Go-сайдкар `sync/` (задача 3.11): вынесен из проекта** (решение D1). Код (`sync/`,
+    `_docker/sync/`) и сервис `sync` из `docker-compose.yaml` удалены, копия — в песочнице
+    `../ledger-craft-go-sync-sandbox`. Единственный транспорт — `/api/sync` + `/api/sync-updates`;
+    `SAVEPOINT`-изоляция и вырезание `server_id`/`*_server_id` перенесены в Laravel ещё в 3.5.
 21. **Web-часть бэкенда — второй клиент** (`resources/js/components/*` на Vue 3 + Vite + Bootstrap/
     Vuetify/jQuery, blade'ы `home/catalog/order/history/statistic` + `order-report`, `Auth::routes()`,
     session-auth) плюс отдельная раздача HCP (`hcp/chcp.json`, `/download-apk`). Открытый вопрос:
@@ -298,10 +299,10 @@ Headers: X-Sync-ID: <uuid устройства>
 |---|---|---|
 | 0.8 ✅ | `$tables` приведён к реальным таблицам | `SyncController` |
 | 0.9 ✅ | убран `#region agent log` | `SyncController` |
-| 3.9 | удаления-«доезжают»: расширить `tableHasSoftDeletes`, отдавать tombstones | `SyncController` |
-| 3.10 | владелец: `/sync` под `auth:sanctum`, сохранять `user_id`, фильтровать выдачу, закрыть IDOR | `routes/api.php`, `SyncController`, `OrderController` |
-| 3.11 ⏳ | SAVEPOINT-изоляция + вырезание `server_id`/`*_server_id` ✅ (вместе с 3.5); осталось: вынести Go-сайдкар, убрать сервис `sync` из `docker-compose.yaml` | `SyncController`, `docker-compose.yaml`, `sync/` |
-| 3.12 | типы денег: `services.price` → целые рубли, убрать `CAST` | миграции, `StatisticRepository` |
+| 3.9 ✅ | удаления-«доезжают»: soft-delete по схеме + `sync_tombstones`, выдача `deleted: true`; клиент применяет удаление | `SyncController`, миграция `2026_09_14_000000`, `syncService` |
+| 3.10 ✅ | владелец: `/sync` под `auth:sanctum`, `user_id` из токена, фильтр выдачи по цепочке владельцев, IDOR закрыт | `routes/api.php`, `SyncController` |
+| 3.11 ✅ | SAVEPOINT-изоляция + вырезание `server_id`/`*_server_id` (вместе с 3.5); Go-сайдкар вынесен из проекта, сервис `sync` убран из `docker-compose.yaml` | `SyncController`, `docker-compose.yaml`, песочница `../ledger-craft-go-sync-sandbox` |
+| 3.12 ✅ | типы денег: `services.price` → `integer`, `CAST` из расчётов убраны, payload нормализуется | миграция `2026_09_15_000000`, `StatisticRepository`, `SyncController` |
 | 3.5 ✅ | идемпотентность: `uuid_id` (unique) на синкаемых таблицах + «найти или вставить/обновить»; явный ответ по каждой операции; `order_service` — по `order_id + service_id`; тест `SyncControllerTest` | миграции, `SyncController`, `tests/Feature` |
 | 3.6 ✅ | колонки `last_sync_id` (анти-эхо) + простановка в `SyncController` (включая `order_service`) | миграции, `SyncController`, тесты |
 | 3.4 ✅ | `order_product` и ручные позиции материалов в синк (по D2) | `SyncController`, миграции — **правок не потребовалось**: обе таблицы уже в `$tables`, timestamps есть, generic-путь insert/update/delete/fetch работает |
@@ -315,10 +316,11 @@ Headers: X-Sync-ID: <uuid устройства>
 
 ## 6. Решения (приняты 11.09.2026)
 
-- **D1. Синк — только Laravel.** `/api/sync` + `/api/sync-updates` остаются единственным
-  транспортом; Go-сайдкар `sync/` выносится из `master` в песочницу (эксперимент «ускорение +
-  практика языка» закрыт), но из него переносим в `SyncController` **SAVEPOINT-изоляцию операций**
-  и **вырезание `server_id`/`*_server_id`**. Причина: две реализации одного контракта уже
+- **D1. Синк — только Laravel.** `/api/sync` + `/api/sync-updates` — **единственный транспорт**;
+  Go-сайдкар `sync/` вынесен из проекта в песочницу `../ledger-craft-go-sync-sandbox` (эксперимент
+  «ускорение + практика языка» закрыт, задача 3.11), сервис `sync` убран из `docker-compose.yaml`.
+  Из Go-реализации в `SyncController` перенесены **SAVEPOINT-изоляция операций** и **вырезание
+  `server_id`/`*_server_id`** (задача 3.5). Причина: две реализации одного контракта уже
   разошлись (§4.20), а узкое место синка — не язык, а идемпотентность, курсор и лимиты выдачи.
 - **D2. Материалы = позиции заказа.** Продуктовый замысел: мастер закупает товар, делает наценку
   и продаёт клиенту «от себя», а купленное на стороне вписывает вручную. Этому соответствуют две
