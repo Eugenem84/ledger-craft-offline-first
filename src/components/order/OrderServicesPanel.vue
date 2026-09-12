@@ -21,7 +21,8 @@ const isChosen = service => props.chosen.some(chosen => chosen.id === service.id
 </script>
 
 <template>
-  <q-tab-panel name="servicesChoice" class="q-pa-none">
+  <!-- Панель вкладки живёт в `OrderDetailsPage.vue` (прямой ребёнок `q-tab-panels`). -->
+  <div>
     <div class="q-pa-md">
       <q-select
         :model-value="props.selectedCategory"
@@ -85,7 +86,7 @@ const isChosen = service => props.chosen.some(chosen => chosen.id === service.id
         />
       </div>
     </div>
-  </q-tab-panel>
+  </div>
 </template>
 
 <style scoped>

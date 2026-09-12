@@ -67,6 +67,16 @@ Inline-стили в разметке не используются: цвет/р
 
 ## 4. Каркас приложения
 
+> ⚠️ **Ловушка Quasar:** `q-tab-panel` должен быть **прямым ребёнком** `q-tab-panels`.
+> Quasar собирает список панелей из vnode'ов слота и сверяет их проп `name`
+> (`quasar/src/composables/private.use-panel/use-panel.js` → `updatePanelsList`),
+> а рендерит ровно одну панель (`getPanelContent()`). Если обернуть панель в свой
+> компонент без проброса `name`, список панелей пуст и **содержимое всех вкладок
+> не отрисовывается** — вкладки видны, а под ними пусто.
+> Поэтому в карточке заказа `q-tab-panel` объявлены в `pages/OrderDetailsPage.vue`,
+> а `OrderOverviewPanel` / `OrderServicesPanel` / `OrderMaterialsPanel` — это содержимое
+> с обычным корнем `<div>`. Тест `test/order-tabs.test.js` следит за этим.
+
 - `src/layouts/MainLayout.vue`: шапка с переключателем профиля, нижняя навигация.
   Состав вкладок — массив `tabs` (`v-for` + `class="col"`), видимость — флаги пресета
   (`useFeatures()`), подписи — лексикон (`useLexicon()`). При скрытии разделов сетка не «разъезжается».

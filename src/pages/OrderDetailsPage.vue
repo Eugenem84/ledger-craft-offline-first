@@ -273,56 +273,68 @@ const handleShare = async () => {
 
           <q-separator dark />
 
+          <!-- ⚠️ Важно: `q-tab-panel` обязан быть ПРЯМЫМ ребёнком `q-tab-panels`.
+               Quasar собирает список панелей из vnode'ов слота и сверяет их проп `name`
+               (см. `use-panel.js` → `updatePanelsList`), а рендерит ровно одну панель.
+               Если обернуть панель в свой компонент и не пробросить `name`, список панелей
+               пуст и содержимое всех вкладок не отрисовывается (так и было: разделы
+               «работа»/«материалы» были пустыми). -->
           <q-tab-panels v-model="tab" animated class="bg-transparent">
-            <OrderOverviewPanel
-              v-model:comments="comments"
-              :services="services"
-              :materials="materials"
-              :products="products"
-              :edit-mode="editMode"
-              :services-total="servicesTotal"
-              :materials-total="materialsTotal"
-              :products-total="productsTotal"
-              :cost-total="draft.costTotal"
-              :margin="draft.margin"
-              :markup-percent="draft.markupPercent"
-              :has-unknown-cost="draft.hasUnknownCost"
-              :equipment-identifier="equipmentIdentifier"
-              :equipment-label="t('equipmentIdentifier')"
-              :show-equipment-identifier="isEnabled('equipmentIdentifier')"
-              @update:equipment-identifier="draft.equipmentIdentifier = $event"
-              @remove-service="draft.removeService($event)"
-              @remove-material="draft.removeMaterial($event)"
-              @remove-product="draft.removeProduct($event)"
-            />
+            <q-tab-panel name="all" class="q-pa-none">
+              <OrderOverviewPanel
+                v-model:comments="comments"
+                :services="services"
+                :materials="materials"
+                :products="products"
+                :edit-mode="editMode"
+                :services-total="servicesTotal"
+                :materials-total="materialsTotal"
+                :products-total="productsTotal"
+                :cost-total="draft.costTotal"
+                :margin="draft.margin"
+                :markup-percent="draft.markupPercent"
+                :has-unknown-cost="draft.hasUnknownCost"
+                :equipment-identifier="equipmentIdentifier"
+                :equipment-label="t('equipmentIdentifier')"
+                :show-equipment-identifier="isEnabled('equipmentIdentifier')"
+                @update:equipment-identifier="draft.equipmentIdentifier = $event"
+                @remove-service="draft.removeService($event)"
+                @remove-material="draft.removeMaterial($event)"
+                @remove-product="draft.removeProduct($event)"
+              />
+            </q-tab-panel>
 
-            <OrderServicesPanel
-              :categories="draft.categories"
-              :selected-category="selectedServiceCategory"
-              :services="servicesByCategory"
-              :chosen="services"
-              @update:selected-category="handleServiceCategoryChange"
-              @add="addServiceToOrder($event)"
-              @create="openServiceDialog"
-            />
+            <q-tab-panel name="servicesChoice" class="q-pa-none">
+              <OrderServicesPanel
+                :categories="draft.categories"
+                :selected-category="selectedServiceCategory"
+                :services="servicesByCategory"
+                :chosen="services"
+                @update:selected-category="handleServiceCategoryChange"
+                @add="addServiceToOrder($event)"
+                @create="openServiceDialog"
+              />
+            </q-tab-panel>
 
-            <OrderMaterialsPanel
-              :materials="materials"
-              :products="products"
-              :materials-total="materialsTotal"
-              :products-total="productsTotal"
-              :edit-mode="editMode"
-              @remove-material="draft.removeMaterial($event)"
-              @remove-product="draft.removeProduct($event)"
-              @update-material-line="
-                ({ index, field, value }) => draft.updateMaterialLine(index, field, value)
-              "
-              @update-product-line="
-                ({ index, field, value }) => draft.updateProductLine(index, field, value)
-              "
-              @create-material="openMaterialDialog"
-              @add-store-product="openStoreProductDialog"
-            />
+            <q-tab-panel name="materialsChoice" class="q-pa-none">
+              <OrderMaterialsPanel
+                :materials="materials"
+                :products="products"
+                :materials-total="materialsTotal"
+                :products-total="productsTotal"
+                :edit-mode="editMode"
+                @remove-material="draft.removeMaterial($event)"
+                @remove-product="draft.removeProduct($event)"
+                @update-material-line="
+                  ({ index, field, value }) => draft.updateMaterialLine(index, field, value)
+                "
+                @update-product-line="
+                  ({ index, field, value }) => draft.updateProductLine(index, field, value)
+                "
+                @create-material="openMaterialDialog"
+                @add-store-product="openStoreProductDialog"
+              />
+            </q-tab-panel>
           </q-tab-panels>
         </q-card>
 

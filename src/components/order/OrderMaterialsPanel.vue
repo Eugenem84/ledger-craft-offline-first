@@ -26,7 +26,8 @@ const emit = defineEmits([
 </script>
 
 <template>
-  <q-tab-panel name="materialsChoice" class="q-pa-none">
+  <!-- Панель вкладки живёт в `OrderDetailsPage.vue` (прямой ребёнок `q-tab-panels`). -->
+  <div>
     <div class="q-pa-md">
       <!-- Главные действия вкладки — заметные кнопки с «+» (раньше были мелкие dense). -->
       <q-btn
@@ -78,5 +79,5 @@ const emit = defineEmits([
       <OrderMaterialsBlock :materials="props.materials" :edit-mode="false" />
       <OrderProductsBlock :products="props.products" :edit-mode="false" />
     </template>
-  </q-tab-panel>
+  </div>
 </template>

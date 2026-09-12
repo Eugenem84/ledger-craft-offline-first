@@ -37,7 +37,9 @@ const emit = defineEmits([
 </script>
 
 <template>
-  <q-tab-panel name="all" class="q-pa-none">
+  <!-- Панель вкладки живёт в `OrderDetailsPage.vue` (прямой ребёнок `q-tab-panels`) —
+       здесь только содержимое. -->
+  <div>
     <!-- Вкладки «работа»/«материалы» видны всегда; в режиме просмотра напоминаем,
          что добавить позиции можно там же — правка включится автоматически. -->
     <div
@@ -114,5 +116,5 @@ const emit = defineEmits([
         :disable="!props.editMode"
       />
     </div>
-  </q-tab-panel>
+  </div>
 </template>
