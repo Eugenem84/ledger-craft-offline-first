@@ -1,33 +1,52 @@
 // src/services/api.js
 
 import { logger } from 'src/utils/logger'
-import axios from 'axios';
+import storage from 'src/utils/storage'
+import { API_URL, USE_MOCK } from 'src/config.js'
+import axios from 'axios'
 
-// моки
-import mockClients from 'src/mocks/clients.json';
-import mockSpecializations from 'src/mocks/specializations.json';
-// import mockOrders from 'src/mocks/orders.json';
-// import mockInvoices from 'src/mocks/invoices.json';
+// --- Моки (задача 7.2) -------------------------------------------------------
+// Отдельный DEV-only слой `src/services/mockApi.js`, подключаемый динамически.
+// В production-сборке `USE_MOCK` — литерал `false`, поэтому ветка и сам модуль с
+// JSON-моками вырезаются из бандла.
+async function loadMockApi() {
+  if (!USE_MOCK) return null
 
-const API_URL = 'https://dev.medovf2h.beget.tech/api';
-const USE_MOCK = false;
+  const { default: mockApi } = await import('./mockApi.js')
+  return mockApi
+}
 
 // --- Уникальный ID клиента для синхронизации ---
-// Пытаемся получить ID из localStorage
-let syncId = localStorage.getItem('sync_id');
-if (!syncId) {
-  // Если его нет, генерируем новый и сохраняем
-  syncId = crypto.randomUUID();
-  localStorage.setItem('sync_id', syncId);
-}
-logger.log(`[API] Sync ID: ${syncId}`);
+// Хранилище универсальное (задача 7.3): localStorage в браузере/WebView, память — фолбэк.
+let syncId = storage.getItem('sync_id')
 
-// --- Токен доступа к синку (задача 3.10) ---
-// `/sync` и `/sync-updates` работают под `auth:sanctum`: сервер должен знать
-// владельца данных. Вход в приложение и получение токена — задача 7.4; до неё
-// заголовок просто не отправляется, сервер отвечает 401, а операции остаются
-// в очереди (ничего не теряется). Универсальное хранилище — задача 7.3.
-const authToken = localStorage.getItem('auth_token');
+if (!syncId) {
+  syncId = crypto.randomUUID()
+  storage.trySetItem('sync_id', syncId)
+}
+
+logger.log(`[API] Sync ID: ${syncId}`)
+
+// --- Токен доступа к синку (задачи 3.10/7.4) ---------------------------------
+// Раньше токен читался один раз при импорте модуля, поэтому после входа заголовок
+// не обновлялся. Теперь его подставляет интерцептор в момент запроса — вход
+// (задача 7.4) начинает работать без перезагрузки страницы.
+let unauthorizedHandler = null
+
+/** Колбэк на 401: регистрируется auth-стором (сбрасывает токен и блокирует приложение). */
+export function setUnauthorizedHandler(handler) {
+  unauthorizedHandler = typeof handler === 'function' ? handler : null
+}
+
+/** Есть ли токен — по нему синк решает, можно ли идти в сеть (задача 7.4). */
+export function hasAuthToken() {
+  return Boolean(storage.getItem('auth_token'))
+}
+
+/** Текущий токен (для auth-стора и ручной диагностики). */
+export function getAuthToken() {
+  return storage.getItem('auth_token')
+}
 
 // Создаем экземпляр axios с преднастроенными заголовками
 const apiClient = axios.create({
@@ -35,72 +54,66 @@ const apiClient = axios.create({
   headers: {
     'Content-Type': 'application/json',
     'X-Sync-ID': syncId, // Добавляем ID в заголовки по умолчанию
-    ...(authToken ? { Authorization: `Bearer ${authToken}` } : {})
+  },
+})
+
+apiClient.interceptors.request.use(config => {
+  const token = getAuthToken()
+
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`
   }
-});
 
-export { apiClient };
+  return config
+})
 
+apiClient.interceptors.response.use(
+  response => response,
+  error => {
+    if (error?.response?.status === 401 && unauthorizedHandler) {
+      try {
+        unauthorizedHandler(error)
+      } catch (e) {
+        console.error('[API] Ошибка обработчика 401:', e)
+      }
+    }
+
+    return Promise.reject(error)
+  }
+)
+
+export { apiClient }
 
 export default {
   async send(operation) {
-    if (USE_MOCK) {
-      logger.log('[MOCK] send:', operation);
-      await new Promise(r => setTimeout(r, 200));
+    const mockApi = await loadMockApi()
+    if (mockApi) return mockApi.send(operation)
 
-      // В моках возвращаем структуру, похожую на серверную
-      const results = {
-        synced: [],
-        errors: []
-      };
-      operation.operations.forEach(op => {
-        results.synced.push({
-          type: op.type,
-          local_id: op.type === 'insert' ? op.payload.local_id : op.id,
-          server_id: Math.floor(Math.random() * 100000)
-        });
-      });
-      return results;
-    }
-
-    const res = await apiClient.post('/sync', operation);
-    return res.data;
+    const res = await apiClient.post('/sync', operation)
+    return res.data
   },
 
   async fetchUpdates({ table, since }) {
-    if (USE_MOCK) {
-      logger.log(`[MOCK] fetchUpdates for ${table}, since ${since}`);
-      await new Promise(r => setTimeout(r, 300));
-      let data = [];
-      switch (table) {
-        case 'clients':
-          data = mockClients;
-          break;
-        case 'specializations':
-          data = mockSpecializations;
-          break;
-        default:
-          data = [];
-      }
-      return { table, count: data.length, records: data };
-    }
+    const mockApi = await loadMockApi()
+    if (mockApi) return mockApi.fetchUpdates({ table, since })
 
     const res = await apiClient.get('/sync-updates', {
-      params: { table, since }
-    });
+      params: { table, since },
+    })
 
-    const serverData = res.data;
+    const serverData = res.data
 
     if (Array.isArray(serverData?.records)) {
       serverData.records = serverData.records.map(record => {
         if (table === 'specializations' && record.specializationName) {
-          record.name = record.specializationName;
-          delete record.specializationName;
+          record.name = record.specializationName
+          delete record.specializationName
         }
-        return record;
-      });
+        return record
+      })
     }
 
-    return serverData;
-  }
-};
+    return serverData
+  },
+}
+

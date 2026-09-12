@@ -63,6 +63,24 @@ npm run format     # prettier
 npm run build      # production web-сборка в dist/
 ```
 
+## Конфигурация
+
+Настройки сборки живут в env-файлах (их подмешивает Quasar CLI в любом режиме —
+dev/prod/capacitor), читает их `src/config.js`:
+
+| Переменная | Назначение | Значение по умолчанию |
+|---|---|---|
+| `VITE_API_URL` | адрес Laravel API (база для axios) | `https://dev.medovf2h.beget.tech/api` (`.env`) |
+| `VITE_USE_MOCK` | включить моки сетевого слоя; учитывается **только в dev-сборке** | `false` |
+
+Дефолты лежат в отслеживаемом `.env`; личные переопределения — в `.env.local`
+(он в `.gitignore`), например `VITE_API_URL=http://localhost:8000/api`. URL сервера
+меняется без правки кода.
+
+Моки — отдельный DEV-слой `src/services/mockApi.js`: он подключается динамическим
+импортом, и в production-сборке ветка вместе с JSON-моками вырезается (проверяется
+grep'ом по `dist/spa` — чанка `mockApi-*.js` там быть не должно).
+
 ## Тесты
 
 Фронт — **vitest** (`npm test`, режим наблюдения — `npm run test:watch`). Тесты не
@@ -83,6 +101,8 @@ npm run build      # production web-сборка в dist/
 | `test/sync.test.js` | порядок «родитель → ребёнок», волны, отложенные операции, идемпотентность, `applyServerRecord` с FK, удаления/tombstones, сбои сети и сервера (5.4) |
 | `test/sync-autosync.test.js` | неблокирующий старт синка, идемпотентность автозапуска и таймер, автоповтор при выходе из офлайна, `refreshStatus` для индикатора (6.1/6.2/6.3) |
 | `test/sync-status-view.test.js` | приоритет состояний индикатора сети и синка (6.2) |
+| `test/storage.test.js` | универсальное хранилище: round-trip, переполнение (`trySetItem` vs `setItem`), фолбэк в память без `localStorage` (7.3) |
+| `test/mock-api.test.js` | DEV-слой моков: контракт `{ synced, errors }` и выдача `/sync-updates`; конфиг знает URL (7.1/7.2) |
 
 Бэкенд — PHPUnit в `LedgerCraftDocker03`. Тесты идут на **отдельной** тестовой БД
 `ledgercraft_test` (подробности — в `phpunit.xml` бэкенда):

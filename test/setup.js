@@ -2,8 +2,8 @@
 //
 // Браузерные API, которые читают модули приложения при импорте (задача 5.1/5.2).
 // DOM для этих тестов не нужен, поэтому вместо jsdom ставим минимальные заглушки:
-//   • localStorage — его читает `src/services/api.js` (sync_id, auth_token) и
-//     `src/database/adapters/storage-adapter.js` (дамп БД);
+//   • localStorage — к нему через `src/utils/storage.js` ходят `src/services/api.js`
+//     (sync_id, auth_token) и `src/database/adapters/storage-adapter.js` (дамп БД);
 //   • navigator.onLine — `syncService._isOnline()` считает среду онлайновой,
 //     если это не boolean, но лучше задать явно, чтобы тесты не зависели от Node.
 if (typeof globalThis.localStorage === 'undefined') {

@@ -1,4 +1,5 @@
 import { logger } from 'src/utils/logger'
+import storage from 'src/utils/storage'
 
 // Ключ localStorage, под которым хранится дамп локальной БД.
 const DB_STORAGE_KEY = 'sqljs_db'
@@ -134,7 +135,7 @@ export default {
    */
   save(dump) {
     try {
-      localStorage.setItem(DB_STORAGE_KEY, bytesToBase64(dump))
+      storage.setItem(DB_STORAGE_KEY, bytesToBase64(dump))
       logger.log(`[StorageAdapter] DB dump saved (${dump.length} bytes).`)
     } catch (err) {
       // localStorage переполнен (лимит ~5 МБ) → пробуем IndexedDB
@@ -156,7 +157,7 @@ export default {
    * @returns {Promise<Uint8Array|null>}
    */
   async load() {
-    const raw = localStorage.getItem(DB_STORAGE_KEY)
+    const raw = storage.getItem(DB_STORAGE_KEY)
     if (raw) return base64ToBytes(raw)
 
     if (indexedDbAvailable()) {
@@ -174,7 +175,7 @@ export default {
    * Очищает постоянное хранилище (localStorage + IndexedDB).
    */
   clear() {
-    localStorage.removeItem(DB_STORAGE_KEY)
+    storage.removeItem(DB_STORAGE_KEY)
     if (indexedDbAvailable()) {
       void idbClear().catch(e => logger.warn('[StorageAdapter] IndexedDB clear failed:', e && e.message))
     }
