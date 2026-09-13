@@ -414,6 +414,8 @@ SQLCipher, `arrival_product` под токеном, сид пресетов, ч�
 | 13.13 `[FE]` | P1 | UX цикла | диалог, экран разрешения установки, «обновлено» после перезапуска, mandatory без «позже» | полный цикл проходит на живом устройстве |
 | 13.14 `[FE]` | P1 | Тесты и линт | 22 новых теста, линт и SPA-сборка | `npm test` 306, `npm run lint` — 0, сборка ок |
 | 13.15 `[FE+BE]` | P0 | Доки и живой прогон | README, API-INTEGRATION §2.5, API.md, ENVIRONMENTS §10 | обновление проверено на живом устройстве |
+| 13.16 `[FE]` | P1 | Debug и release на одном телефоне | у `debug` — `applicationIdSuffix '.debug'` + `versionNameSuffix '-debug'` и `app/src/debug/res/values/strings.xml` («ledger-craft DEV»); `assembleDebug`/`assembleRelease` проверены локально | debug — отдельное приложение `com.ledgercraft.app.debug` со своими данными; release-подпись, `versionCode` и публикация не меняются |
+| 13.17 `[FE]` | P1 | Контуры: релизная сборка для dev и prod | проверяем/раздаём только release: `release-apk.sh --channel dev\|prod` (адрес контура в сборку, проверка бандла и второго контура, запрет локального адреса, защита от понижения `versionCode`, `--dry-run`), `publish-landing.sh --api` | dev-релиз публикуется с dev-адресом, prod-путь выдаёт понятные отказы, пока контура (11.12) и параметров нет |
 
 **Итог (13.09.2026, в работе):** бэкенд и клиентский код готовы (13.1/13.2/13.6–13.10/13.14),
 нативная часть написана, но не прогонялась: в окружении нет JDK + Android SDK, поэтому сборка APK,

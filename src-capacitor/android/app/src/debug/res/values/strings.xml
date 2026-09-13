@@ -1,0 +1,17 @@
+<?xml version='1.0' encoding='utf-8'?>
+<!--
+  Ресурсы debug-варианта (Фаза 13, задача 13.16).
+
+  Source-set `debug` перекрывает `main`, поэтому здесь можно переопределить имя приложения
+  флагами `applicationIdSuffix '.debug'` / `versionNameSuffix '-debug'` из `app/build.gradle`
+  (без суффикса строки совпадали бы с release-вариантом).
+
+  Итог: на одном телефоне рядом стоят «ledger-craft» (release, `com.ledgercraft.app`) и
+  «ledger-craft DEV» (debug, `com.ledgercraft.app.debug`) — с раздельными данными.
+-->
+<resources>
+    <string name="app_name">ledger-craft DEV</string>
+    <string name="title_activity_main">ledger-craft DEV</string>
+    <string name="package_name">com.ledgercraft.app.debug</string>
+    <string name="custom_url_scheme">com.ledgercraft.app.debug</string>
+</resources>

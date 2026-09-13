@@ -117,9 +117,18 @@ npm run landing:serve     # локальный просмотр (http://localhos
 npm run landing:publish   # выкат на dev-VPS + проверка HTTP (landing:publish -- --dry-run)
 ```
 
-На dev-VPS страница уже опубликована: <https://dev.medovf2h.beget.tech/promo/> — там же лежит
-тестовая **debug**-сборка APK (`1.1`), поэтому скачивание работает. Для боевой сборки нужен
-release-keystore и `npm run release:android`. Подробности выката — `landing/README.md`.
+На dev-VPS страница уже опубликована: <https://dev.medovf2h.beget.tech/promo/> — она отдаёт
+**релизную** сборку с dev-адресом API (решение 14.09.2026: проверяем и раздаём только релизные
+сборки, см. §«Среды и выкат»). На боевой контур страница выкатывается с боевым адресом:
+
+```bash
+npm run landing:publish -- --server prod-vps \
+  --url https://<prod-домен>/promo/ --api https://<prod-домен>/api
+```
+
+`--api` подставляет адрес в копию `index.html` (файл в git не меняется) и проверяет его на
+опубликованной странице; для не-dev контура `--url` и `--api` обязательны. ⚠️ prod-VPS ещё не
+поднят (задача 11.12) — боевой выкат станет возможен после него. Подробности — `landing/README.md`.
 
 ## Конфигурация
 
@@ -155,14 +164,19 @@ grep'ом по `dist/spa` — чанка `mockApi-*.js` там быть не д�
 
 ### Как клиент попадает на контур
 
-Адрес API нигде не зашит в код: он берётся из env-файла (задача 7.1), поэтому «переключить контур» —
-это правка env, а не релиз:
+Адрес API нигде не зашит в код — он приходит в сборку из `VITE_API_URL` (задача 7.1):
 
-| Файл                            | Когда читается                      | Назначение                                                     |
-| ------------------------------- | ----------------------------------- | -------------------------------------------------------------- |
-| `.env` (в git)                  | всегда                              | дефолт — адрес dev-контура                                     |
-| `.env.local` (в `.gitignore`)   | всегда                              | личные переопределения (например, `http://localhost:8000/api`) |
-| `.env.prod` / `.env.local.prod` | только прод-сборка (`quasar build`) | боевой адрес API                                               |
+| Источник                            | Когда читается    | Назначение                                                     |
+| ----------------------------------- | ----------------- | -------------------------------------------------------------- |
+| `.env` (в git)                      | всегда            | дефолт — адрес dev-контура                                     |
+| `.env.local` (в `.gitignore`)       | всегда            | личные переопределения (например, `http://localhost:8000/api`) |
+| `VITE_API_URL=…` в окружении сборки | при сборке релиза | **контур релиза** — задаёт `scripts/release-apk.sh --channel …` |
+
+⚠️ **Контур релиза нельзя задать env-файлом.** `quasar build` — это всегда buildType=prod, поэтому
+`.env.prod` подхватился бы **и для dev-контура** (один файл на оба); а до клиента доходит
+`import.meta.env.VITE_API_URL` — Vite наполняет его из `.env`/`.env.local`/`.env.production*` и
+перекрывает значением из окружения (`@quasar/app-vite/lib/utils/env.js`, `lib/config-tools.js`).
+Поэтому адрес контура передаёт релизный скрипт, а сборка **падает**, если в бандле оказался чужой адрес.
 
 ```bash
 # разработка: клиент ходит на dev-VPS из .env
@@ -170,11 +184,41 @@ npm run dev            # http://localhost:9000
 
 # dev-сборка статики
 npm run build          # → dist/spa
-
-# прод-сборка: положить рядом .env.prod (или .env.local.prod) с боевым адресом
-#   VITE_API_URL=https://<prod-домен>/api
-npm run build          # → dist/spa
 ```
+
+Сборка релиза под контур — командой скрипта (он же проверяет адрес внутри бандла):
+
+```bash
+# dev-контур: релизный APK с dev-адресом
+RELEASE_SERVER=dev-vps npm run release:android -- --channel dev --notes "Чиним склад"
+
+# боевой контур (задача 11.12, prod-VPS ещё не поднят)
+RELEASE_SERVER=prod-vps RELEASE_REMOTE_DIR=/var/www/<prod-репозиторий> \
+  RELEASE_API_URL=https://<prod-домен>/api \
+  npm run release:android -- --channel prod --notes "Первый боевой"
+```
+
+### Проверяем только релизные сборки (решение 14.09.2026)
+
+Единственная полоса проверки — **релизная сборка**, и она же раздаётся людям:
+
+| Контур                         | Что собираем                  | Адрес API | Куда публикуем                 |
+| ------------------------------ | ----------------------------- | --------- | ------------------------------ |
+| dev-VPS                        | release APK (`--channel dev`) | dev       | `/promo/` + `releases.json`    |
+| prod-VPS (появится в 11.12)    | тот же код, `--channel prod`  | prod      | промо + `releases.json` на prod |
+
+- **debug-вариант** (`applicationIdSuffix '.debug'` → `com.ledgercraft.app.debug`) — инструмент
+  разработчика (`chrome://inspect`, `adb logcat`, live-reload): на телефоне для проверок не гоняется
+  и никуда не выкладывается (см. §«Две сборки на одном телефоне: debug и release»).
+- Почему так: механизм обновления (подпись, `PackageInstaller`, sha256, «обновление поверх»,
+  `mandatory`) работает только при совпадении package id и ключа подписи, поэтому проверять его нужно
+  релизной сборкой — и лучше на dev-контуре, а не впервые у мастера.
+- dev- и prod-APK — не «два продукта»: отличаются **только адресом API** внутри бандла. Проверено:
+  JS-бандл debug- и release-APK побайтово одинаков (`sha256` внутри архива совпадает), различается
+  лишь строка адреса; у файлов `sha256` разный из-за подписи и адреса.
+- ⚠️ Один пакет и одна подпись ⇒ локальная БД одна на оба контура. Перед установкой сборки с
+  prod-адресом **снесите приложение** (или «полный сброс» в «Режиме разработчика»): иначе тестовые
+  данные уедут первым же синком в боевую базу, а токен, выданный на dev, даст `401`.
 
 ### Как это проверяется на dev
 
@@ -292,6 +336,58 @@ npx cap add android` (⚠️ проверить, что платформа за�
 > `node_modules/.vite`, запустить `npm run dev` заново. В собранных бандлах CSS на месте
 > (проверено на APK 1.2/1.3: `.lc-sync-chip*` присутствует, `node --check` бандла — OK).
 
+### Две сборки на одном телефоне: debug и release
+
+При одном `applicationId` отладочная сборка не может стоять рядом с релизной: вторая установка
+конфликтует с первой, а debug-подпись (`~/.android/debug.keystore`) не встаёт поверх release-ключа —
+Android отвечает «Приложение не установлено» (эта же грабля была с легаси `1.1-debug.apk`).
+Поэтому у варианта `debug` в `src-capacitor/android/app/build.gradle` включены
+`applicationIdSuffix '.debug'` и `versionNameSuffix '-debug'`, а
+`app/src/debug/res/values/strings.xml` переименовывает приложение в **«ledger-craft DEV»**:
+debug — это отдельное приложение `com.ledgercraft.app.debug` со **своими данными**
+(`data/data/<package>/databases/ledgercraftSQLite.db`) и своим экраном «установка неизвестных
+приложений». Release-вариант, его подпись, `versionCode` из `gradle.properties` и публикация
+не меняются.
+
+```bash
+export ANDROID_HOME=$HOME/Library/Android/sdk        # как в src-capacitor/android/local.properties
+export PATH="$ANDROID_HOME/platform-tools:$PATH"     # adb
+
+# DEBUG: веб-часть внутри APK, адрес API — из .env/.env.local
+npx quasar build -m capacitor -T android --debug
+adb install -r src-capacitor/android/app/build/outputs/apk/debug/app-debug.apk
+
+# DEBUG с live-reload (телефон по USB, тот же Wi-Fi)
+npx quasar dev -m capacitor -T android
+# ⚠️ dev-сервер отдаёт origin http://<LAN-IP>:9000 — его нужно добавить в allowed_origins
+#    бэкенда (config/cors.php), иначе вход и синк «не видят» сервер (см. CORS выше)
+
+# RELEASE — как раньше: подпись своим ключом + публикация на контур
+RELEASE_SERVER=dev-vps npm run release:android -- --notes "…"
+
+# что установлено и какие версии
+adb shell pm list packages | grep ledgercraft
+adb shell dumpsys package com.ledgercraft.app | grep -E 'versionName|versionCode'
+adb uninstall com.ledgercraft.app.debug               # снести только отладочную сборку
+```
+
+Что важно помнить:
+
+- **debug нужен только для разработки** (решение 14.09.2026): на телефоне для проверок гоняем
+  релизную сборку, debug-APK никуда не выкладываем — он существует ради `chrome://inspect`,
+  `adb logcat` и live-reload.
+- **Данные не общие.** debug и релиз — разные приложения (`…app.debug` / `…app`): перенести сценарий
+  = вход + синк (или бэкап, задача 11.9), локальная БД одного варианта другому не видна.
+- **Самообновление APK (13.11–13.13) проверяем релизной сборкой на dev-контуре** (release поверх
+  release). Из debug «Обновить» поставит релиз **вторым** приложением (другой package), а
+  `versionCode` у обоих один — сообщение «обновлено» соврёт.
+- **Адрес контура в релиз подставляет скрипт** (`--channel dev|prod`): локальный адрес он считает
+  ошибкой (нужен `--allow-local`), чужой контур в бандле — тоже ошибкой, а `versionCode` не выше
+  опубликованного на контуре — отказом **до** сборки. Собирать prod-APK правкой env-файла нельзя:
+  `.env.prod` подхватился бы и для dev-контура (см. §«Среды и выкат»).
+- В debug `versionName` будет `1.4-debug` (видно в «Ещё»), `versionCode` — тот же, что у релиза,
+  поэтому чип обновления ведёт себя как на текущем релизе.
+
 ## Обновление Android-приложения (Фаза 13)
 
 Приложение умеет обновлять себя **без Google Play**: сервер отдаёт актуальную версию,
@@ -325,22 +421,34 @@ npx cap add android` (⚠️ проверить, что платформа за�
 
 ```bash
 # 1. Поднять версию: src-capacitor/android/gradle.properties
-#    APP_VERSION_CODE=3      # +1 к предыдущему
-#    APP_VERSION_NAME=1.2
+#    APP_VERSION_CODE=6      # +1 к предыдущему
+#    APP_VERSION_NAME=1.5
 
-# 2. Собрать, подписать, выложить на dev-VPS и обновить манифест
-RELEASE_SERVER=dev-vps npm run release:android -- --notes "Чиним склад"
+# 2. План без сборки: контур, адрес, что уже опубликовано на контуре
+npm run release:android -- --channel dev --dry-run
+
+# 3. Собрать, подписать, выложить на dev-VPS и обновить манифест
+RELEASE_SERVER=dev-vps npm run release:android -- --channel dev --notes "Чиним склад"
 
 # без сервера — только собрать (команды публикации скрипт напечатает)
-npm run release:android -- --local-only
+npm run release:android -- --channel dev --local-only
 
 # обязательное обновление
-npm run release:android -- --mandatory --min-version 2 --notes "Критичный фикс"
+npm run release:android -- --channel dev --mandatory --min-version 2 --notes "Критичный фикс"
+
+# 4. Боевой контур — когда появится prod-VPS (задача 11.12): тот же код, адрес prod-API
+RELEASE_SERVER=prod-vps RELEASE_REMOTE_DIR=/var/www/<prod-репозиторий> \
+  RELEASE_API_URL=https://<prod-домен>/api \
+  npm run release:android -- --channel prod --notes "Первый боевой"
 ```
 
-Скрипт: сборка web-части в режиме Capacitor → `npx cap sync android` → `assembleRelease` →
-`apksigner verify` → `scp` на сервер → `php artisan app:publish-apk`. Правило сред обычное:
-сначала **dev**, в prod — только проверенное (Фаза 11).
+Скрипт: сборка web-части в режиме Capacitor **с адресом контура** → `npx cap sync android` →
+`assembleRelease` → `apksigner verify` → `scp` на сервер → `php artisan app:publish-apk`. Что он
+проверяет сам: адрес контура есть в бандле (и нет адреса второго контура), локальный адрес — ошибка,
+`versionCode` выше опубликованного на контуре, подпись на месте. Правило сред обычное: сначала **dev**,
+в prod — только проверенное (Фаза 11). Prod-путь в скрипте уже заготовлен, но **включится вместе с
+prod-VPS** (задача 11.12): пока контура нет, `--channel prod` без явных `RELEASE_API_URL`,
+`RELEASE_SERVER` и `RELEASE_REMOTE_DIR` просто откажется работать.
 
 > **Ключ, toolchain и первый релиз (13.09.2026).** Ключ подписи — `~/keystores/ledger-craft-release.jks`
 > (`CN=Ledger Craft`, RSA 2048), пароли — `src-capacitor/android/keystore.properties`; оба файла в

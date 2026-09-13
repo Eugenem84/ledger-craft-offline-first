@@ -49,6 +49,20 @@ android {
     }
 
     buildTypes {
+        // Debug-вариант — **отдельное приложение** (Фаза 13, задача 13.16 «две сборки на одном
+        // телефоне»). При одном `applicationId` отладочная сборка не может стоять рядом с
+        // релизной: вторая установка конфликтует с первой, а debug-подпись (автоключ
+        // `~/.android/debug.keystore`) не встаёт поверх release-ключа — Android отвечает
+        // «Приложение не установлено» (та же грабля, что с легаси `1.1-debug.apk` на dev).
+        // Суффикс делает из debug отдельный пакет со своими данными
+        // (`data/data/com.ledgercraft.app.debug/databases/…`) и своим именем на рабочем столе
+        // (`src/debug/res/values/strings.xml`). Release-ветка, подпись, `versionCode` из
+        // `gradle.properties` и публикация релиза не меняются.
+        debug {
+            applicationIdSuffix '.debug'
+            versionNameSuffix '-debug'
+        }
+
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'

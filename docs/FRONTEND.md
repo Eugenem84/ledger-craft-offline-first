@@ -551,6 +551,17 @@ return id;
   окна/статус-бара/навигационной панели и светлые иконки — под тёмное приложение. CSS
   `env(safe-area-inset-*)` на Android для статус-бара не помогает. ⚠️ после правки нужен
   `npx cap sync android` и живая проверка на устройстве.
+- **Debug и release не уживались на одном телефоне** (14.09.2026). У обоих вариантов был один
+  `applicationId` (`com.ledgercraft.app`), поэтому вторая сборка конфликтовала с первой, а
+  debug-подпись (`~/.android/debug.keystore`) не встаёт поверх release-ключа — установка падала с
+  «Приложение не установлено» (та же грабля, что с легаси `1.1-debug.apk` на dev-VPS); смену сборок
+  приходилось делать через uninstall, теряя локальную БД и очередь. Теперь у `debug` в
+  `app/build.gradle` стоят `applicationIdSuffix '.debug'` и `versionNameSuffix '-debug'`, а
+  `app/src/debug/res/values/strings.xml` переименовывает приложение в «ledger-craft DEV»: debug —
+  **отдельный** пакет `com.ledgercraft.app.debug` со своими данными (`data/data/<package>/…`) и своим
+  экраном «установка неизвестных приложений» (`ApkInstallerPlugin` → `getPackageName()`).
+  Release-подпись и публикация не затронуты; самообновление APK (13.11–13.13) проверяется только
+  release поверх release. Как собирать — README §«Две сборки на одном телефоне: debug и release».
 
 ## 11. Обратная связь: «Сообщить об ошибке» (Фаза 14) — реализовано
 

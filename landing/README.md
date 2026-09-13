@@ -55,15 +55,28 @@ curl -sI https://dev.medovf2h.beget.tech/api/download-apk | grep -i content-type
 
 ## Адрес API
 
-Меняется одной строкой в `index.html` (перед подключением `landing.js`):
+У страницы два контура (решение 14.09.2026): dev-промо спрашивает версию и APK у **dev**-API,
+боевое промо — у **боевого**. Значение по умолчанию — dev (строка в `index.html` перед подключением
+`landing.js`):
 
 ```html
 <script>
-  window.LEDGER_CRAFT_API = 'https://dev.medovf2h.beget.tech/api' // ← боевой домен
+  window.LEDGER_CRAFT_API = window.LEDGER_CRAFT_API || 'https://dev.medovf2h.beget.tech/api'
 </script>
 ```
 
-Правило сред то же, что у проекта: сначала dev-VPS, на боевой — только проверенное.
+Для боевого выката править файл вручную не нужно: `publish-landing.sh --api URL` подставляет адрес в
+**копию** `index.html` (в git остаётся dev-значение) и после выката проверяет адрес на опубликованной
+странице. Для не-dev контура `--url` и `--api` обязательны — иначе страница уедет на боевой хост, а
+версию и APK будет спрашивать у dev:
+
+```bash
+npm run landing:publish -- --server prod-vps \
+  --url https://<prod-домен>/promo/ --api https://<prod-домен>/api
+```
+
+⚠️ prod-VPS ещё не поднят (задача 11.12) — боевой выкат станет возможен после него. Правило сред то
+же, что у проекта: сначала dev, на боевой — только проверенное.
 
 ## Локальный просмотр
 
