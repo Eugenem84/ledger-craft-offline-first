@@ -46,8 +46,12 @@ export function describeOperation(operation = {}) {
     table: operation.table ?? '',
     status: operation.status ?? '',
     attempts: Number(operation.attempts) || 0,
+    deferredCount: Number(operation.deferred_count) || 0,
     createdAt: operation.created_at ?? null,
     payload: summarizePayload(operation.payload),
+    // Причина отказа/откладывания: без неё «сдавшиеся» и «заблокированные»
+    // операции невозможно разобрать (видно только статус).
+    lastError: truncate(operation.last_error ?? '', 200),
   }
 }
 
@@ -75,6 +79,7 @@ export function describeSyncStatus(status = {}, now = Date.now()) {
     { label: 'синхронизация', value: status.syncing ? 'идёт' : 'простой' },
     { label: 'нужен вход', value: status.requiresAuth ? 'да' : 'нет' },
     { label: 'в очереди', value: String(status.pendingCount ?? 0) },
+    { label: 'заблокировано', value: String(status.blockedCount ?? 0) },
     { label: 'сбоев подряд', value: String(status.consecutiveFailures ?? 0) },
     { label: 'повтор через', value: retryInSeconds > 0 ? `${retryInSeconds} с` : '—' },
     { label: 'последняя ошибка', value: status.lastError || '—' },

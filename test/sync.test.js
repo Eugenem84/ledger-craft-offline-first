@@ -377,26 +377,31 @@ describe('5.4 удаления с сервера (tombstones)', () => {
 })
 
 describe('5.4 сбои сети и сервера', () => {
-  it('сетевой сбой возвращает операции в pending и ставит паузу (3.7)', async () => {
+  it('обрыв сети: операции остаются в очереди, пауза, ручной повтор увозит (3.7)', async () => {
     await clientsRepo.save({ name: 'Иван' })
-    server.configure({ failSendWith: new Error('network down') })
+
+    // Обрыв целиком: и отправка, и выдача без ответа (как реальный офлайн).
+    server.configure({ failSendWith: new Error('network down'), failFetchWith: new Error('network down') })
 
     await syncService.sync()
 
     expect(await operationsRepo.countPending()).toBe(1)
-    expect(syncService.status.consecutiveFailures).toBe(1)
+    expect(syncService.status.consecutiveFailures).toBeGreaterThanOrEqual(1)
     expect(syncService.status.nextRetryAt).toBeGreaterThan(Date.now())
+    expect(syncService.status.online).toBe(false)
 
     // Повторный sync() в паузе на сервер не ходит.
     await syncService.sync()
     expect(api.send).toHaveBeenCalledTimes(1)
 
-    // Ручной повтор (force) игнорирует паузу и увозит очередь.
+    // Сеть вернулась: ручной повтор (force) игнорирует паузу и увозит очередь.
+    server.configure({ failFetchWith: null })
     await syncService.sync({ force: true })
 
     expect(api.send).toHaveBeenCalledTimes(2)
     expect(await operationsRepo.countPending()).toBe(0)
     expect(syncService.status.consecutiveFailures).toBe(0)
+    expect(syncService.status.online).toBe(true)
   })
 
   it('серверная ошибка по одной операции не теряет её и не срывает остальной батч', async () => {
@@ -425,18 +430,22 @@ describe('5.4 сбои сети и сервера', () => {
     expect(api.send).toHaveBeenCalledTimes(1)
   })
 
-  it('офлайн: sync() не делает сетевых попыток, операции остаются в очереди', async () => {
+  it('залипший офлайн-флаг не блокирует синк: в сеть идём и состояние лечится (14.11)', async () => {
     await clientsRepo.save({ name: 'Иван' })
 
+    // WebView «думает», что сети нет (флаг залипает после обновления приложения),
+    // но сервер отвечает. Раньше синк молча выходил — очередь не убывала, а в логах
+    // сервера не было ни одного запроса; теперь попытка делается всегда.
     const originalIsOnline = syncService._isOnline
     syncService._isOnline = () => false
 
     try {
       await syncService.sync()
 
-      expect(api.send).not.toHaveBeenCalled()
-      expect(await operationsRepo.countPending()).toBe(1)
-      expect(syncService.getStatus().online).toBe(false)
+      expect(api.send).toHaveBeenCalledTimes(1)
+      expect(await operationsRepo.countPending()).toBe(0)
+      expect(syncService.getStatus().online).toBe(true)
+      expect(syncService.getStatus().consecutiveFailures).toBe(0)
     } finally {
       syncService._isOnline = originalIsOnline
     }

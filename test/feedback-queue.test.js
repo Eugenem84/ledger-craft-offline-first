@@ -40,24 +40,26 @@ describe('14.4 отчёты об ошибке: офлайн-первая оче�
     clearErrors()
   })
 
-  it('без сети отчёт остаётся в очереди и не теряется', async () => {
+  it('сбой сети оставляет отчёт в очереди (флаг офлайна попытку не отменяет)', async () => {
     setOnline(false)
-    const post = vi.spyOn(apiClient, 'post')
+    // Флага мало: он бывает залипшим (дефект 14.11), поэтому попытка отправки
+    // делается всегда, а очередь держится на реальном сбое сети.
+    const post = vi.spyOn(apiClient, 'post').mockRejectedValue(new Error('Network Error'))
 
     const result = await feedbackService.submit({ message: 'кнопка «сохранить» не работает' })
 
-    expect(post).not.toHaveBeenCalled()
+    expect(post).toHaveBeenCalledTimes(1)
     expect(result).toMatchObject({ sent: 0, failed: 0, pending: 1 })
-    expect(await rowById(result.id)).toMatchObject({ status: 'pending', attempts: 0 })
+    expect(await rowById(result.id)).toMatchObject({ status: 'pending', attempts: 1 })
     expect(await feedbackService.pendingCount()).toBe(1)
 
     // Сеть появилась — отчёт уходит без действий мастера.
     setOnline(true)
-    const ok = vi.spyOn(apiClient, 'post').mockResolvedValue(OK)
+    post.mockResolvedValue(OK)
 
     await feedbackService.flush()
 
-    expect(ok).toHaveBeenCalledTimes(1)
+    expect(post).toHaveBeenCalledTimes(2)
     expect(await rowById(result.id)).toMatchObject({ status: 'sent', server_id: 42 })
     expect(await feedbackService.pendingCount()).toBe(0)
   })
@@ -162,6 +164,8 @@ describe('14.4 отчёты об ошибке: офлайн-первая оче�
 
   it('полный сброс/смена аккаунта чистят очередь отчётов', async () => {
     setOnline(false)
+    // Отчёт создаётся офлайн: попытку отправки гасим сбоем сети, чтобы он остался в очереди.
+    vi.spyOn(apiClient, 'post').mockRejectedValue(new Error('Network Error'))
     await feedbackService.submit({ message: 'отчёт первого аккаунта' })
 
     expect(await feedbackRepo.countPending()).toBe(1)

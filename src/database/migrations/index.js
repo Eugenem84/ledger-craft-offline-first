@@ -25,6 +25,8 @@ import m028 from './028_operations_attempts.js'
 // Строгий фильтр каталога по профилю (Фаза 10/12): разовая привязка «ничьих» записей.
 import m029 from './029_backfill_catalog_specialization.js'
 import m030 from './030_create_feedback_reports_table.js'
+// Диагностика очереди: счётчик откладываний и причина отказа (дефект 14.11).
+import m031 from './031_operations_diagnostics.js'
 
 const migrations = [
   m001,
@@ -52,6 +54,7 @@ const migrations = [
   m028,
   m029,
   m030,
+  m031,
 ]
 
 export default migrations

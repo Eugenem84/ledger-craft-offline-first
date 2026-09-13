@@ -81,6 +81,24 @@ step "Релиз: versionName $VERSION_NAME, versionCode $VERSION_CODE"
 step 'Web-часть под Capacitor'
 (cd "$ROOT_DIR" && npx quasar build -m capacitor -T android)
 
+# --- Проверка адреса API в собранном бандле ----------------------------------
+# Дефект живого прогона 14.11: если в APK уезжает «не тот» адрес API, приложение
+# выглядит как «не видит сервер» — ни синка, ни проверки версии, запросы просто не
+# уходят (в логах сервера тишина). Ловим это на сборке, а не глазами мастера.
+# Порядок источников — как у `src/config.js`: `.env.local` перекрывает `.env`.
+ENV_LOCAL_URL="$(grep -E '^VITE_API_URL=' "$ROOT_DIR/.env.local" 2>/dev/null | head -1 | cut -d= -f2- || true)"
+ENV_URL="$(grep -E '^VITE_API_URL=' "$ROOT_DIR/.env" 2>/dev/null | head -1 | cut -d= -f2- || true)"
+EXPECTED_API_URL="${RELEASE_API_URL:-${ENV_LOCAL_URL:-$ENV_URL}}"
+
+step 'Адрес API в веб-сборке'
+if [ -z "$EXPECTED_API_URL" ]; then
+  echo '⚠️  VITE_API_URL не найден ни в .env.local, ни в .env — проверка пропущена'
+elif grep -rq "$EXPECTED_API_URL" "$ROOT_DIR/src-capacitor/www/assets" 2>/dev/null; then
+  echo "  ✓ в бандле есть $EXPECTED_API_URL"
+else
+  fail "В собранном бандле нет $EXPECTED_API_URL — APK уйдёт с чужим адресом API"
+fi
+
 step 'Синхронизация нативного проекта'
 (cd "$ROOT_DIR/src-capacitor" && npx cap sync android)
 

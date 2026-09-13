@@ -135,17 +135,22 @@ describe('13.7 проверка обновления', () => {
     expect(status.checking).toBe(false)
     expect(status.error).toBe('Network Error')
     expect(status.available).toBe(false)
+    // Ответа не было — вот теперь честно показываем «нет интернета».
+    expect(status.online).toBe(false)
   })
 
-  it('офлайн: в сеть не ходим, состояние «нет интернета»', async () => {
+  it('залипший офлайн-флаг не мешает проверке: запрос всё равно уходит (14.11)', async () => {
     const spy = vi.spyOn(apiClient, 'get').mockResolvedValue({ data: RELEASE })
 
     if (!setOnline(false)) return // окружение не даёт подменить navigator.onLine
 
+    // Раньше проверка выходила до запроса — даже по кнопке «Проверить обновление»,
+    // потому что `force` обходил только шестичасовую паузу. Теперь состояние сети
+    // определяется результатом запроса, а не флагом WebView.
     const status = await updateService.check({ force: true })
 
-    expect(spy).not.toHaveBeenCalled()
-    expect(status).toMatchObject({ online: false, error: null, available: false })
+    expect(spy).toHaveBeenCalledWith('/app-version')
+    expect(status).toMatchObject({ online: true, error: null, available: true })
   })
 
   it('повторная проверка не долбит сервер (пауза), force — обходит', async () => {

@@ -9,6 +9,12 @@
 //   failed  — «сдалась»: исчерпан лимит попыток или сервер ответил неисправимой
 //             ошибкой (чужой/удалённый заказ и т.п.). Больше не отправляется,
 //             видна в индикаторе/«Режиме разработчика» и убирается оттуда вручную.
+//   blocked — «ждёт родителя, которого нет»: операция N раз откладывалась, потому
+//             что у её FK-родителя нет `server_id` и нет своей операции в очереди.
+//             Без этого статуса очередь бесконечно повторяла `pending`, POST /sync
+//             не формировался вовсе, а приложение выглядело так, будто «не видит
+//             сервер» (дефект живого прогона 14.11 на Android). Чинится
+//             `syncService.repairQueue()` / «Починить очередь» в панели.
 //
 // Сбой между отправкой и ответом операцию не теряет: она остаётся в очереди
 // в статусе sending/synced, а следующий sync() возвращает её в работу
@@ -21,6 +27,7 @@ const STATUS = {
   SENDING: 'sending',
   SYNCED: 'synced',
   FAILED: 'failed',
+  BLOCKED: 'blocked',
 };
 
 /**
@@ -126,12 +133,111 @@ export default {
    * @param {string} id операции
    * @param {number} attempts новое значение счётчика попыток
    * @param {boolean} giveUp true — исчерпан лимит или ошибка неисправима → `failed`
+   * @param {string|null} [reason] текст ошибки сервера — для диагностики в панели
    */
-  async registerFailure(id, attempts, giveUp = false) {
+  async registerFailure(id, attempts, giveUp = false, reason = null) {
     await db.execute(
-      `UPDATE operations SET status = ?, attempts = ?, updated_at = ? WHERE id = ?`,
-      [giveUp ? STATUS.FAILED : STATUS.PENDING, attempts, Date.now(), id]
+      `UPDATE operations SET status = ?, attempts = ?, last_error = ?, updated_at = ? WHERE id = ?`,
+      [giveUp ? STATUS.FAILED : STATUS.PENDING, attempts, reason ? String(reason) : null, Date.now(), id]
     );
+  },
+
+  /**
+   * Отмечает, что операцию пришлось отложить из-за неразрешённого FK: считает
+   * такие проходы и на `MAX_DEFERRALS` (см. syncService) переводит её в `blocked`.
+   *
+   * @param {string} id операции
+   * @param {string|null} [reason] почему отложили (какого родителя ждём)
+   * @param {number} [maxDeferrals] после какого числа откладываний «блокируем»
+   * @returns {Promise<{count: number, blocked: boolean}>}
+   */
+  async markDeferred(id, reason = null, maxDeferrals = 3) {
+    await db.execute(
+      `UPDATE operations
+       SET deferred_count = COALESCE(deferred_count, 0) + 1, last_error = ?, updated_at = ?
+       WHERE id = ?`,
+      [reason ? String(reason) : null, Date.now(), id]
+    );
+
+    const row = await this.getById(id);
+    const count = Number(row?.deferred_count) || 0;
+    const blocked = count >= maxDeferrals;
+
+    if (blocked && row?.status === STATUS.PENDING) {
+      await db.execute(`UPDATE operations SET status = ?, updated_at = ? WHERE id = ?`, [
+        STATUS.BLOCKED,
+        Date.now(),
+        id,
+      ]);
+    }
+
+    return { count, blocked };
+  },
+
+  /** Одна операция по её идентификатору (нужна диагностике и «починке очереди»). */
+  async getById(id) {
+    return db.queryOne('SELECT * FROM operations WHERE id = ?', [id]);
+  },
+
+  /** Операции в конкретном статусе (для панели и починки). */
+  async listByStatus(status) {
+    return db.query('SELECT * FROM operations WHERE status = ? ORDER BY created_at ASC', [status]);
+  },
+
+  /** Сколько операций «заблокировано» (ждут родителя, которого нет на сервере). */
+  async countBlocked() {
+    const rows = await db.query(
+      `SELECT COUNT(*) AS count FROM operations WHERE status = ?`,
+      [STATUS.BLOCKED]
+    );
+    return rows.length ? rows[0].count : 0;
+  },
+
+  /**
+   * Возвращает «заблокированные» операции в работу: причина блокировки (нет родителя)
+   * устраняется «починкой очереди», после чего операции снова можно отправлять.
+   *
+   * @returns {Promise<number>} сколько операций вернулось в `pending`
+   */
+  async requeueBlocked() {
+    const blocked = await this.listByStatus(STATUS.BLOCKED);
+    if (!blocked.length) return 0;
+
+    await db.execute(
+      `UPDATE operations SET status = ?, deferred_count = 0, updated_at = ?
+       WHERE status = ?`,
+      [STATUS.PENDING, Date.now(), STATUS.BLOCKED]
+    );
+
+    return blocked.length;
+  },
+
+  /**
+   * Есть ли для записи `table`/`localId` необработанная операция вставки.
+   * Нужна «починке очереди»: не дублируем insert, который уже стоит в очереди.
+   *
+   * @param {string} table
+   * @param {string} localId локальный UUID записи (лежит в payload как `local_id`)
+   * @returns {Promise<boolean>}
+   */
+  async hasInsertForLocalId(table, localId) {
+    const operations = await db.query(
+      `SELECT payload, status FROM operations
+       WHERE "table" = ? AND type = 'insert' AND status IN (?, ?, ?)`,
+      [table, STATUS.PENDING, STATUS.SENDING, STATUS.BLOCKED]
+    );
+
+    for (const op of operations) {
+      try {
+        const payload = JSON.parse(op.payload);
+
+        if (payload?.local_id === localId) return true;
+      } catch {
+        // битый payload не считается «стоящим в очереди» — им займётся обычный синк
+      }
+    }
+
+    return false;
   },
 
   /** Сколько операций «сдалось» (для индикатора и «Режима разработчика»). */

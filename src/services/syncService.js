@@ -1,6 +1,7 @@
 // services/syncService.js
 
 import { logger } from 'src/utils/logger'
+import { v4 as uuidv4 } from 'uuid'
 import dbAdapter from 'src/database/db.js';
 import api, { hasAuthToken } from 'src/services/api';
 import * as metaRepo from 'src/repositories/metaRepo';
@@ -27,8 +28,6 @@ import * as buyProductPricesRepo from 'src/repositories/buyProductPricesRepo.js'
 // Цены продажи товаров по заказам (задача 9.3).
 import * as salesProductPricesRepo from 'src/repositories/salesProductPricesRepo.js';
 import * as modelsRepo from 'src/repositories/modelsRepo';
-
-import { logAllServicesForDebugging } from 'src/repositories/servicesRepo';
 
 // Максимум «волн» отправки за один sync(). Сервер присваивает `server_id` только
 // что вставленным записям, поэтому ребёнок, чей родитель уехал в этой же волне,
@@ -72,6 +71,24 @@ const AUTO_SYNC_INTERVAL_MS = 60000;
 // любая ошибка сервера зацикливала операцию: очередь тихо копила дубли, а
 // неисправимая операция висела вечно (дефект живого прогона 11.6).
 const MAX_OPERATION_ATTEMPTS = 5;
+
+// Сколько раз операцию можно отложить из-за неразрешённого FK, прежде чем признать,
+// что родителя нет и не будет (дефект живого прогона 14.11 на Android).
+//
+// «Отложена до следующей волны» — норма для одного прохода: сервер присваивает
+// `server_id` только что вставленным записям. Но если родительская операция уже
+// ушла из очереди (сдалась/убрана) или запись на сервере не появилась, ребёнок
+// откладывается **в каждом** синке: очередь не убывает, `POST /sync` не формируется
+// (готовых операций нет), и приложение выглядит так, будто «не видит сервер» — хотя
+// ответов сервера в логах нет вовсе. После лимита откладываний операция получает
+// статус `blocked` с причиной в `last_error`: лог не спамится, проблема видна в
+// «Режиме разработчика», а «Починить очередь» пересобирает родительские вставки.
+const MAX_DEFERRALS = 3;
+
+// Колонки локальной БД, которые не уезжают на сервер при пересборке вставки
+// («Починка очереди», `_buildInsertPayloadFromRow`): `id` отправляем как `local_id`
+// (по нему сервер идемпотентен), остальное — чисто локальное состояние.
+const LOCAL_ONLY_COLUMNS = new Set(['id', 'server_id', 'last_sync_id', 'sync_state']);
 
 // Неисправимые ошибки сервера: повторять бессмысленно — операция «сдаётся» сразу.
 //   RECORD_NOT_FOUND      — записи нет на сервере или она принадлежит другому;
@@ -187,9 +204,18 @@ class SyncService {
       pendingCount: 0,
       // «Сдавшиеся» операции: лимит попыток исчерпан / ошибка неисправима (Фаза 12).
       failedCount: 0,
+      // «Заблокированные»: ждут родителя, которого нет (см. MAX_DEFERRALS).
+      blockedCount: 0,
       // «Нужен вход» (задача 7.4): без токена синк недоступен — индикатор это покажет.
       requiresAuth: false,
     };
+
+    // Кэш «есть ли у таблицы колонка server_id» — нужен «примирению» записей по
+    // `uuid_id` (см. `_linkLocalRowByUuid`), чтобы не делать PRAGMA на каждую запись.
+    this._columnCache = new Map();
+
+    // Привязка «возврата в приложение» — идемпотентна, как и автозапуск.
+    this._resumeBound = false;
 
     this._listeners = new Set();
     this._bindNetworkEvents();
@@ -209,12 +235,17 @@ class SyncService {
       return;
     }
 
-    const online = this._isOnline();
-    this._setStatus({ online });
-
-    if (!online) {
-      logger.log('[Sync] Нет сети — синхронизация отложена, операции останутся в очереди.');
-      return;
+    // ⚠️ Доступность сети — только подсказка, а не запрет на попытку (дефект 14.11).
+    //
+    // `navigator.onLine` в Android WebView умеет «залипать» в `false`: после обновления
+    // приложения или смены сети событие `online` в приостановленный WebView не приходит,
+    // и приложение молчит навсегда — ни синка, ни проверки версии, ни одного запроса к
+    // серверу (в логах nginx при этом пусто, и это выглядит как «сервер недоступен»).
+    // Поэтому в сеть идём всегда, а состояние выводим из реального результата: успех →
+    // `online: true` (`_registerSuccess`), сбой сети → `online: false` + пауза
+    // (`_registerFailure`), которая и защищает от «долбёжки» недоступного сервера.
+    if (!this._isOnline()) {
+      logger.log('[Sync] WebView считает, что сети нет — всё равно пробуем (флаг бывает залипшим).');
     }
 
     // Без токена входа сервер отвечает 401 на каждый запрос (задача 7.4): не тратим
@@ -250,9 +281,12 @@ class SyncService {
       this.syncing = false;
       logger.log('[Sync] end');
 
-      this._setStatus({ syncing: false, pendingCount: await this._countPending(), failedCount: await this._countFailed() });
-
-      await logAllServicesForDebugging()
+      this._setStatus({
+        syncing: false,
+        pendingCount: await this._countPending(),
+        failedCount: await this._countFailed(),
+        blockedCount: await this._countBlocked(),
+      });
     }
   }
 
@@ -281,7 +315,8 @@ class SyncService {
   async refreshStatus() {
     const pendingCount = await this._countPending();
     const failedCount = await this._countFailed();
-    this._setStatus({ pendingCount, failedCount, requiresAuth: !hasAuthToken() });
+    const blockedCount = await this._countBlocked();
+    this._setStatus({ pendingCount, failedCount, blockedCount, requiresAuth: !hasAuthToken() });
     return this.getStatus();
   }
 
@@ -371,6 +406,11 @@ class SyncService {
   /**
    * Слушаем online/offline браузера: состояние для индикатора, возвращение сети снимает
    * паузу после сбоя и (при включённом автозапуске) сразу дожимает очередь — задача 6.3.
+   *
+   * Плюс подписываемся на «возврат в приложение» (`visibilitychange` в WebView и
+   * `appStateChange` у Capacitor): событие `online` до приостановленного WebView может
+   * не дойти, и без перепроверки на resume приложение остаётся в залипшем офлайне
+   * (дефект 14.11 — «на телефоне ничего не синкается, а в логах сервера пусто»).
    */
   _bindNetworkEvents() {
     if (typeof window === 'undefined' || typeof window.addEventListener !== 'function') return;
@@ -382,6 +422,65 @@ class SyncService {
     window.addEventListener('offline', () => {
       this._handleOffline();
     });
+
+    if (!this._resumeBound) {
+      this._resumeBound = true;
+
+      if (typeof document !== 'undefined' && typeof document.addEventListener === 'function') {
+        document.addEventListener('visibilitychange', () => {
+          if (document.visibilityState === 'visible') {
+            void this.handleResume();
+          }
+        });
+      }
+
+      this._bindNativeResume();
+    }
+  }
+
+  /**
+   * Нативный resume (Android/iOS): `App.addListener('appStateChange')`. Импорт
+   * динамический — в браузере и в тестах этот код не выполняется.
+   */
+  async _bindNativeResume() {
+    try {
+      const { Capacitor } = await import('@capacitor/core');
+
+      if (!Capacitor || typeof Capacitor.isNativePlatform !== 'function' || !Capacitor.isNativePlatform()) {
+        return;
+      }
+
+      const { App } = await import('@capacitor/app');
+      const handle = await App.addListener('appStateChange', state => {
+        if (state?.isActive) void this.handleResume();
+      });
+
+      this._nativeResumeHandle = handle;
+    } catch (error) {
+      logger.warn('[Sync] Не удалось подписаться на appStateChange:', error?.message || error);
+    }
+  }
+
+  /**
+   * Возврат в приложение: заново читаем состояние сети (флаг WebView мог залипнуть) и
+   * сразу дожимаем очередь, не дожидаясь таймера. Безопасно вызывать всегда — `sync()`
+   * сам защищён от параллельных проходов и паузы после сбоя.
+   *
+   * @returns {Promise<void>}
+   */
+  async handleResume() {
+    const online = this._isOnline();
+
+    if (this.status.online !== online) {
+      logger.log(`[Sync] Возврат в приложение: сеть ${online ? 'есть' : 'нет'} — обновляю состояние.`);
+      this._setStatus({ online });
+    }
+
+    // Флаг бывает залипшим в обе стороны, поэтому повторяем в сеть — результат
+    // уточнит состояние (`online`), а пауза после сбоя остаётся в силе.
+    await this.sync({ force: true }).catch(e =>
+      console.error('[SyncService] Синк после возврата в приложение упал:', e)
+    );
   }
 
   /**
@@ -447,7 +546,7 @@ class SyncService {
     }
 
     if (kind === 'request') {
-      this._setStatus({ lastError: message });
+      this._setStatus({ lastError: message, online: true });
       logger.warn(`[Sync] Сервер отклонил батч (${message}). Операции останутся в очереди.`);
       return;
     }
@@ -459,6 +558,9 @@ class SyncService {
       consecutiveFailures: failures,
       nextRetryAt: Date.now() + delay,
       lastError: message,
+      // 5xx — сервер ответил, значит связь есть; сеть считаем «нет» только если
+      // ответа не было вовсе (kind === 'network').
+      online: kind !== 'network',
     });
 
     logger.warn(
@@ -467,11 +569,25 @@ class SyncService {
     );
   }
 
-  /** Успешный обмен с сервером: снимаем паузу и счётчик сбоев. */
+  /** Успешный обмен с сервером: снимаем паузу, счётчик сбоев и «залипший» офлайн. */
   _registerSuccess() {
-    if (!this.status.consecutiveFailures && !this.status.lastError) return;
+    if (
+      !this.status.consecutiveFailures &&
+      !this.status.lastError &&
+      this.status.online === true &&
+      !this.status.nextRetryAt
+    ) {
+      return;
+    }
 
-    this._setStatus({ consecutiveFailures: 0, nextRetryAt: 0, lastError: null });
+    this._setStatus({
+      consecutiveFailures: 0,
+      nextRetryAt: 0,
+      lastError: null,
+      // Ответ сервера — самый надёжный признак того, что сеть есть: снимаем
+      // «нет сети», даже если WebView всё ещё считает иначе (дефект 14.11).
+      online: true,
+    });
     logger.log('[Sync] Связь с сервером восстановлена.');
   }
 
@@ -493,6 +609,189 @@ class SyncService {
       console.error('[SyncService] Не удалось посчитать отброшенные операции:', e);
       return this.status.failedCount;
     }
+  }
+
+  /** Сколько операций ждёт родителя, которого нет на сервере (нужна «починка»). */
+  async _countBlocked() {
+    try {
+      return await operationsRepo.countBlocked();
+    } catch (e) {
+      console.error('[SyncService] Не удалось посчитать заблокированные операции:', e);
+      return this.status.blockedCount;
+    }
+  }
+
+  /**
+   * «Починка очереди» (дефект живого прогона 14.11, кнопка в «Режиме разработчика»).
+   *
+   * Зачем: операция-ребёнок ждёт `server_id` родителя, а родительская вставка из очереди
+   * уже ушла (сдалась / убрана кнопкой «убрать сдавшиеся» / применилась на сервере без
+   * «примирения» локальной строки). Тогда `POST /sync` перестаёт формироваться вовсе —
+   * и приложение выглядит так, будто «не видит сервер», хотя сервер отвечает.
+   *
+   * Что делает:
+   *   1. собирает операции, которые ждут родителя без `server_id` (нет ни записи на
+   *      сервере, ни своей вставки в очереди);
+   *   2. перечитывает эти таблицы **с нуля** (`since = 0`) — записи, приехавшие раньше
+   *      курсора, обычной выдачей не вернутся, а «примирение» по `uuid_id` проставит
+   *      локальный `server_id` (родитель уже на сервере — самый частый случай);
+   *   3. чего на сервере нет — пересобирает `insert` из локальной строки (сервер
+   *      идемпотентен по `uuid_id`, поэтому повторная отправка дублей не создаёт);
+   *   4. возвращает «заблокированных» детей в работу и дожимает синк.
+   *
+   * @returns {Promise<{parents: number, reconciled: number, requeuedParents: number,
+   *   requeuedChildren: number, blockedLeft: number}>} отчёт для панели
+   */
+  async repairQueue() {
+    const report = {
+      parents: 0,
+      reconciled: 0,
+      requeuedParents: 0,
+      requeuedChildren: 0,
+      blockedLeft: 0,
+    };
+
+    const orphans = await this._findOrphanParents(await this._collectDeferredOperations());
+    report.parents = orphans.length;
+
+    if (orphans.length) {
+      const tables = [...new Set(orphans.map(item => item.parentTable))];
+
+      logger.log(`[Sync] Починка очереди: перечитываю таблицы ${tables.join(', ')} с нуля.`);
+      await this._syncServerToLocal({ tables, since: 0 });
+
+      for (const orphan of orphans) {
+        const rows = await dbAdapter.query(`SELECT server_id FROM ${orphan.parentTable} WHERE id = ?`, [
+          orphan.localId,
+        ]);
+
+        if (rows.length && rows[0].server_id) {
+          report.reconciled += 1;
+          continue;
+        }
+
+        if (await this._requeueInsertFromRow(orphan.parentTable, orphan.localId)) {
+          report.requeuedParents += 1;
+        }
+      }
+    }
+
+    report.requeuedChildren = await operationsRepo.requeueBlocked();
+
+    await this.sync({ force: true });
+    await this.refreshStatus();
+    report.blockedLeft = this.status.blockedCount;
+
+    logger.log('[Sync] Починка очереди завершена', report);
+
+    return report;
+  }
+
+  /** Операции, которые не отправляются: `pending` (могут откладываться) и `blocked`. */
+  async _collectDeferredOperations() {
+    const [pending, blocked] = await Promise.all([
+      operationsRepo.dequeue(),
+      operationsRepo.listByStatus(operationsRepo.STATUS.BLOCKED),
+    ]);
+
+    return [...pending, ...blocked];
+  }
+
+  /**
+   * Ищет родителей, которых ждут операции, но которых «нет»: у локальной строки пустой
+   * `server_id`, на сервере записи тоже нет, и собственной вставки в очереди не осталось.
+   *
+   * @param {Array<object>} operations операции очереди (pending + blocked)
+   * @returns {Promise<Array<{parentTable: string, localId: string}>>}
+   */
+  async _findOrphanParents(operations) {
+    const orphans = new Map();
+
+    for (const op of operations) {
+      const transformations = this.fkTransformationMap[op.table];
+
+      if (!transformations) continue;
+
+      const payload = this._parsePayload(op);
+
+      if (!payload) continue;
+
+      for (const [fkField, parentTable] of Object.entries(transformations)) {
+        const localId = payload[fkField];
+
+        if (localId == null) continue;
+
+        const key = `${parentTable}:${localId}`;
+
+        if (orphans.has(key)) continue;
+
+        const rows = await dbAdapter.query(`SELECT server_id FROM ${parentTable} WHERE id = ?`, [localId]);
+
+        if (rows.length && rows[0].server_id) continue;
+
+        if (await operationsRepo.hasInsertForLocalId(parentTable, localId)) continue;
+
+        orphans.set(key, { parentTable, localId });
+      }
+    }
+
+    return [...orphans.values()];
+  }
+
+  /**
+   * Пересобирает вставку родителя из его локальной строки и ставит её в очередь.
+   * Внешние ключи уезжают локальными UUID — их переводит `_prepareForeignKeys()`.
+   *
+   * @returns {Promise<boolean>} true — операция поставлена в очередь
+   */
+  async _requeueInsertFromRow(table, localId) {
+    try {
+      const row = await dbAdapter.queryOne(`SELECT * FROM ${table} WHERE id = ?`, [localId]);
+
+      if (!row || row.server_id) return false;
+
+      if (row.deleted_at != null) {
+        logger.warn(`[Sync] Починка очереди: ${table} ${localId} удалён локально — вставку не собираю.`);
+        return false;
+      }
+
+      const payload = this._buildInsertPayloadFromRow(row);
+
+      await operationsRepo.enqueue([
+        uuidv4(),
+        'insert',
+        table,
+        JSON.stringify(payload),
+        Date.now(),
+      ]);
+
+      logger.log(`[Sync] Починка очереди: пересобран insert ${table} ${localId}.`);
+
+      return true;
+    } catch (e) {
+      console.error(`[Sync] Починка очереди: не удалось пересобрать insert ${table} ${localId}:`, e);
+
+      return false;
+    }
+  }
+
+  /**
+   * Payload вставки из локальной строки. Служебные локальные колонки не отправляем:
+   * `id` уезжает как `local_id` (по нему сервер идемпотентен), `server_id`/`last_sync_id`
+   * и «сигнальные» `*_server_id` — только про локальное состояние.
+   */
+  _buildInsertPayloadFromRow(row) {
+    const payload = {};
+
+    for (const [column, value] of Object.entries(row)) {
+      if (LOCAL_ONLY_COLUMNS.has(column) || column.endsWith('_server_id')) continue;
+
+      payload[column] = value === undefined ? null : value;
+    }
+
+    payload.local_id = row.id;
+
+    return payload;
   }
 
   /**
@@ -550,6 +849,11 @@ class SyncService {
     // до следующего sync().
     const answered = new Set();
 
+    // Почему отложили операцию в этом прогоне: id → текст причины. После волн
+    // счётчик откладываний растёт, и «вечно ждущие родителя» уходят в `blocked`
+    // (дефект 14.11), а не спамят лог каждым синком.
+    const deferredReasons = new Map();
+
     for (let wave = 1; wave <= MAX_SYNC_WAVES; wave++) {
       const pending = (await operationsRepo.dequeue()).filter(op => !answered.has(op.id));
 
@@ -560,7 +864,10 @@ class SyncService {
 
       logger.log(`[Sync] Волна ${wave}: в очереди ${pending.length} операций.`);
 
-      const { prepared, deferred, dependencyGraph } = await this._prepareOperations(pending);
+      const { prepared, deferred, dependencyGraph } = await this._prepareOperations(
+        pending,
+        deferredReasons
+      );
 
       if (!prepared.length) {
         // Ни одна операция не готова: у всех не разрешился внешний ключ
@@ -581,6 +888,41 @@ class SyncService {
         break;
       }
     }
+
+    await this._registerDeferrals(deferredReasons);
+  }
+
+  /**
+   * Отмечает отложенные за проход операции: считает, сколько синков подряд они ждут
+   * родителя, и после `MAX_DEFERRALS` переводит в `blocked` с причиной в `last_error`.
+   *
+   * Это ключевое отличие «подождём следующую волну» от «ждём вечно»: пока операция
+   * просто `pending`, `dequeue()` снова и снова отдаёт её в подготовку, `POST /sync`
+   * не формируется, и приложение выглядит неработающим, хотя сервер тут ни при чём.
+   *
+   * @param {Map<string, string>} deferredReasons id операции → причина откладывания
+   */
+  async _registerDeferrals(deferredReasons) {
+    if (!deferredReasons.size) return;
+
+    for (const [id, reason] of deferredReasons) {
+      try {
+        const row = await operationsRepo.getById(id);
+
+        if (!row || row.status !== operationsRepo.STATUS.PENDING) continue;
+
+        const { count, blocked } = await operationsRepo.markDeferred(id, reason, MAX_DEFERRALS);
+
+        if (blocked) {
+          logger.warn(
+            `[Sync] Операция ${row.table}/${row.type} отложена ${count} раз подряд и больше не отправляется: ${reason}. ` +
+              `Очередь не убывает — запустите «Починить очередь» в «Режиме разработчика».`
+          );
+        }
+      } catch (e) {
+        console.error('[SyncService] Не удалось учесть отложенную операцию:', e);
+      }
+    }
   }
 
   /**
@@ -591,8 +933,10 @@ class SyncService {
    *   prepared — операции, готовые к отправке;
    *   deferred — операции с неготовой зависимостью (остаются в очереди);
    *   dependencyGraph — «id операции → id её родителей (в этом же батче)».
+   * @param {Map<string, string>} [deferredReasons] сюда пишем причину откладывания
+   *   (нужна, чтобы после `MAX_DEFERRALS` объяснить пользователю, чего ждём)
    */
-  async _prepareOperations(pending) {
+  async _prepareOperations(pending, deferredReasons = null) {
     const parsed = [];
     const prepared = [];
     const deferred = [];
@@ -641,6 +985,13 @@ class SyncService {
       for (const dep of dependencies) {
         if (!(await this._resolveFkDependency(op, dep))) {
           ready = false;
+
+          // Причину накапливаем: у `order_service` родителей двое (заказ и работа),
+          // и в панели/master-логе полезно видеть всех, кого ждём.
+          const reason = `ждём на сервере ${dep.parentTable} (локальный id ${dep.localId}) — у родителя нет server_id`;
+          const previous = deferredReasons?.get(op.id);
+
+          deferredReasons?.set(op.id, previous ? `${previous}; ${reason}` : reason);
         }
       }
 
@@ -950,13 +1301,23 @@ class SyncService {
    * Забирает изменения по каждой таблице. Курсор выдачи — свой у каждой таблицы (задача 3.6):
    * упавшая таблица сохраняет свой курсор и до-получает изменения в следующий раз, остальные
    * при этом не страдают.
+   *
+   * @param {{tables?: string[]|null, since?: number|null}} [options] `tables` — ограничить
+   *   набор таблиц, `since` — читать выдачу «с нуля» (нужно «починке очереди»: записи,
+   *   приехавшие раньше курсора, обычной выдачей уже не вернутся).
    */
-  async _syncServerToLocal() {
-    for (const table of Object.keys(this.repos)) {
+  async _syncServerToLocal(options = {}) {
+    const tables = Array.isArray(options.tables) && options.tables.length
+      ? options.tables
+      : Object.keys(this.repos);
+
+    for (const table of tables) {
       const repo = this.repos[table];
 
+      if (!repo) continue;
+
       try {
-        const since = await metaRepo.getLastSyncedAt(table);
+        const since = options.since ?? (await metaRepo.getLastSyncedAt(table));
 
         const response = await api.fetchUpdates({
           table,
@@ -970,6 +1331,12 @@ class SyncService {
         for (const record of records) {
           maxRecordMs = Math.max(maxRecordMs, toEpochMs(record.updated_at, 0));
 
+          // «Примирение» до применения: если запись создана на этом устройстве
+          // офлайн, её локальный `id` — это `uuid_id` на сервере. Без проставления
+          // `server_id` запись приехала бы второй копией, а операции, ссылающиеся на
+          // офлайн-строку, навсегда остались бы «без родителя» (дефект 14.11).
+          await this._linkLocalRowByUuid(table, record);
+
           // Удаление, сделанное на другом устройстве (задача 3.9): сервер отдаёт
           // tombstone — soft-deleted строку (`deleted`) или запись из `sync_tombstones`.
           if (this._isDeletion(record)) {
@@ -980,16 +1347,88 @@ class SyncService {
           await repo.applyServerRecord(record);
         }
 
+        // Ответ сервера получен — снимаем «нет сети», даже если WebView считает иначе.
+        this._registerSuccess();
+
         // Курсор двигаем только после того, как всю выдачу таблицы разобрали.
         // Берём максимум из «нашего сейчас» и времени последней записи: если часы устройства
         // отстают от серверных, курсор всё равно не «застрянет» на уже полученных записях.
-        await metaRepo.setLastSyncedAt(table, Math.max(Date.now(), maxRecordMs + 1));
+        if (options.since == null) {
+          await metaRepo.setLastSyncedAt(table, Math.max(Date.now(), maxRecordMs + 1));
+        }
       } catch (e) {
         console.error(`[Sync] Ошибка при получении обновлений для таблицы "${table}":`, e);
+
+        // Сеть действительно недоступна: не долбим остальные таблицы — они упадут так же,
+        // а пауза после сбоя (backoff) не даст «долбёжки» в следующем проходе.
+        if (this._failureKind(e) === 'network') {
+          this._registerFailure('network', e);
+          break;
+        }
+
         // Курсор этой таблицы не двигаем: следующий sync() до-получит её изменения.
         // Не прерываем синхронизацию других таблиц.
       }
     }
+  }
+
+  /**
+   * Проставляет локальный `server_id` записи, созданной офлайн, по её `uuid_id`
+   * (на сервере он лежит в колонке `uuid_id`, локально — в `id`).
+   *
+   * Зачем: `applyServerRecord()` в репозиториях ищет строку по `server_id`, поэтому
+   * для офлайн-записи он создал бы вторую локальную копию, а исходная строка так и
+   * осталась бы без `server_id` — и все её «дети» в очереди застряли бы навсегда.
+   *
+   * @param {string} table
+   * @param {object} record запись из `/sync-updates`
+   * @returns {Promise<boolean>} true — локальная строка найдена (и, если нужно, обновлена)
+   */
+  async _linkLocalRowByUuid(table, record) {
+    if (!record?.uuid_id || record.id == null) return false;
+    if (!(await this._hasServerIdColumn(table))) return false;
+
+    try {
+      const rows = await dbAdapter.query(`SELECT id, server_id FROM ${table} WHERE id = ?`, [
+        record.uuid_id,
+      ]);
+
+      if (!rows.length) return false;
+
+      if (!rows[0].server_id) {
+        await dbAdapter.execute(`UPDATE ${table} SET server_id = ? WHERE id = ?`, [
+          record.id,
+          record.uuid_id,
+        ]);
+
+        logger.log(
+          `[Sync] Примирение по uuid_id: ${table} ${record.uuid_id} → server_id ${record.id}`
+        );
+      }
+
+      return true;
+    } catch (e) {
+      console.error(`[Sync] Не удалось примирить запись ${table} по uuid_id:`, e);
+      return false;
+    }
+  }
+
+  /**
+   * Есть ли у локальной таблицы колонка `server_id` (у связок вида `order_service`
+   * её нет — там натуральный ключ). Результат кэшируется: схема в рамках запуска
+   * не меняется.
+   */
+  async _hasServerIdColumn(table) {
+    if (!this._columnCache.has(table)) {
+      try {
+        const columns = await dbAdapter.query(`PRAGMA table_info(${table})`);
+        this._columnCache.set(table, columns.some(column => column.name === 'server_id'));
+      } catch {
+        this._columnCache.set(table, false);
+      }
+    }
+
+    return this._columnCache.get(table);
   }
 
   /**
@@ -1058,7 +1497,10 @@ class SyncService {
     await metaRepo.resetLastSyncedAt();
 
     // Сбрасываем и состояние сети: после полного сброса ждём первой попытки без паузы.
-    this._setStatus({ consecutiveFailures: 0, nextRetryAt: 0, lastError: null, pendingCount: 0 });
+    this._setStatus({ consecutiveFailures: 0, nextRetryAt: 0, lastError: null, pendingCount: 0, blockedCount: 0 });
+
+    // Кэш «есть ли колонка server_id» тоже чистим: БД могла быть пересоздана.
+    this._columnCache.clear();
 
     logger.log('[Sync] Full reset finished');
   }

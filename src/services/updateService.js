@@ -60,6 +60,8 @@ class UpdateService {
     this._firstTimer = null
     this._timer = null
     this._onlineHandler = null
+    // Подписка на «возврат в приложение» — идемпотентна (см. startAutoCheck).
+    this._resumeBound = false
   }
 
   /** Снимок состояния для UI (копия — наружу не отдаём внутренний объект). */
@@ -139,12 +141,6 @@ class UpdateService {
     }
   }
 
-  _isOnline() {
-    if (typeof navigator === 'undefined' || typeof navigator.onLine !== 'boolean') return true
-
-    return navigator.onLine
-  }
-
   /** Поднимает кэш (релиз, время проверки, свои версии) — вызывается на старте. */
   restore() {
     const cachedAt = Number.parseInt(storage.getItem(CHECKED_AT_KEY) ?? '', 10)
@@ -202,11 +198,14 @@ class UpdateService {
 
     this._apply({ current, checking: true, error: null })
 
-    if (!this._isOnline()) {
-      // Офлайн — не ошибка: приложение работает, проверка дождётся сети.
-      return this._apply({ checking: false, online: false, error: null })
-    }
-
+    // ⚠️ Никакого «офлайн — не идём в сеть» здесь больше нет (дефект 14.11).
+    //
+    // `navigator.onLine` в Android WebView умеет залипать в `false` (после обновления
+    // приложения или смены сети событие `online` до приостановленного WebView не доходит),
+    // и тогда проверка версии не делала запрос **вообще** — даже по кнопке «Проверить
+    // обновление», потому что `force` обходил только паузу между проверками. Состояние
+    // «нет интернета» теперь выводим из реального результата запроса (см. catch ниже):
+    // ответа нет → сеть недоступна, ответ есть (в т.ч. 5xx) → сеть есть.
     try {
       const { data } = await apiClient.get('/app-version')
       const release = this._normalizeRelease(data)
@@ -280,7 +279,14 @@ class UpdateService {
     }
   }
 
-  /** Первая проверка отложена, дальше — по таймеру и сразу при появлении сети. */
+  /**
+   * Первая проверка отложена, дальше — по таймеру, при появлении сети и при возврате
+   * в приложение.
+   *
+   * Возврат в приложение (`visibilitychange` + нативный `appStateChange`) нужен по той же
+   * причине, что и в синке: `online` до приостановленного WebView может не дойти, и без
+   * перепроверки проверка версии «молчит» до перезапуска приложения (дефект 14.11).
+   */
   startAutoCheck() {
     if (this._timer) return
 
@@ -298,6 +304,39 @@ class UpdateService {
       }
 
       window.addEventListener('online', this._onlineHandler)
+    }
+
+    if (!this._resumeBound) {
+      this._resumeBound = true
+
+      if (typeof document !== 'undefined' && typeof document.addEventListener === 'function') {
+        document.addEventListener('visibilitychange', () => {
+          if (document.visibilityState === 'visible') {
+            void this.check({ force: true })
+          }
+        })
+      }
+
+      void this._bindNativeResume()
+    }
+  }
+
+  /** Нативный resume: `App.addListener('appStateChange')` (импорт динамический). */
+  async _bindNativeResume() {
+    try {
+      const { Capacitor } = await import('@capacitor/core')
+
+      if (!Capacitor || typeof Capacitor.isNativePlatform !== 'function' || !Capacitor.isNativePlatform()) {
+        return
+      }
+
+      const { App } = await import('@capacitor/app')
+
+      this._nativeResumeHandle = await App.addListener('appStateChange', state => {
+        if (state?.isActive) void this.check({ force: true })
+      })
+    } catch (error) {
+      logger.warn('[Update] Не удалось подписаться на appStateChange:', error?.message || error)
     }
   }
 

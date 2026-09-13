@@ -66,8 +66,29 @@ describe('12.5 Форматтеры отладочной панели', () => {
       table: 'orders',
       status: 'pending',
       attempts: 0,
+      deferredCount: 0,
       createdAt: 1000,
       payload: '{"id":"op-1"}',
+      lastError: '',
+    })
+  })
+
+  it('describeOperation показывает причину блокировки и число откладываний (14.11)', () => {
+    const row = describeOperation({
+      id: 'op-2',
+      type: 'insert',
+      table: 'order_service',
+      status: 'blocked',
+      attempts: 0,
+      deferred_count: 3,
+      last_error: 'ждём на сервере orders (локальный id 5dde0e00) — у родителя нет server_id',
+      payload: '{"order_id":"5dde0e00"}',
+    })
+
+    expect(row).toMatchObject({
+      status: 'blocked',
+      deferredCount: 3,
+      lastError: 'ждём на сервере orders (локальный id 5dde0e00) — у родителя нет server_id',
     })
   })
 

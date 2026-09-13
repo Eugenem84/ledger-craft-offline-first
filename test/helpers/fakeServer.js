@@ -41,6 +41,8 @@ export function createFakeServer() {
   const config = {
     /** Error | null — следующий `send()` бросит его (имитация обрыва сети). */
     failSendWith: null,
+    /** Error | null — `fetchUpdates()` бросает его, пока не сбросят (обрыв сети целиком). */
+    failFetchWith: null,
     /** (op) => boolean — не отдавать ответ по операции (200 OK без результата). */
     noResultFor: null,
     /** (op) => string|null — вернуть ошибку вместо применения операции. */
@@ -211,6 +213,9 @@ export function createFakeServer() {
 
     /** Имитирует GET /api/sync-updates. */
     async fetchUpdates({ table, since = 0 }) {
+      // Обрыв сети целиком: ответа нет ни на отправку, ни на выдачу (пока не сбросят).
+      if (config.failFetchWith) throw config.failFetchWith
+
       const records = Array.from(rows(table).values())
         .filter(row => {
           if (!config.filterSince) return true

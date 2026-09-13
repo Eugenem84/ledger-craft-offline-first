@@ -117,22 +117,43 @@ describe('6.1 неблокирующий синк', () => {
 })
 
 describe('6.3 автоповтор при выходе из офлайна', () => {
-  it('офлайн копит операции, online — сразу дожимает без таймера', async () => {
+  it('реальный офлайн копит операции, online — сразу дожимает без таймера', async () => {
     await clientsRepo.save({ name: 'Иван' })
 
-    // Офлайн: синк не ходит на сервер, операция остаётся в очереди.
-    syncService._isOnline = () => false
+    // Офлайн по-настоящему: сервер не отвечает ни на отправку, ни на выдачу.
+    // (Флага `navigator.onLine` для этого мало: он бывает залипшим в обе стороны —
+    // дефект 14.11, поэтому синк всегда пробует сеть.)
+    server.configure({ failSendWith: new Error('network down'), failFetchWith: new Error('network down') })
     syncService._handleOffline()
     await syncService.sync()
 
-    expect(api.send).not.toHaveBeenCalled()
     expect(await operationsRepo.countPending()).toBe(1)
     expect(syncService.getStatus().online).toBe(false)
 
+    // Попытка была и в офлайне (флаг `navigator.onLine` — только подсказка),
+    // поэтому считаем отправки относительно, а не с нуля.
+    const sendsBefore = api.send.mock.calls.length
+
     // Автозапуск включён — событие online немедленно повторяет синк.
+    server.configure({ failFetchWith: null })
     syncService._autoSyncStarted = true
     syncService._isOnline = () => true
     await syncService._handleOnline()
+
+    expect(api.send.mock.calls.length).toBe(sendsBefore + 1)
+    expect(await operationsRepo.countPending()).toBe(0)
+    expect(syncService.getStatus().online).toBe(true)
+  })
+
+  it('возврат в приложение перепроверяет сеть и дожимает очередь (14.11)', async () => {
+    await clientsRepo.save({ name: 'Иван' })
+
+    // Флаг WebView залип в «офлайн»: без перепроверки на resume приложение
+    // осталось бы без синка до перезапуска (дефект живого прогона на Android).
+    syncService._isOnline = () => false
+    syncService._setStatus({ online: false })
+
+    await syncService.handleResume()
 
     expect(api.send).toHaveBeenCalledTimes(1)
     expect(await operationsRepo.countPending()).toBe(0)

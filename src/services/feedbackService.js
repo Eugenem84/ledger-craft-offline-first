@@ -171,11 +171,9 @@ class FeedbackService {
   async flush() {
     const state = { sent: 0, failed: 0, pending: 0 }
 
-    if (!this._isOnline()) {
-      state.pending = await feedbackRepo.countPending()
-      return state
-    }
-
+    // ⚠️ Гейта «WebView считает, что офлайн» здесь нет: флаг залипает (дефект 14.11),
+    // и тогда отчёты не уходили бы вовсе. Пробуем отправить, а сетевой сбой ниже сам
+    // останавливает проход — недоступный сервер мы не «долбим».
     const records = await feedbackRepo.listPending()
 
     for (const record of records) {
@@ -266,12 +264,6 @@ class FeedbackService {
       error?.message ||
       'неизвестная ошибка'
     )
-  }
-
-  _isOnline() {
-    return typeof navigator === 'undefined' || typeof navigator.onLine !== 'boolean'
-      ? true
-      : navigator.onLine
   }
 
   // --- Фоновый дренаж очереди -------------------------------------------------

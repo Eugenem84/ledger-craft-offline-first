@@ -110,6 +110,9 @@ const logLevelOptions = computed(() => [
 /** Очередь — от новых к старым (свежее интереснее). */
 const recentQueue = computed(() => queue.value.map(describeOperation).reverse())
 const failedItems = computed(() => queue.value.filter(item => item.status === 'failed'))
+// «Заблокированные» ждут родителя, которого нет на сервере (дефект 14.11):
+// сами не уедут — чинятся кнопкой «починить очередь».
+const blockedItems = computed(() => queue.value.filter(item => item.status === 'blocked'))
 
 /** Снимок «для поддержки»: склеиваем всё, что видно на экране, в один текст. */
 const snapshotText = computed(() =>
@@ -209,6 +212,32 @@ const discardFailed = async () => {
   })
 }
 
+/**
+ * «Починка очереди» (дефект живого прогона 14.11): операции, которые ждут родителя
+ * без `server_id` (его вставка ушла из очереди / не дошла до сервера), перестают
+ * отправляться вовсе — `POST /sync` не формируется, и приложение выглядит так,
+ * будто «не видит сервер». Чиним: примиряем записи по `uuid_id`, пересобираем
+ * потерянные вставки и дожимаем очередь.
+ */
+const repairQueue = async () => {
+  const report = await SyncService.repairQueue()
+  await refresh()
+
+  const fixed = report.reconciled + report.requeuedParents
+  const message = report.parents
+    ? `Найдено родителей без server_id: ${report.parents} · примирено: ${report.reconciled} · ` +
+      `пересобрано вставок: ${report.requeuedParents} · вернулось в работу: ${report.requeuedChildren} · ` +
+      `осталось заблокированных: ${report.blockedLeft}`
+    : `Осиротевших операций нет — очередь в порядке (в очереди: ${report.requeuedChildren})`
+
+  $q.notify({
+    type: fixed > 0 || !report.parents ? 'positive' : 'warning',
+    message,
+    position: 'top',
+    timeout: 6000,
+  })
+}
+
 const runDebugServices = async () => {
   await logAllServicesForDebugging()
   logs.value = getLogBuffer()
@@ -293,7 +322,7 @@ onBeforeUnmount(() => {
       <q-tab
         name="queue"
         icon="pending_actions"
-        :label="`очередь${failedItems.length ? ` (${failedItems.length})` : ''}`"
+        :label="`очередь${failedItems.length + blockedItems.length ? ` (${failedItems.length + blockedItems.length})` : ''}`"
       />
       <q-tab name="danger" icon="warning" label="опасное" />
     </q-tabs>
@@ -413,10 +442,24 @@ onBeforeUnmount(() => {
             @click="discardFailed"
           />
         </div>
+        <div class="row items-center q-gutter-x-sm q-mb-xs">
+          <q-btn
+            flat
+            dense
+            no-caps
+            size="sm"
+            :color="blockedItems.length ? 'warning' : 'secondary'"
+            icon="build_circle"
+            :label="blockedItems.length ? `починить очередь (${blockedItems.length})` : 'починить очередь'"
+            @click="repairQueue"
+          />
+        </div>
         <div v-if="!recentQueue.length" class="text-caption lc-mute">очередь пуста</div>
         <div v-for="item in recentQueue" :key="item.key" class="text-caption lc-mute q-mb-xs">
           <b>{{ item.status }}</b> {{ item.type }} · {{ item.table }}
           <span v-if="item.attempts">· попыток: {{ item.attempts }}</span>
+          <span v-if="item.deferredCount">· отложена: {{ item.deferredCount }}</span>
+          <div v-if="item.lastError" class="lc-mute">причина: {{ item.lastError }}</div>
           <div class="ellipsis">{{ item.payload }}</div>
         </div>
 

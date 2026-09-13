@@ -48,6 +48,20 @@ export function syncStatusView(status) {
     }
   }
 
+  // «Заблокированные» ждут родителя, которого нет на сервере (дефект 14.11):
+  // сами они не уедут — нужна «Починка очереди» в «Режиме разработчика».
+  const blocked = Number(s.blockedCount) || 0
+
+  if (blocked > 0) {
+    return {
+      kind: 'blocked',
+      icon: 'build_circle',
+      color: 'warning',
+      label: `нужна починка: ${blocked}`,
+      spin: false,
+    }
+  }
+
   if (s.lastError) {
     return { kind: 'error', icon: 'sync_problem', color: 'negative', label: 'ошибка синка', spin: false }
   }
