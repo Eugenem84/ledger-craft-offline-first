@@ -1297,7 +1297,7 @@ BE: миграции полей профиля, `template_key`, `equipment_ident
       (чёрный экран — `storage-adapter.js`, 8 тестов + фейк IndexedDB), `QPage` вне `QLayout`
       на `/login`/`/register` (обёртка в `QLayout` + структурный `test/pages-layout.test.js`),
       двойная Pinia (`boot/pinia.js` удалён — стор ставит Quasar из `src/stores/index.js`);
-      → ✅ ещё 3 дефекта живого прогона на dev (13.09.2026): (1) счётчик вкладки «обзор» в карточке
+      → ✅ ещё 4 дефекта живого прогона на dev (13.09.2026): (1) счётчик вкладки «обзор» в карточке
       заказа не учитывал работы — новый геттер `useOrderDraftStore.positionsCount` (работы + материалы
       + товары); (2) смена аккаунта на устройстве: `syncService.fullReset()` не чистил очередь
       операций, а выход/вход не сбрасывал локальные данные — операции прошлого аккаунта уезжали под
@@ -1309,8 +1309,15 @@ BE: миграции полей профиля, `template_key`, `equipment_ident
       «готовые» заказы: сравнение `order.paid === false` не срабатывало, т.к. в БД `paid` — целое
       0/1. Фильтр вынесен в чистую `src/utils/orderFilters.js` (`isOrderVisible` прячет только
       «готово И оплачено»), подпись шапки стала «показано N из M», подсказка пустого состояния —
-      по факту. Тесты: `test/orders-filter.test.js` (16) → `npm test` **271 тест**, lint 0,
-      SPA-сборка ok
+      по факту. Тесты: `test/orders-filter.test.js` (16); (4) payload синка заказа уезжал с
+      **вычисляемыми** полями JOIN (`client_name`/`client_phone`) — сервер отвечал
+      `DATABASE_ERROR: column "client_name" of relation "orders" does not exist`, и операция
+      висела в очереди навсегда (правка статуса/оплаты не доезжала). FE: `ordersRepo` вырезает
+      вычисляемые поля перед отправкой (`toServerPayload`, и `save`, и `update`); BE:
+      `SyncController::updateRecord` оставляет только реальные колонки таблицы
+      (`keepKnownColumns` — общая страховка для UPDATE любой таблицы). Тесты:
+      `test/orders-sync-payload.test.js` (2) + `SyncControllerTest::test_order_update_ignores_columns_missing_in_table`
+      → FE `npm test` **273 теста**, BE `php artisan test` **83 passed**, lint 0, SPA-сборка ok
       → *критерий:* ничего «нашли на живом сервере, но не завели»: всё либо исправлено с тестом,
       либо явно отложено записью в этом файле
 - [x] **11.7** [BE] (P1) `/api/arrival_product` под `auth:sanctum` (бывший O-6)

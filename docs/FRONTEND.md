@@ -493,3 +493,11 @@ return id;
   `paid` — целое 0/1. Фильтр вынесен в чистую `src/utils/orderFilters.js` (`isOrderVisible` прячет
   только «готово И оплачено»), подпись шапки стала «показано N из M», подсказка пустого состояния —
   по факту. Регрессы — `test/orders-filter.test.js`.
+- **Payload синка заказа с вычисляемыми полями.** `useOrdersStore.items` приходят из SQL с
+  `c.name AS client_name, c.phone AS client_phone`, `update()` мержит их в объект, и
+  `ordersRepo.update` шлёт `{...order}` — сервер отвечал `DATABASE_ERROR: column "client_name" of
+  relation "orders" does not exist`, а операция оставалась в очереди навсегда (статус/оплата не
+  доезжали). FE: `ordersRepo` вырезает вычисляемые поля (`toServerPayload`); BE:
+  `SyncController::updateRecord` фильтрует payload по реальным колонкам (`keepKnownColumns`).
+  Регрессы — `test/orders-sync-payload.test.js` и
+  `SyncControllerTest::test_order_update_ignores_columns_missing_in_table`.

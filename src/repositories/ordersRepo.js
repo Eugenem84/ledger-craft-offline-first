@@ -15,6 +15,29 @@ import {
   orderUpdateFromServerParams,
 } from 'src/database/mappers/orders.js'
 
+/**
+ * Поля, которые приходят из JOIN-выборок репозитория (`getAll`/`getById`/
+ * `getBySpecializationId` добавляют `client_name`/`client_phone`), но которых НЕТ
+ * в таблице `orders` на сервере.
+ *
+ * ⚠️ Дефект живого прогона (11.6): стор отдаёт наверх записи вместе с этими
+ * вычисляемыми полями, `useOrdersStore.update` мержит их в объект, и payload
+ * синка уезжал с ними. Сервер отвечал
+ * `DATABASE_ERROR: column "client_name" of relation "orders" does not exist`,
+ * операция помечалась pending и оставалась в очереди навсегда — правка статуса
+ * или оплаты не доезжала.
+ */
+const DERIVED_ORDER_FIELDS = ['client_name', 'client_phone', 'model_name']
+
+/** Копия заказа без вычисляемых полей — для payload'а синка. */
+function toServerPayload(order) {
+  const payload = { ...order }
+  for (const field of DERIVED_ORDER_FIELDS) {
+    delete payload[field]
+  }
+  return payload
+}
+
 export async function getAll() {
   const rows =  await dbAdapter.query(queries.getAll)
   return rows;
@@ -105,7 +128,7 @@ export async function save(order) {
 
   await dbAdapter.execute(queries.insert, params)
 
-  const payloadForServer = { ...order };
+  const payloadForServer = toServerPayload(order);
   if (order.model_id || modelData.server_id != null) {
     // Задача 11.2: локальный `model_id` остаётся в payload, а сигнальное поле
     // `model_server_id` отдаём даже когда оно `null` — «модель ещё не на сервере».
@@ -144,7 +167,7 @@ export async function update(order) {
     const opId = uuidv4();
     const payloadForServer = {
       id: existingOrder.server_id,
-      ...order
+      ...toServerPayload(order)
     };
     if (order.model_id || modelData.server_id != null) {
       // Задача 11.2: см. комментарий в `save` — `null` в сигнальном поле означает
