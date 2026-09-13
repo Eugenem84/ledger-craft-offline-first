@@ -5,11 +5,9 @@
 // «не отправлено: N». Тап по бейджу — ручная синхронизация (`sync({ force: true })`,
 // то есть в обход паузы после сбоя, задача 3.7).
 //
-// Два места монтирования:
-//   • `MainLayout.vue` (шапка) — на основных экранах чип стоит в тулбаре, и по умолчанию
-//     это обычный inline-элемент (позиционирования нет, `floating` не задан);
-//   • `App.vue` с `floating` — на маршрутах вне каркаса (карточка заказа, вход, 404),
-//     где шапки нет; там чип крепится внизу слева, как раньше.
+// Одно место монтирования — шапка `MainLayout.vue` (основные экраны). Плавающего варианта
+// на маршрутах вне каркаса больше нет: на карточке заказа чип висел в 72px от нижнего края
+// (там нет таббара) и перекрывал список позиций — отчёт мастера 14.11, живой прогон 13.09.2026.
 //
 // Состояние берётся из `syncService.getStatus()`/`subscribe()`, а подпись и цвет —
 // из чистой функции `syncStatusView.js` (в офлайне она отдаёт «нет сети»).
@@ -17,11 +15,6 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import syncService from 'src/services/syncService.js'
 import { syncStatusView } from 'src/utils/syncStatusView.js'
-
-// `floating` включается только когда компонент рендерится вне `MainLayout`.
-defineProps({
-  floating: { type: Boolean, default: false },
-})
 
 const router = useRouter()
 const status = ref(syncService.getStatus())
@@ -105,7 +98,7 @@ async function syncNow() {
 </script>
 
 <template>
-  <div class="sync-status" :class="{ 'sync-status--float': floating }">
+  <div class="sync-status">
     <q-btn
       dense
       no-caps
@@ -125,15 +118,3 @@ async function syncNow() {
     </q-btn>
   </div>
 </template>
-
-<style scoped>
-/* В шапке (`MainLayout`) чип лежит прямо в тулбаре — позиционирования нет.
-   `floating` — только для маршрутов вне каркаса: крепим внизу слева
-   (над таббаром ~56px, с учётом safe-area); не мешает FAB справа. */
-.sync-status--float {
-  position: fixed;
-  left: 10px;
-  bottom: calc(72px + env(safe-area-inset-bottom, 0px));
-  z-index: 1900;
-}
-</style>

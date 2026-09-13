@@ -61,3 +61,31 @@ describe('каркас страниц: QPage только внутри QLayout',
     ).toBe(true)
   })
 })
+
+// Задача 14.11 (жалоба мастера через «Сообщить об ошибке», живой прогон 13.09.2026):
+// «при просмотре ордера кнопка синхронизации перекрывает список ордеров».
+// Причина: карточка заказа — маршрут вне `MainLayout`, и `App.vue` монтировал чип в
+// плавающем варианте (`position: fixed; bottom: 72px`), хотя таббара там нет.
+// Проверяем структурно: чип живёт только в шапке каркаса, плавающего режима нет.
+describe('14.11 чип синка — только в шапке каркаса', () => {
+  it('App.vue больше не рендерит SyncStatusBar и не считает «вне каркаса»', () => {
+    const app = readFileSync(path.join(root, 'src/App.vue'), 'utf8')
+
+    expect(app).not.toContain('SyncStatusBar')
+    expect(app).not.toContain('inMainLayout')
+  })
+
+  it('в компоненте не осталось плавающего режима (floating / position: fixed)', () => {
+    const bar = readFileSync(path.join(root, 'src/components/SyncStatusBar.vue'), 'utf8')
+
+    expect(bar).not.toContain('floating')
+    expect(bar).not.toContain('position: fixed')
+  })
+
+  it('шапка каркаса индикатор по-прежнему показывает', () => {
+    const layout = readFileSync(path.join(root, 'src/layouts/MainLayout.vue'), 'utf8')
+
+    expect(layout).toContain('SyncStatusBar')
+  })
+})
+
