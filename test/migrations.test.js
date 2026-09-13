@@ -143,11 +143,11 @@ describe('5.5 Миграции локальной БД', () => {
     expect(line).toMatchObject({ sale_price: 1000, quantity: 2, buy_price: null })
   })
 
-  it('operations имеет status и updated_at (3.3), версия схемы записана в БД (4.5)', async () => {
+  it('operations имеет status, updated_at (3.3) и attempts (12), версия схемы записана в БД (4.5)', async () => {
     const adapter = await setupTestDb()
     const columns = await columnNames(adapter, 'operations')
 
-    expect(columns).toEqual(expect.arrayContaining(['status', 'updated_at']))
+    expect(columns).toEqual(expect.arrayContaining(['status', 'updated_at', 'attempts']))
     expect(await adapter.getSchemaVersion()).toBe(SCHEMA_VERSION)
   })
 

@@ -45,6 +45,7 @@ export function describeOperation(operation = {}) {
     type: operation.type ?? '',
     table: operation.table ?? '',
     status: operation.status ?? '',
+    attempts: Number(operation.attempts) || 0,
     createdAt: operation.created_at ?? null,
     payload: summarizePayload(operation.payload),
   }

@@ -9,6 +9,7 @@ export default {
         "table" TEXT NOT NULL,
         payload TEXT,
         status TEXT NOT NULL DEFAULT 'pending',
+        attempts INTEGER NOT NULL DEFAULT 0,
         created_at INTEGER DEFAULT (strftime('%s','now')),
         updated_at INTEGER
       );

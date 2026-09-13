@@ -263,12 +263,17 @@ order_id, sale_price, ...`.
 
 ### operations (очередь синхронизации)
 `id TEXT PK, type TEXT (insert|update|delete), "table" TEXT, payload TEXT (JSON),
-status TEXT (pending|sending|synced), created_at INTEGER, updated_at INTEGER`.
+status TEXT (pending|sending|synced|failed), attempts INTEGER, created_at INTEGER, updated_at INTEGER`.
 
 - `status` добавлен в задаче 3.3 (миграция 022 для уже установленных БД): `dequeue` берёт
   только `pending`, in-flight операции возвращаются в работу при следующем `sync()`
   (`recoverInFlight`), так что сбой между отправкой и ответом данные не теряет;
 - `created_at`/`updated_at` — миллисекунды (`Date.now()` из репозиториев).
+- `attempts` и статус `failed` добавлены в Фазе 12 (миграция 028; дефект живого прогона 11.6):
+  обычная ошибка сервера копит попытки (лимит 5), неисправимая (`RECORD_NOT_FOUND`,
+  `FORBIDDEN_NOT_OWNER`, `MISSING_ID_FOR_UPDATE`/`_DELETE`, битый payload) «сдаётся» сразу.
+  `failed`-операции больше не отправляются, видны в индикаторе синка и в «Режиме разработчика»,
+  откуда их можно убрать (`discardFailedOperations`).
 
 ### meta
 `key TEXT PK, value TEXT`. Курсор выдачи ведётся **на таблицу** (задача 3.6): ключ

@@ -5,7 +5,10 @@
 // У операции есть статус:
 //   pending — ждёт отправки (её и забирает dequeue);
 //   sending — отправлена, ответ сервера ещё не разобран;
-//   synced  — сервер подтвердил операцию, идёт «примирение» локальной записи.
+//   synced  — сервер подтвердил операцию, идёт «примирение» локальной записи;
+//   failed  — «сдалась»: исчерпан лимит попыток или сервер ответил неисправимой
+//             ошибкой (чужой/удалённый заказ и т.п.). Больше не отправляется,
+//             видна в индикаторе/«Режиме разработчика» и убирается оттуда вручную.
 //
 // Сбой между отправкой и ответом операцию не теряет: она остаётся в очереди
 // в статусе sending/synced, а следующий sync() возвращает её в работу
@@ -17,6 +20,7 @@ const STATUS = {
   PENDING: 'pending',
   SENDING: 'sending',
   SYNCED: 'synced',
+  FAILED: 'failed',
 };
 
 /**
@@ -109,6 +113,39 @@ export default {
    */
   async markPending(ids) {
     await this._setStatus(ids, STATUS.PENDING);
+  },
+
+  /**
+   * Учитывает неудачную попытку отправки: увеличивает счётчик и решает судьбу
+   * операции (Фаза 12; дефект живого прогона 11.6).
+   *
+   * Раньше любая ошибка сервера возвращала операцию в `pending`, и она
+   * повторялась до бесконечности: очередь тихо копила дубли, а неисправимая
+   * операция (чужой/удалённый заказ) висела вечно.
+   *
+   * @param {string} id операции
+   * @param {number} attempts новое значение счётчика попыток
+   * @param {boolean} giveUp true — исчерпан лимит или ошибка неисправима → `failed`
+   */
+  async registerFailure(id, attempts, giveUp = false) {
+    await db.execute(
+      `UPDATE operations SET status = ?, attempts = ?, updated_at = ? WHERE id = ?`,
+      [giveUp ? STATUS.FAILED : STATUS.PENDING, attempts, Date.now(), id]
+    );
+  },
+
+  /** Сколько операций «сдалось» (для индикатора и «Режима разработчика»). */
+  async countFailed() {
+    const rows = await db.query(
+      `SELECT COUNT(*) AS count FROM operations WHERE status = ?`,
+      [STATUS.FAILED]
+    );
+    return rows.length ? rows[0].count : 0;
+  },
+
+  /** Убирает «сдавшиеся» операции из очереди (действие из отладочной панели). */
+  async clearFailed() {
+    await db.execute('DELETE FROM operations WHERE status = ?', [STATUS.FAILED]);
   },
 
   async _setStatus(ids, status) {

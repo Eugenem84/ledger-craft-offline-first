@@ -56,6 +56,7 @@ describe('12.5 Форматтеры отладочной панели', () => {
       type: 'insert',
       table: 'orders',
       status: 'pending',
+      attempts: 0,
       createdAt: 1000,
       payload: '{"id":"op-1"}',
     })

@@ -53,6 +53,7 @@ const lastBackupText = computed(() =>
 
 /** Очередь и логи — от новых к старым (свежее интереснее). */
 const recentQueue = computed(() => queue.value.map(describeOperation).reverse())
+const failedItems = computed(() => queue.value.filter(item => item.status === 'failed'))
 const recentLogs = computed(() =>
   logs.value
     .slice()
@@ -77,6 +78,19 @@ const refresh = async () => {
 const clearLogs = () => {
   clearLogBuffer()
   logs.value = getLogBuffer()
+}
+
+// «Сдавшиеся» операции (исчерпали попытки / неисправимая ошибка) больше не уедут
+// сами — их можно убрать, чтобы не пугали индикатор «не отправлено» (Фаза 12).
+const discardFailed = async () => {
+  const removed = await SyncService.discardFailedOperations()
+  await refresh()
+
+  $q.notify({
+    type: removed ? 'info' : 'warning',
+    message: removed ? `Убрано «сдавшихся» операций: ${removed}` : 'Сдавшихся операций нет',
+    position: 'top',
+  })
 }
 
 const runDebugServices = async () => {
@@ -184,11 +198,24 @@ onBeforeUnmount(() => {
         dense
         switch-toggle-side
         icon="pending_actions"
-        :label="`очередь операций · ${queue.length}`"
+        :label="`очередь операций · ${queue.length}${failedItems.length ? ` (сдались: ${failedItems.length})` : ''}`"
       >
+        <div v-if="failedItems.length" class="row items-center q-gutter-x-sm q-mb-xs">
+          <q-btn
+            flat
+            dense
+            no-caps
+            size="sm"
+            color="negative"
+            icon="delete_sweep"
+            label="убрать сдавшиеся"
+            @click="discardFailed"
+          />
+        </div>
         <div v-if="!recentQueue.length" class="text-caption lc-mute">очередь пуста</div>
         <div v-for="item in recentQueue" :key="item.key" class="text-caption lc-mute q-mb-xs">
           <b>{{ item.status }}</b> {{ item.type }} · {{ item.table }}
+          <span v-if="item.attempts">· попыток: {{ item.attempts }}</span>
           <div class="ellipsis">{{ item.payload }}</div>
         </div>
       </q-expansion-item>

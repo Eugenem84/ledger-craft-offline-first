@@ -64,6 +64,24 @@ const RETRY_DELAYS_MS = [5000, 15000, 60000, 300000];
 // немедленно, таймер лишь страхует «тихий» простой.
 const AUTO_SYNC_INTERVAL_MS = 60000;
 
+// Максимум попыток отправки одной операции (Фаза 12). После лимита операция
+// получает статус `failed` — «сдалась» — и больше не отправляется. Без этого
+// любая ошибка сервера зацикливала операцию: очередь тихо копила дубли, а
+// неисправимая операция висела вечно (дефект живого прогона 11.6).
+const MAX_OPERATION_ATTEMPTS = 5;
+
+// Неисправимые ошибки сервера: повторять бессмысленно — операция «сдаётся» сразу.
+//   RECORD_NOT_FOUND      — записи нет на сервере или она принадлежит другому;
+//   FORBIDDEN_NOT_OWNER   — родитель/запись чужая (задача 3.10);
+//   MISSING_ID_FOR_UPDATE — в payload нет серверного id (нечего обновлять);
+//   MISSING_ID_FOR_DELETE — то же для удаления.
+const PERMANENT_OPERATION_ERRORS = new Set([
+  'RECORD_NOT_FOUND',
+  'FORBIDDEN_NOT_OWNER',
+  'MISSING_ID_FOR_UPDATE',
+  'MISSING_ID_FOR_DELETE',
+]);
+
 class SyncService {
   constructor() {
     this.syncing = false;
@@ -164,6 +182,8 @@ class SyncService {
       consecutiveFailures: 0,
       nextRetryAt: 0,
       pendingCount: 0,
+      // «Сдавшиеся» операции: лимит попыток исчерпан / ошибка неисправима (Фаза 12).
+      failedCount: 0,
       // «Нужен вход» (задача 7.4): без токена синк недоступен — индикатор это покажет.
       requiresAuth: false,
     };
@@ -227,7 +247,7 @@ class SyncService {
       this.syncing = false;
       logger.log('[Sync] end');
 
-      this._setStatus({ syncing: false, pendingCount: await this._countPending() });
+      this._setStatus({ syncing: false, pendingCount: await this._countPending(), failedCount: await this._countFailed() });
 
       await logAllServicesForDebugging()
     }
@@ -257,7 +277,8 @@ class SyncService {
    */
   async refreshStatus() {
     const pendingCount = await this._countPending();
-    this._setStatus({ pendingCount, requiresAuth: !hasAuthToken() });
+    const failedCount = await this._countFailed();
+    this._setStatus({ pendingCount, failedCount, requiresAuth: !hasAuthToken() });
     return this.getStatus();
   }
 
@@ -459,6 +480,45 @@ class SyncService {
       console.error('[SyncService] Не удалось посчитать очередь операций:', e);
       return this.status.pendingCount;
     }
+  }
+
+  /** Сколько операций «сдалось» (исчерпали попытки / неисправимая ошибка). */
+  async _countFailed() {
+    try {
+      return await operationsRepo.countFailed();
+    } catch (e) {
+      console.error('[SyncService] Не удалось посчитать отброшенные операции:', e);
+      return this.status.failedCount;
+    }
+  }
+
+  /**
+   * Убирает «сдавшиеся» операции из очереди и обновляет состояние.
+   * Действие из «Режима разработчика»: эти операции уже не уедут сами.
+   *
+   * @returns {Promise<number>} сколько операций убрано
+   */
+  async discardFailedOperations() {
+    const before = await this._countFailed();
+    await operationsRepo.clearFailed();
+    await this.refreshStatus();
+    logger.log(`[Sync] Убрано «сдавшихся» операций: ${before}`);
+    return before;
+  }
+
+  /**
+   * Неисправима ли ошибка сервера: повторять бессмысленно.
+   * Помимо известных кодов (см. `PERMANENT_OPERATION_ERRORS`) сюда попадают
+   * структурные ошибки — битый payload, неизвестная таблица или тип операции.
+   *
+   * @param {string} error код ошибки из ответа `/sync`
+   * @returns {boolean}
+   */
+  _isPermanentOperationError(error) {
+    if (!error) return false;
+    if (PERMANENT_OPERATION_ERRORS.has(error)) return true;
+
+    return /Invalid operation structure|Unsupported operation type/i.test(String(error));
   }
 
   /**
@@ -848,17 +908,26 @@ class SyncService {
         const details = errorResult.details ?? null;
         const reason = details?.message ? `: ${details.message}` : '';
 
+        // Учитываем попытку (Фаза 12): неисправимую ошибку или исчерпанный лимит —
+        // «сдаёмся» (status `failed`), иначе вернём в pending и повторим.
+        const attempts = (Number(op.attempts) || 0) + 1;
+        const permanent = this._isPermanentOperationError(errorResult.error);
+        const giveUp = permanent || attempts >= MAX_OPERATION_ATTEMPTS;
+
         console.error(
-          `[SyncService] Сервер отклонил операцию (${errorResult.error})${reason}. Она останется в очереди.`,
+          `[SyncService] Сервер отклонил операцию (${errorResult.error})${reason}. ` +
+            (giveUp
+              ? `Операция помечена как «сдалась» — повторять не будем.`
+              : `Попытка ${attempts} из ${MAX_OPERATION_ATTEMPTS}.`),
           {
             operation: op,
             error: new Error(`Сервер вернул ошибку для операции: ${errorResult.error}`),
             details,
+            attempts,
           }
         );
 
-        // Возвращаем в pending: повторим в следующем sync(), не в этой волне.
-        await operationsRepo.markPending([op.id]);
+        await operationsRepo.registerFailure(op.id, attempts, giveUp);
         continue;
       }
 

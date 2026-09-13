@@ -63,6 +63,10 @@ describe('payload синка заказа не содержит вычисляе
     expect(op.payload.status).toBe('done')
     expect(op.payload).not.toHaveProperty('client_name')
     expect(op.payload).not.toHaveProperty('client_phone')
+    // Время принадлежит серверу (иначе Postgres падает `22008 Datetime field overflow`).
+    expect(op.payload).not.toHaveProperty('created_at')
+    expect(op.payload).not.toHaveProperty('updated_at')
+    expect(op.payload).not.toHaveProperty('deleted_at')
 
     const saved = await db.queryOne('SELECT status FROM orders WHERE id = ?', [orderId])
     expect(saved.status).toBe('done')
@@ -85,5 +89,8 @@ describe('payload синка заказа не содержит вычисляе
     expect(op.payload.local_id).toBeTruthy()
     expect(op.payload).not.toHaveProperty('client_name')
     expect(op.payload).not.toHaveProperty('client_phone')
+    expect(op.payload).not.toHaveProperty('created_at')
+    expect(op.payload).not.toHaveProperty('updated_at')
+    expect(op.payload).not.toHaveProperty('deleted_at')
   })
 })

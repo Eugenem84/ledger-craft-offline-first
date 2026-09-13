@@ -5,13 +5,13 @@
 // Это чистая функция без Vue и Quasar: компонент `SyncStatusBar.vue` остаётся «тонким»,
 // а приоритет состояний проверяется обычным юнит-тестом (`test/sync-status-view.test.js`).
 //
-// Приоритет (сверху вниз): требуется вход → нет интернета → идёт синхронизация → ошибка →
-// очередь не пуста → всё синхронизировано. Так пользователь видит самую важную причину
-// текущего состояния.
+// Приоритет (сверху вниз): требуется вход → нет интернета → идёт синхронизация →
+// «сдавшиеся» операции → ошибка → очередь не пуста → всё синхронизировано. Так
+// пользователь видит самую важную причину текущего состояния.
 
 /**
  * @param {{online?: boolean, syncing?: boolean, lastError?: string|null, pendingCount?: number,
- *   requiresAuth?: boolean}} status
+ *   failedCount?: number, requiresAuth?: boolean}} status
  * @returns {{kind: string, icon: string, color: string, label: string, spin: boolean}}
  */
 export function syncStatusView(status) {
@@ -29,6 +29,20 @@ export function syncStatusView(status) {
 
   if (s.syncing) {
     return { kind: 'syncing', icon: 'sync', color: 'secondary', label: 'синхронизация…', spin: true }
+  }
+
+  // «Сдавшиеся» операции важнее общей ошибки: они уже не уедут сами и требуют
+  // действия (Фаза 12, дефект живого прогона 11.6).
+  const failed = Number(s.failedCount) || 0
+
+  if (failed > 0) {
+    return {
+      kind: 'failed',
+      icon: 'report_problem',
+      color: 'negative',
+      label: `не отправлено: ${failed}`,
+      spin: false,
+    }
   }
 
   if (s.lastError) {

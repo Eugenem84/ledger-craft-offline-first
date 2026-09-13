@@ -91,9 +91,10 @@
 ### 4.1. Направление local → server
 
 1. Любое изменение пишется **сразу** в локальную БД и в очередь `operations`
-   (`id`, `type`: insert/update/delete, `table`, `payload` JSON, `status`, `created_at`,
-   `updated_at`). Статус операции: `pending` (ждёт отправки) → `sending` (улетела, ответа
-   ещё нет) → `synced` (сервер подтвердил, идёт «примирение» локальной записи).
+   (`id`, `type`: insert/update/delete, `table`, `payload` JSON, `status`, `attempts`,
+   `created_at`, `updated_at`). Статус операции: `pending` (ждёт отправки) → `sending`
+   (улетела, ответа ещё нет) → `synced` (сервер подтвердил, идёт «примирение» локальной
+   записи); `failed` — «сдалась» (см. п. 3).
 2. `_syncLocalToServer()` (в `syncService.js`) сначала возвращает в работу «зависшие»
    in-flight операции (`operationsRepo.recoverInFlight()`: `sending` → `pending`,
    `synced`+insert → `pending`, `synced`+update/delete → удаление), затем работает
@@ -113,8 +114,14 @@
 3. Обработка ответа `{ synced: [...], errors: [...] }` (`_findSyncResult` → `_sendOperations`):
    - insert → `operationsRepo.markSynced` в одной транзакции удаляет операцию и проставляет
      локальной записи `server_id` из ответа;
-   - ошибка по операции → `markPending`: операция **остаётся** в очереди и не отправляется
-     повторно в этом же прогоне (набор «уже отвеченных» операций);
+   - ошибка по операции → `operationsRepo.registerFailure`: неисправимая ошибка
+     (`RECORD_NOT_FOUND`, `FORBIDDEN_NOT_OWNER`, `MISSING_ID_FOR_UPDATE`/`_DELETE`, битый
+     payload) или исчерпанный лимит (`MAX_OPERATION_ATTEMPTS = 5`) переводят операцию в
+     `failed` — «сдалась», она больше не отправляется; иначе операция возвращается в `pending`
+     с увеличенным `attempts`. Раньше любая ошибка вечно возвращала её в `pending`: очередь
+     тихо копила дубли, а неисправимая операция висела навсегда (дефект живого прогона 11.6).
+     `failed`-операции видны в индикаторе синка и убираются вручную
+     (`syncService.discardFailedOperations()` из «Режима разработчика»);
    - ошибка сети (исключение из `api.send`) → `markPending` для всего батча;
    - 200 OK **без ответа по операции** → операция возвращается в `pending` и повторится следующим
      `sync()`: доставленной считается только та, по которой сервер ответил явно (задача 3.5).
@@ -327,7 +334,7 @@ bearer-токен тоже принимается). Без токена/сесс
 | `src/stores/useOrderDraftStore.js` | черновик заказа: позиции, справочники формы, сохранение (единственное место, где страница заказа ходит в репозитории — 8.1/8.2) |
 | `src/repositories/*` | работа с локальной БД + постановка операций в очередь |
 | `src/database/mappers/*` | именованные мапперы позиционных SQL-аргументов (8.3) |
-| `src/repositories/operationsRepo.js` | очередь `operations` (статусы `pending`/`sending`/`synced`, восстановление in-flight операций) |
+| `src/repositories/operationsRepo.js` | очередь `operations` (статусы `pending`/`sending`/`synced`/`failed`, `attempts`, восстановление in-flight операций, очистка «сдавшихся») |
 | `src/repositories/metaRepo.js` | метаданные (`last_synced_at:<table>`, отметка о бэкапе) |
 | `src/database/db.js` | единая точка доступа к БД (делегат на активный адаптер) |
 | `src/database/migrate.js` | прогон миграций + сверка версии схемы с эталоном |

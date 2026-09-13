@@ -21,6 +21,7 @@ import m024 from './024_order_lines_buy_price.js'
 import m025 from './025_specialization_profile_fields.js'
 import m026 from './026_template_key_columns.js'
 import m027 from './027_order_equipment_identifier.js'
+import m028 from './028_operations_attempts.js'
 
 const migrations = [
   m001,
@@ -45,6 +46,7 @@ const migrations = [
   m025,
   m026,
   m027,
+  m028,
 ]
 
 export default migrations

@@ -47,6 +47,25 @@ describe('6.2 представление состояния синка', () => {
     expect(view.label).toBe('не отправлено: 5')
   })
 
+  it('«сдавшиеся» операции важнее общей ошибки и очереди (12/11.6)', () => {
+    const view = syncStatusView({
+      online: true,
+      syncing: false,
+      lastError: 'Server Error',
+      pendingCount: 3,
+      failedCount: 2,
+    })
+
+    expect(view).toMatchObject({ kind: 'failed', icon: 'report_problem', color: 'negative' })
+    expect(view.label).toBe('не отправлено: 2')
+  })
+
+  it('без «сдавшихся» поведение прежнее', () => {
+    const view = syncStatusView({ online: true, syncing: false, lastError: null, pendingCount: 1, failedCount: 0 })
+
+    expect(view.kind).toBe('pending')
+  })
+
   it('всё синхронизировано', () => {
     const view = syncStatusView({ online: true, syncing: false, lastError: null, pendingCount: 0 })
 

@@ -501,3 +501,15 @@ return id;
   `SyncController::updateRecord` фильтрует payload по реальным колонкам (`keepKnownColumns`).
   Регрессы — `test/orders-sync-payload.test.js` и
   `SyncControllerTest::test_order_update_ignores_columns_missing_in_table`.
+- **`created_at` в payload ломал UPDATE (22008).** Сервер отклонял правку заказа
+  `SQLSTATE[22008] Datetime field overflow`: клиент шлёт `created_at` UNIX-секундами, а в Postgres
+  это колонка `timestamp`. FE: `ordersRepo` больше не отправляет `created_at`/`updated_at`/
+  `deleted_at`; BE: `SyncController::stripServerTimestamps` вырезает клиентские timestamps и в
+  INSERT, и в UPDATE. Регрессы — `test/orders-sync-payload.test.js` и
+  `SyncControllerTest::test_order_update_ignores_client_timestamps`.
+- **Очередь больше не «висит вечно».** У операции появился `attempts` (миграция `028`, `SCHEMA_VERSION`
+  = 24): обычные ошибки ретраятся до 5 попыток, неисправимые (`RECORD_NOT_FOUND`,
+  `FORBIDDEN_NOT_OWNER`, `MISSING_ID_FOR_UPDATE`/`_DELETE`, битый payload) «сдаются» сразу — статус
+  `failed` («сдалась»). Видно в индикаторе синка (`syncStatusView` → `failedCount`) и в «Режиме
+  разработчика», где кнопка «убрать сдавшиеся» вызывает `syncService.discardFailedOperations()`.
+  Регрессы — `test/operations-retry.test.js`, `test/sync-status-view.test.js`.

@@ -29,10 +29,19 @@ import {
  */
 const DERIVED_ORDER_FIELDS = ['client_name', 'client_phone', 'model_name']
 
-/** Копия заказа без вычисляемых полей — для payload'а синка. */
+/**
+ * Время принадлежит серверу. Клиент хранит UNIX-секунды (число), а в PostgreSQL
+ * это колонки `timestamp` → `SQLSTATE[22008] Datetime field overflow`, и операция
+ * навсегда оставалась в очереди (дефект живого прогона 11.6).
+ * `created_at` неизменяем, `updated_at` сервер проставляет сам, `deleted_at`
+ * ведёт путь удаления — клиенту их отправлять не нужно.
+ */
+const SERVER_MANAGED_FIELDS = ['created_at', 'updated_at', 'deleted_at']
+
+/** Копия заказа без вычисляемых и серверных полей — для payload'а синка. */
 function toServerPayload(order) {
   const payload = { ...order }
-  for (const field of DERIVED_ORDER_FIELDS) {
+  for (const field of [...DERIVED_ORDER_FIELDS, ...SERVER_MANAGED_FIELDS]) {
     delete payload[field]
   }
   return payload

@@ -35,6 +35,11 @@ const details = computed(() => {
   if (s.pendingCount > 0) {
     lines.push(`Ждут отправки: ${s.pendingCount}`)
   }
+  if (s.failedCount > 0) {
+    lines.push(
+      `Не удалось отправить: ${s.failedCount} — операции «сдались», их можно убрать в «Режиме разработчика».`
+    )
+  }
   if (s.lastError) {
     lines.push(`Последняя ошибка: ${s.lastError}`)
   }
