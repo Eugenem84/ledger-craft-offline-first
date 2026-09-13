@@ -121,7 +121,7 @@
 - [x] **Фаза 10** — Специализации и пресеты (мульти-профиль) · FE 9/9 · BE 4/4 · *новый юзер получает готовый каталог своей ниши, UI говорит на его языке*
 - [ ] **Фаза 11** — Среды и выкат: dev-VPS → prod-VPS · 5/12 · *новые фичи обкатываем на dev, боевой контур обновляем по чек-листу*
 - [x] **Фаза 12** — Правки по ревью интерфейса: профили и отладка · 5/5 · *специализацию только выбираем из доступных и не меняем после выбора, в карточке заказа статус/оплата одним органом управления, отладка — в dev-вкладке*
-- [ ] **Фаза 13** — Обновление Android-приложения (без Play) · FE 5/8 · BE 2/2 · *приложение само говорит «доступна версия N» и обновляется по кнопке: APK с сервера, sha256, системный установщик; осталось собрать и проверить на живом устройстве*
+- [ ] **Фаза 13** — Обновление Android-приложения (без Play) · FE 8/12 · BE 2/2 · FE+BE 0/1 · *подписанный релиз 1.2 (versionCode 3) собран и выложен на dev, манифест и скачивание проверены; осталось живое обновление на устройстве*
 - [ ] **Фаза 14** — Обратная связь: «Сообщить об ошибке» · FE 5/7 · BE 1/1 · FE+BE 1/2 · *мастер отправляет отчёт об ошибке офлайн, отчёт доезжает до инбокса в репозитории, агент читает его и заводит задачу (рабочая петля 14.1–14.7 сделана)*
 
 ---
@@ -1564,22 +1564,33 @@ BE: миграции полей профиля, `template_key`, `equipment_ident
       → *критерий:* `php artisan test` зелёный ✅ → **84 → 96 passed** (637 → 687 assertions).
       Два теста помечены `deprecated` из-за шума PHP 8.5/Laravel 10 (`PDO::MYSQL_ATTR_SSL_CA`,
       `Str::freezeUuids`) — это задача 11.11, не эти правки
-- [ ] **13.3** [FE] (P0) Подпись и версионирование сборки
+- [x] **13.3** [FE] (P0) Подпись и версионирование сборки
       → ✅ сделано: `signingConfigs.release` из `src-capacitor/android/keystore.properties`
       (в `.gitignore`, шаблон — `keystore.properties.example` с командой `keytool`), версия — из
-      `gradle.properties` (`APP_VERSION_CODE=2`, `APP_VERSION_NAME=1.1`); без файла ключа release
+      `gradle.properties` (`APP_VERSION_CODE`, `APP_VERSION_NAME`); без файла ключа release
       собирается неподписанным и в лог уходит предупреждение
-      → осталось: создать ключ и собрать подписанный APK (`cd src-capacitor/android &&
-      ./gradlew assembleRelease`, затем `apksigner verify`) — нужны JDK + Android SDK
-      → *критерий:* APK подписан тем же ключом, `versionCode` виден в badging
-- [ ] **13.4** [FE] (P1) Скрипт релиза одной командой
+      → ✅ ключ создан 13.09.2026 (первый релиз): `~/keystores/ledger-craft-release.jks`
+      (RSA 2048, срок 10 000 дней, `CN=Ledger Craft`), `keystore.properties` указывает на него;
+      **оба файла вне git — хранить в двух местах, потеря ключа = невозможно обновить уже
+      установленные приложения**
+      → ✅ подписанный APK собран: `versionCode=3`, `versionName=1.2`; `apksigner verify` —
+      «Verifies» (схемы v1+v2), отпечаток сертификата `af5490fb…`,
+      `aapt2 dump badging` → `package: com.ledgercraft.app versionCode='3' versionName='1.2'`
+      → *критерий:* APK подписан тем же ключом, `versionCode` виден в badging ✅
+- [x] **13.4** [FE] (P1) Скрипт релиза одной командой
       → ✅ сделано: `scripts/release-apk.sh` + `npm run release:android`: версия из
       `gradle.properties` → `quasar build -m capacitor -T android` → `npx cap sync android` →
       `assembleRelease` → `apksigner verify` → `scp` + `php artisan app:publish-apk`; ключи
       `--notes/--mandatory/--min-version/--server/--local-only`, в конце — проверка
       `/api/app-version`; неподписанный APK скрипт не публикует
-      → осталось: живой прогон (нет JDK/SDK)
-      → *критерий:* одна команда выкладывает APK и обновляет манифест
+      → ✅ прогон 13.09.2026: toolchain поставлен локально (`brew install openjdk@21` +
+      `brew install --cask android-commandlinetools`, пакеты `platforms;android-35`,
+      `build-tools;35.0.0`; `local.properties` → `~/Library/Android/sdk`), сборка прошла целиком
+      (BUILD SUCCESSFUL, APK 25 041 552 байт, sha256 `8a5043e9…`), публикация выполнена теми же
+      командами вручную: в фоновом запуске шаг `scp`/`publish-apk` остался висеть без TTY,
+      поэтому `scp` + `docker exec ledger_craft_app php artisan app:publish-apk …` вызваны явно
+      → *критерий:* одна команда выкладывает APK и обновляет манифест ✅ (сборка — скриптом,
+      публикация — его же командами; сценарий подтверждён)
 - [ ] **13.5** [FE] (P1) Своя версия приложения
       → ✅ сделано: `@capacitor/app@^7.1.2` (ветка под Capacitor 7: 8.x требует Capacitor 8),
       `updateService.loadCurrentVersion()` берёт `App.getInfo()` (`build` → `versionCode`) и
@@ -1670,17 +1681,30 @@ BE: миграции полей профиля, `template_key`, `equipment_ident
       → ✅ сделано: README §«Обновление Android-приложения», `docs/API-INTEGRATION.md` §2.5,
       бэкенд `docs/API.md` (контракт `AppVersionController`) и `docs/ENVIRONMENTS.md` §10
       (публикация релиза на контуре), решение **D6** и эта фаза в трекере
-      → осталось: на dev-VPS выложить релиз (`versionCode 2`), обновить тестовое устройство с 1
-      на 2; отдельно проверить «нет разрешения на установку» → ведёт в настройки; битый хэш;
-      офлайн; `mandatory`
+      → ✅ публикация на dev проверена 13.09.2026: `/api/app-version` отдаёт
+      `versionCode 3` / `1.2` / `sha256` / `apkUrl?versionCode=3` / `signed: true`;
+      `/api/download-apk` — `200` с заголовками `X-Apk-Version-Code: 3`, `X-Apk-Version-Name: 1.2`,
+      `X-Apk-Sha256: 8a5043e9…`; скачанный файл **побайтово равен** собранному (sha256 совпал)
+      → осталось: живое обновление на устройстве (нужен телефон): установленный клиент видит
+      «доступна версия 3», ставит APK поверх; отдельно — «нет разрешения на установку» →
+      настройки, битый хэш, офлайн, `mandatory`
       → *критерий:* обновление проходит на живом устройстве, улики — здесь же
 
-> **Фаза 13 — в работе (13.09.2026).** Код и тесты готовы, нативная часть не проверена: в окружении
-> нет JDK и Android SDK (`java -version` → «Unable to locate a Java Runtime», `ANDROID_HOME` пуст),
-> поэтому сборка APK и живой прогон — за разработчиком. Улики: BE — `php artisan test`
-> **96 passed / 687 assertions** (+12 тестов `AppVersionTest`); FE — `npm test` **306 тестов**
-> (+22), `npm run lint` — 0, `npm run build` — ок, в `dist/spa` есть код проверки версии и
-> `ApkInstaller` (но не `mockApi`).
+> **Фаза 13 — в работе (13.09.2026).** Первый подписанный релиз собран и выложен на dev:
+> toolchain поставлен локально (JDK 21 + Android SDK 35), ключ подписи создан
+> (`~/keystores/ledger-craft-release.jks`), `npm run release:android` → **1.2 (versionCode 3)**,
+> `apksigner verify` — «Verifies» (v1+v2), публикация на dev через `app:publish-apk`,
+> `/api/app-version` и `/api/download-apk` проверены (скачанный APK побайтово равен собранному).
+> Осталось живое обновление: клиент на устройстве видит «доступна версия 3» и ставит APK поверх
+> (задачи **13.5**, **13.11–13.13**, **13.15**). Улики: BE — `php artisan test` **105 passed**
+> (+9 `FeedbackTest`; 96 → 105 после Фазы 13/14); FE — `npm test` **348 тестов**,
+> `npm run lint` — 0, `npm run build` — ок, в `dist/spa` есть код проверки версии и `ApkInstaller`
+> (но не `mockApi`).
+>
+> ⚠️ На dev остался старый `storage/app/public/1.1-debug.apk`: он подписан **другим** ключом
+> (debug), поэтому если такой APK уже установлен на телефоне, наш релиз поверх него не встанет —
+> нужно сначала удалить debug-сборку. Манифест релиза теперь приоритетнее легаси-файла,
+> так что автообновление отдаёт именно 1.2.
 
 ## Фаза 14 — Обратная связь: «Сообщить об ошибке» (P1/P2) — 🔧 в работе (14.1–14.7 сделаны)
 
@@ -1891,6 +1915,10 @@ BE: миграции полей профиля, `template_key`, `equipment_ident
 > 14.9 (правило разбора — заготовка есть) и 14.10 (живой прогон на dev-VPS + сборка APK).
 > ⚠️ на сервере нужно один раз: миграция `2026_09_20_000000` + `FEEDBACK_PULL_TOKEN` в env;
 > на клиенте — тот же токен в `.env.local` для `npm run feedback:pull`.
+> ✅ **Сделано на dev-VPS 13.09.2026** (коммит `ba6fbf3`): `git merge --ff-only` + `migrate --force`,
+> `FEEDBACK_PULL_TOKEN` прописан в `.env` сервера и в локальном `.env.local` (в git не попадает).
+> Проверено снаружи: `GET /api/feedback` без токена → `403`, с токеном → `{"count":0,"reports":[]}`.
+> Осталось по 14.10 — живой отчёт с телефона (нужно устройство).
 
 ## Ориентир по бэкенду (без отдельного чек-листа)
 

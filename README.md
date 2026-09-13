@@ -309,6 +309,17 @@ npm run release:android -- --mandatory --min-version 2 --notes "Критичны
 `apksigner verify` → `scp` на сервер → `php artisan app:publish-apk`. Правило сред обычное:
 сначала **dev**, в prod — только проверенное (Фаза 11).
 
+> **Ключ, toolchain и первый релиз (13.09.2026).** Ключ подписи — `~/keystores/ledger-craft-release.jks`
+> (`CN=Ledger Craft`, RSA 2048), пароли — `src-capacitor/android/keystore.properties`; оба файла в
+> `.gitignore`, `keystore.properties` указывает на абсолютный путь. **Сделайте копию ключа** (флешка,
+> менеджер паролей): потеря = невозможно обновить установленные приложения.
+> Для сборки локально нужны `JAVA_HOME=/opt/homebrew/opt/openjdk@21` и
+> `ANDROID_HOME=$HOME/Library/Android/sdk` (`brew install openjdk@21` +
+> `brew install --cask android-commandlinetools`, затем `sdkmanager "platform-tools"
+> "platforms;android-35" "build-tools;35.0.0"`), `src-capacitor/android/local.properties` —
+> `sdk.dir` в тот же путь. Первый релиз: **1.2 (versionCode 3)**, выложен на dev
+> (`app:publish-apk`), `/api/app-version` отдаёт его с sha256, скачанный файл совпал с собранным.
+
 > ⚠️ **Платформу `src-capacitor/android` нужно закоммитить.** Сейчас она локальная и git'ом не
 > отслеживается (в ней `0` файлов), а с Фазы 13 там лежит наш код: `ApkInstallerPlugin.java`,
 > `InstallResultReceiver.java`, `MainActivity.java`, настройка подписи в `build.gradle`,
