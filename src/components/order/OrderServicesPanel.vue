@@ -23,7 +23,7 @@ const isChosen = service => props.chosen.some(chosen => chosen.id === service.id
 <template>
   <!-- Панель вкладки живёт в `OrderDetailsPage.vue` (прямой ребёнок `q-tab-panels`). -->
   <div>
-    <div class="q-pa-md">
+    <div class="lc-pad">
       <q-select
         :model-value="props.selectedCategory"
         :options="props.categories"
@@ -63,7 +63,7 @@ const isChosen = service => props.chosen.some(chosen => chosen.id === service.id
       <div class="lc-col-del"></div>
     </div>
 
-    <div v-if="!props.services.length" class="text-caption lc-mute q-pa-md">
+    <div v-if="!props.services.length" class="text-caption lc-mute lc-pad">
       выберите категорию, чтобы увидеть список
     </div>
 

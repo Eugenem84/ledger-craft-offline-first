@@ -5,11 +5,15 @@
 // Переработка UI: вместо ряда мелких подписей («НАЗАД», «РЕД», «сохр», «опл»)
 //   • назад / правка / сохранение — иконки с подсказками;
 //   • второстепенные действия (ссылка, очистка, удаление) — в меню «⋮»;
-//   • статус — сегментированный переключатель со словами, оплата — отдельной кнопкой.
+//   • статус и оплата — один ряд компактных сегментированных переключателей.
 //
 // Задача 12.3: статус и оплата в карточке показаны ровно одним органом управления —
 // переключателями ниже. Дублирующих чипов (`LcStatusChip` + «оплачено») в шапке нет;
 // чип статуса остаётся в списке заказов (`OrdersPage.vue`), где переключателей нет.
+//
+// Правка живого прогона: переключатели стали ниже (`dense` + уменьшенный кегль), а
+// «оплачено» — такой же переключатель (одна опция + `clearable`), а не отдельная
+// кнопка со своим размером: раньше статус и оплата читались как два разных органа.
 import { computed } from 'vue'
 import { ORDER_STATUSES } from 'src/utils/analytics.js'
 
@@ -22,6 +26,8 @@ defineProps({
   paid: { type: Boolean, default: false },
   /** Блокировка кнопки share-ссылки, пока идёт запрос. */
   busy: { type: Boolean, default: false },
+  /** Показ кнопки share-ссылки на отчёт: не всем нишам нужен публичный отчёт (10.3). */
+  showShare: { type: Boolean, default: true },
 })
 
 const emit = defineEmits([
@@ -37,6 +43,12 @@ const emit = defineEmits([
 
 /** Подписи статусов — общий словарь (`src/utils/analytics.js`). */
 const statusOptions = computed(() => ORDER_STATUSES.map(item => ({ label: item.label, value: item.value })))
+
+/**
+ * «Оплачено» — переключатель из одной опции: клик выставляет `true`, повторный клик
+ * сбрасывает (`clearable` отдаёт `null`, его и считаем «не оплачено»).
+ */
+const paidOptions = [{ label: 'оплачено', value: true }]
 </script>
 
 <template>
@@ -79,7 +91,16 @@ const statusOptions = computed(() => ORDER_STATUSES.map(item => ({ label: item.l
         @click="emit('save')"
       />
 
-      <q-btn flat round dense icon="share" color="secondary" :loading="busy" @click="emit('share')">
+      <q-btn
+        v-if="showShare"
+        flat
+        round
+        dense
+        icon="share"
+        color="secondary"
+        :loading="busy"
+        @click="emit('share')"
+      >
         <q-tooltip class="text-caption">скопировать ссылку на отчёт</q-tooltip>
       </q-btn>
 
@@ -101,11 +122,17 @@ const statusOptions = computed(() => ORDER_STATUSES.map(item => ({ label: item.l
       </q-btn>
     </div>
 
+    <!-- Статус и оплата — один ряд компактных сегментированных переключателей
+         (правка живого прогона). Раньше статус был крупным тумблером на всю ширину,
+         а «оплачено» — отдельной кнопкой со своим размером. Теперь оба органа одного
+         вида: сегменты ниже (`dense` + уменьшенный кегль в стилях), интерактив один.
+         Активный сегмент оплаты зелёный (`positive`) — как чип «оплачено» в списке заказов. -->
     <div class="row items-center no-wrap q-gutter-x-sm q-mt-sm">
       <q-btn-toggle
         :model-value="status"
-        class="col lc-statustoggle"
+        class="col lc-toggle"
         spread
+        dense
         no-caps
         unelevated
         color="grey-9"
@@ -116,15 +143,19 @@ const statusOptions = computed(() => ORDER_STATUSES.map(item => ({ label: item.l
         @update:model-value="value => emit('update:status', value)"
       />
 
-      <q-btn
+      <q-btn-toggle
+        :model-value="paid"
+        class="lc-toggle"
+        dense
         no-caps
         unelevated
-        :outline="!paid"
-        :color="paid ? 'positive' : 'grey-8'"
-        :text-color="paid ? 'white' : 'grey-4'"
-        icon="paid"
-        label="оплачено"
-        @click="emit('update:paid', !paid)"
+        clearable
+        color="grey-9"
+        text-color="grey-5"
+        toggle-color="positive"
+        toggle-text-color="white"
+        :options="paidOptions"
+        @update:model-value="value => emit('update:paid', value === true)"
       />
     </div>
   </div>
@@ -138,9 +169,23 @@ const statusOptions = computed(() => ORDER_STATUSES.map(item => ({ label: item.l
   padding: 10px 12px;
 }
 
-.lc-statustoggle {
+/* Переключатели статуса и оплаты: один компактный сегмент на оба органа.
+   `dense` задаёт внутренние отступы, здесь ужимаем высоту и кегль, чтобы шапка
+   заказа занимала меньше места (правка живого прогона). */
+.lc-toggle {
   border-radius: var(--lc-radius-sm);
   overflow: hidden;
+}
+
+.lc-toggle :deep(.q-btn) {
+  min-height: 28px;
+  padding: 2px 6px;
+  font-size: 12px;
+}
+
+.lc-toggle :deep(.q-btn__content) {
+  flex-wrap: nowrap;
+  white-space: nowrap;
 }
 </style>
 

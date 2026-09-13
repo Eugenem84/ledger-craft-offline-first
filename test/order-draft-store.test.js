@@ -32,13 +32,23 @@ const ORDER_TABLES = ['orders', 'order_service', 'materials', 'order_product']
 /** Минимальный справочник: специализация, категория работ, работа, клиент, товар. */
 async function seedCatalog() {
   const specializationId = await specializationsRepo.save({ name: 'Ремонт' })
-  const categoryId = await categoriesRepo.save({ category_name: 'Двигатель' })
+  // Привязка к профилю (Фаза 10): после строгого фильтра каталога/справочников
+  // запись без `specialization_id` в профиле не видна (легаси-строки разово
+  // привязывает миграция 029 — см. `catalog-specialization-filter.test.js`).
+  const categoryId = await categoriesRepo.save({
+    category_name: 'Двигатель',
+    specialization_id: specializationId,
+  })
   const serviceId = await servicesRepo.save({
     service: 'Замена масла',
     price: 500,
     category_id: categoryId,
   })
-  const clientId = await clientsRepo.save({ name: 'Иван', phone: '123' })
+  const clientId = await clientsRepo.save({
+    name: 'Иван',
+    phone: '123',
+    specialization_id: specializationId,
+  })
   const productCategoryId = await productCategoriesRepo.save({
     name: 'Фильтры',
     specialization_id: specializationId,
@@ -102,6 +112,12 @@ describe('8.1 useOrderDraftStore', () => {
     expect(await orderServiceRepo.getByOrderId(orderId)).toHaveLength(1)
     expect(await materialsRepo.getByOrderId(orderId)).toHaveLength(1)
     expect(await orderProductRepo.getByOrderId(orderId)).toHaveLength(1)
+
+    // Регрессия «аналитика не считала работы»: цена работы фиксируется в строке заказа
+    // сразу (офлайн-первая аналитика считает выручку как `quantity * sale_price`).
+    expect(
+      await db.queryOne('SELECT * FROM order_service WHERE order_id = ?', [orderId])
+    ).toMatchObject({ service_id: serviceId, sale_price: 500 })
 
     const queued = await queuedTables()
     for (const table of ORDER_TABLES) {

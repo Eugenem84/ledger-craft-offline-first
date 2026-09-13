@@ -21,6 +21,26 @@ export async function getAll() {
   return rows
 }
 
+/**
+ * Клиенты активного профиля (Фаза 10, строгий фильтр).
+ *
+ * Локально созданный клиент хранит в `specialization_id` локальный UUID, а
+ * `applyServerRecord` пишет и UUID, и серверный id в `specialization_server_id`.
+ * Поэтому ищем по обеим формам FK: сначала достаём `server_id` специализации.
+ *
+ * @param {string} specializationId локальный UUID специализации
+ * @returns {Promise<Array>}
+ */
+export async function getBySpecializationId(specializationId) {
+  const spec = await dbAdapter.queryOne(
+    'SELECT server_id FROM specializations WHERE id = ?',
+    [specializationId]
+  );
+  const serverId = spec ? spec.server_id : null;
+
+  return dbAdapter.query(queries.getBySpecializationId, [specializationId, serverId]);
+}
+
 export async function findByServerId(serverId) {
   const result = await dbAdapter.query(queries.findByServerId, [serverId]);
   return result.length > 0 ? result[0] : null;

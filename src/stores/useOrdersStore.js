@@ -55,7 +55,7 @@ export const useOrdersStore = defineStore('orders', {
 
       const clientsStore = useClientsStore();
       if (!clientsStore.isLoaded) {
-        await clientsStore.load();
+        await clientsStore.load(selectedSpecialization?.id);
       }
       const client = clientsStore.items.find(c => c.id === data.client_id);
 

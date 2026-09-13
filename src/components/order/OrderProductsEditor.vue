@@ -32,7 +32,7 @@ const lineMargin = line =>
       <div class="lc-col-del"></div>
     </div>
 
-    <div v-if="!props.products.length" class="text-caption lc-mute q-pa-md">
+    <div v-if="!props.products.length" class="text-caption lc-mute lc-pad">
       нет товаров со склада — добавьте кнопкой с иконкой склада
     </div>
 

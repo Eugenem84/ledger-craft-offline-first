@@ -18,11 +18,19 @@ export const useModelsStore = defineStore('models', {
   },
 
   actions: {
-    async load() {
+    /**
+     * Модели техники активного профиля (Фаза 10, строгий фильтр).
+     *
+     * @param {string} [specializationId] локальный UUID активной специализации;
+     *   без него (профилей ещё нет) — прежний `getAll`
+     */
+    async load(specializationId) {
       this.loading = true
       this.error = null
       try {
-        this.items = await modelsRepo.getAll()
+        this.items = specializationId
+          ? await modelsRepo.getBySpecializationId(specializationId)
+          : await modelsRepo.getAll()
       } catch (err) {
         this.error = err
       } finally {

@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">ledger-craft</string>
+    <string name="title_activity_main">ledger-craft</string>
+    <string name="package_name">com.ledgercraft.app</string>
+    <string name="custom_url_scheme">com.ledgercraft.app</string>
+</resources>

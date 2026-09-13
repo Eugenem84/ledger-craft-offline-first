@@ -1,7 +1,11 @@
 export default {
   getAll: 'SELECT * FROM categories',
   getById: 'SELECT * FROM categories WHERE id = ?',
-  getBySpecializationId: 'SELECT * FROM categories WHERE specialization_id = ?',
+  // Строгий фильтр каталога по рабочему профилю (Фаза 10). Параметров два,
+  // потому что `categories.specialization_id` хранит либо локальный UUID (запись
+  // ещё не уехала), либо серверный id (после синка) — см. `categoriesRepo`.
+  getBySpecializationId:
+    'SELECT * FROM categories WHERE specialization_id = ? OR specialization_id = ?',
   // Идемпотентность пресета (Фаза 10, задача 10.4): «уже перенесено?».
   findBySpecializationAndTemplateKey:
     'SELECT * FROM categories WHERE template_key = ? AND specialization_id = ?',

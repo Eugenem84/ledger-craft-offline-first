@@ -2,6 +2,12 @@ export default {
   getAll: `
     SELECT * FROM clients
   `,
+  // Строгий фильтр по рабочему профилю (Фаза 10). У клиента две формы FK —
+  // локальный UUID и серверный id, — поэтому параметров два.
+  getBySpecializationId: `
+    SELECT * FROM clients
+    WHERE specialization_id = ? OR specialization_server_id = ?
+  `,
   getById: `
     SELECT * FROM clients
     WHERE id = ?

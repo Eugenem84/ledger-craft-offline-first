@@ -90,7 +90,7 @@ onMounted(() => analytics.load())
       </div>
 
       <!-- Итоги выбранного масштаба + переключатель периода -->
-      <div class="lc-card q-pa-md q-mb-md">
+      <div class="lc-card lc-pad q-mb-md">
         <div class="row items-center justify-between no-wrap q-mb-md q-gutter-x-sm">
           <div class="lc-eyebrow">выручка за период</div>
           <q-btn-toggle
@@ -143,7 +143,7 @@ onMounted(() => analytics.load())
       </div>
 
       <!-- Выручка по колонкам выбранного периода -->
-      <div class="lc-card q-pa-md q-mb-md">
+      <div class="lc-card lc-pad q-mb-md">
         <div class="lc-eyebrow q-mb-sm">выручка по периодам</div>
         <div v-for="bucket in analytics.buckets" :key="bucket.key" class="row items-center no-wrap q-mb-xs">
           <div class="col-3 text-caption lc-muted">{{ bucket.label }}</div>
@@ -164,7 +164,7 @@ onMounted(() => analytics.load())
       </div>
 
       <!-- Заказы по текущим статусам (все заказы, не только учтённые) -->
-      <div class="lc-card q-pa-md q-mb-md">
+      <div class="lc-card lc-pad q-mb-md">
         <div class="lc-eyebrow q-mb-sm">заказы по статусам (сейчас)</div>
         <div v-for="status in analytics.statuses" :key="status.value" class="row items-center no-wrap q-mb-xs">
           <div class="col-3 text-caption lc-muted">{{ status.label }}</div>
@@ -184,7 +184,7 @@ onMounted(() => analytics.load())
       </div>
 
       <!-- Топы за период: работы, товары со склада, ручные позиции -->
-      <div class="lc-card q-pa-md">
+      <div class="lc-card lc-pad">
         <template
           v-for="top in [
             { title: 'топ работ', rows: analytics.topServices },

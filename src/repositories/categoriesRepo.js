@@ -9,9 +9,26 @@ export async function getAll() {
   return rows
 }
 
+/**
+ * Каталог работ активного профиля (Фаза 10, строгий фильтр).
+ *
+ * У `categories` нет парной колонки `specialization_server_id` (в отличие от
+ * `clients`/`equipment_models`): до синка в `specialization_id` лежит локальный
+ * UUID, а `applyServerRecord` пишет туда серверный id. Поэтому сначала достаём
+ * `server_id` специализации и ищем обе формы FK — иначе после первого синка
+ * каталог профиля «пустел» (как раньше вёл себя `productCategoriesRepo`).
+ *
+ * @param {string} specializationId локальный UUID специализации
+ * @returns {Promise<Array>}
+ */
 export async function getBySpecializationId(specializationId) {
-  const rows = await dbAdapter.query(queries.getBySpecializationId, [specializationId]);
-  return rows;
+  const spec = await dbAdapter.queryOne(
+    'SELECT server_id FROM specializations WHERE id = ?',
+    [specializationId]
+  );
+  const serverId = spec ? spec.server_id : null;
+
+  return dbAdapter.query(queries.getBySpecializationId, [specializationId, serverId]);
 }
 
 /**

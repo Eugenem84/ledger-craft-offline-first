@@ -20,6 +20,10 @@
 - **Среды (с 12.09.2026):** **dev-VPS** (`dev.medovf2h.beget.tech`) — песочница, здесь пробуем новые
   фичи и не боимся снести БД; **prod-VPS** — боевой контур с реальными данными, туда попадает
   **только проверенное на dev**. Порядок: dev → проверка по чек-листу (11.5) → prod (11.12).
+- **Отчёты «Сообщить об ошибке» (Фаза 14, решение D7):** выгружаем `npm run feedback:pull`; у каждого
+  отчёта в `feedback/DECISIONS.md` должен быть вердикт — **баг** → задача в этом файле с приоритетом и
+  критерием «Готово», иначе объяснение, почему не берём. Сырые отчёты (`feedback/inbox/`,
+  `feedback/INBOX.md`) в git не коммитим — там логи и аккаунт.
 
 Приоритеты: **P0** — теряются данные/невозможно работать, **P1** — больно поддерживать, **P2** — хочется.
 
@@ -75,6 +79,30 @@
 
   **Не делаем (осознанно):** schema-per-ниша, отдельные формы заказа под каждую специализацию,
   CRDT/version-vectors — выигрыш в «универсальности» близок к нулю, а офлайн-модель и синк ломаются.
+- **D6. Обновление Android-приложения — свой канал, без Play и без Cordova (принято 13.09.2026).**
+  Приложение раздаётся APK со своего сервера (файл кладёт `php artisan app:publish-apk`), клиент
+  сам проверяет версию и по кнопке вызывает системный установщик (`PackageInstaller`). Причины:
+  Play-канал пока не планируется, а политика Play запрещает самообновление APK (JS внутри WebView —
+  разрешает, но это отдельный этап); Cordova не используем вовсе (в проекте Capacitor, Cordova-слоя
+  в `@capacitor/core` 7 нет) — поэтому HCP-заготовки (`/api/hcp/chcp.json`, папка `hcp/` в бэкенде,
+  `cordova-plugin-hot-code-push`) остаются легаси и не оживляются. «Критерий новее» — `versionCode`
+  (целое), «тихой» установки без диалога быть не может (только Play или Device Owner) — это
+  ограничение Android, а не реализации. OTA веб-слоя (`@capawesome/capacitor-live-update`, MIT,
+  self-hosted) — задача будущего этапа, точка расширения уже готова (`updateService`).
+  → задачи **13.1–13.15**
+- **D7. Отчёты об ошибках — отдельный контур, не синк (принято 13.09.2026).** Кнопка «Сообщить об
+  ошибке» должна работать офлайн и складывать отчёты туда, где их прочитает разработчик **и
+  ИИ-агент**, которому доступны файлы репозитория. Поэтому: (1) отчёт — **не** таблица синка (новый
+  `type` в `$tables`/`TABLE_ORDER`, «полный сброс» и восстановление из бэкапа тащили бы его за собой,
+  а второе устройство владельца видело бы чужие отчёты); (2) локально — своя очередь
+  `feedback_reports` по образцу `operations` (3.3); (3) на сервере — таблица `feedback_reports` +
+  `POST /api/feedback` (идемпотентность по `uuid_id`, как в 3.5) + выгрузка `GET /api/feedback` под
+  отдельным pull-токеном; (4) последнее звено — инбокс в репо (`feedback/INBOX.md`,
+  `npm run feedback:pull`), чтобы отчёт читался без БД и без SSH. Отвергнуто: GitHub Issues прямо из
+  приложения (токен в APK), Telegram-бот/e-mail (агент не читает переписку), внешняя крашлитика
+  (приватность мастерской, офлайн-первый сценарий). В отчёт **не попадают** данные заказов/клиентов,
+  отправка — только по действию пользователя. Контракт и цепочка — `docs/FEEDBACK.md`
+  → задачи **14.1–14.10**
 
 ---
 
@@ -93,6 +121,8 @@
 - [x] **Фаза 10** — Специализации и пресеты (мульти-профиль) · FE 9/9 · BE 4/4 · *новый юзер получает готовый каталог своей ниши, UI говорит на его языке*
 - [ ] **Фаза 11** — Среды и выкат: dev-VPS → prod-VPS · 5/12 · *новые фичи обкатываем на dev, боевой контур обновляем по чек-листу*
 - [x] **Фаза 12** — Правки по ревью интерфейса: профили и отладка · 5/5 · *специализацию только выбираем из доступных и не меняем после выбора, в карточке заказа статус/оплата одним органом управления, отладка — в dev-вкладке*
+- [ ] **Фаза 13** — Обновление Android-приложения (без Play) · FE 5/8 · BE 2/2 · *приложение само говорит «доступна версия N» и обновляется по кнопке: APK с сервера, sha256, системный установщик; осталось собрать и проверить на живом устройстве*
+- [ ] **Фаза 14** — Обратная связь: «Сообщить об ошибке» · FE 5/7 · BE 1/1 · FE+BE 1/2 · *мастер отправляет отчёт об ошибке офлайн, отчёт доезжает до инбокса в репозитории, агент читает его и заводит задачу (рабочая петля 14.1–14.7 сделана)*
 
 ---
 
@@ -1326,7 +1356,19 @@ BE: миграции полей профиля, `template_key`, `equipment_ident
       битый payload) «сдаются» сразу (статус `failed`), видны в индикаторе (`failedCount`) и убираются
       в «Режиме разработчика» (`discardFailedOperations`). Тесты: FE
       `test/operations-retry.test.js` (5), `test/orders-sync-payload.test.js` (2),
-      `test/sync-status-view.test.js` (+2); BE `SyncControllerTest::test_order_update_ignores_client_timestamps`
+      `test/sync-status-view.test.js` (+2); BE `SyncControllerTest::test_order_update_ignores_client_timestamps`;
+      (6) UI карточки заказа: на вкладке «работы» дублировалась кнопка «Новая работа»
+      (полноширинная кнопка в `OrderServicesPanel` + FAB в `OrderDetailsPage`, а у страницы свой
+      `QLayout` без нижнего таббара — FAB висел в 76px от края) → FAB убран, создание позиции
+      живёт в панелях; переключатели статуса/оплаты сведены к одному компактному ряду
+      (`dense`, `min-height: 28px`), «оплачено» стало таким же `q-btn-toggle` (одна опция +
+      `clearable`), а не отдельной кнопкой. Регрессы: `test/phase12-profile.test.js`;
+      (7) Android — контент уезжал под системные панели: Android 15 (`targetSdk 35`) включает
+      edge-to-edge принудительно, а Capacitor по умолчанию отступы не применяет
+      (`adjustMarginsForEdgeToEdge: "disable"`) → `"auto"` в `src-capacitor/capacitor.config.json`
+      (+ копия в `android/app/src/main/assets`), а тема `AppTheme.NoActionBar` (её ставит
+      `BridgeActivity`) получила чёрный фон окна/панелей и светлые иконки. ⚠️ нужен
+      `npx cap sync android` и живой прогон на устройстве (JDK/SDK в окружении нет)
       → FE `npm test` **280 тестов**, BE `php artisan test` **84 passed**, lint 0, SPA-сборка ok
       → *критерий:* ничего «нашли на живом сервере, но не завели»: всё либо исправлено с тестом,
       либо явно отложено записью в этом файле
@@ -1489,6 +1531,367 @@ BE: миграции полей профиля, `template_key`, `equipment_ident
 > строкой БД; регресс закреплён в `test/phase12-profile.test.js`.
 > Итог прогонов: `npm test` — **250 тестов** (было 229), `npm run lint` — 0, SPA-сборка — ок.
 
+## Фаза 13 — Обновление Android-приложения (без Play)
+
+> Решение **D6**. Приложение раздаётся APK со своего сервера; клиент сам проверяет версию и по
+> кнопке вызывает системный установщик. Нативная сборка и живой прогон требуют JDK + Android SDK
+> (в окружении, где писался код, их нет), поэтому у задач сборки/устройства явно отмечено, что
+> сделано, а что осталось проверить.
+
+- [x] **13.1** [BE] (P1) Манифест релизов вместо парсинга имени файла
+      → было: `AppVersionController::checkQuasarAndroidVersion()` брал `glob()[0]` (порядок
+      файловой системы), а `downloadapk()` сортировал те же файлы по `filemtime` — «версия» и
+      скачиваемый файл могли разойтись, а `versionCode` не отдавался вовсе
+      → заведён `App\Repositories\ApkReleaseRepository` + манифест `releases.json` в
+      `storage/app/public/releases/`; команда `php artisan app:publish-apk` проверяет, что это APK
+      (ZIP + `AndroidManifest.xml`, признак подписи v1/Signing Block), считает sha256 и размер,
+      заменяет релиз с тем же `versionCode` (повторная публикация не размножает записи)
+      → контроллер отдаёт новый контракт `{versionCode, versionName, apkUrl, sha256, sizeBytes,
+      mandatory, minSupportedVersionCode, notes, releasedAt, signed}` + старые поля (`version`,
+      `apk_name`) для совместимости; `/api/download-apk[?versionCode=N]` отдаёт файл с заголовками
+      `X-Apk-Version-Code/Name/Sha256`; пока манифеста нет — легаси-путь (`versionCode: null`,
+      `legacy: true` на APK из `storage/app/public/*.apk`); `/api/app-version` — алиас старого роута
+      → *критерий:* `curl /api/app-version` отдаёт `versionCode`, `apkUrl` и `sha256`; скачанный
+      файл совпадает по хэшу ✅
+- [x] **13.2** [BE] (P1) Тесты версии и раздачи APK
+      → `tests/Feature/AppVersionTest.php` (12 тестов, БД не нужна: релизы — это файлы, каталоги
+      подменяются через `config('app-versions.*')`): пусто → 404; публикация → контракт, sha256 и
+      `apkUrl`; самый свежий релиз — по `versionCode`, а не по `filemtime` (регресс на дефект 13.1:
+      «старый» APK специально сделан свежее по времени); `--mandatory`/`--min-version`; повторная
+      публикация того же `versionCode` заменяет запись; скачивание с параметром и без; 404 на
+      неизвестный `versionCode`; не-APK и ZIP без манифеста отклоняются (манифест не создаётся);
+      без `--version-code` (и без `aapt`) — понятная ошибка; легаси-APK без манифеста отдаётся
+      → *критерий:* `php artisan test` зелёный ✅ → **84 → 96 passed** (637 → 687 assertions).
+      Два теста помечены `deprecated` из-за шума PHP 8.5/Laravel 10 (`PDO::MYSQL_ATTR_SSL_CA`,
+      `Str::freezeUuids`) — это задача 11.11, не эти правки
+- [ ] **13.3** [FE] (P0) Подпись и версионирование сборки
+      → ✅ сделано: `signingConfigs.release` из `src-capacitor/android/keystore.properties`
+      (в `.gitignore`, шаблон — `keystore.properties.example` с командой `keytool`), версия — из
+      `gradle.properties` (`APP_VERSION_CODE=2`, `APP_VERSION_NAME=1.1`); без файла ключа release
+      собирается неподписанным и в лог уходит предупреждение
+      → осталось: создать ключ и собрать подписанный APK (`cd src-capacitor/android &&
+      ./gradlew assembleRelease`, затем `apksigner verify`) — нужны JDK + Android SDK
+      → *критерий:* APK подписан тем же ключом, `versionCode` виден в badging
+- [ ] **13.4** [FE] (P1) Скрипт релиза одной командой
+      → ✅ сделано: `scripts/release-apk.sh` + `npm run release:android`: версия из
+      `gradle.properties` → `quasar build -m capacitor -T android` → `npx cap sync android` →
+      `assembleRelease` → `apksigner verify` → `scp` + `php artisan app:publish-apk`; ключи
+      `--notes/--mandatory/--min-version/--server/--local-only`, в конце — проверка
+      `/api/app-version`; неподписанный APK скрипт не публикует
+      → осталось: живой прогон (нет JDK/SDK)
+      → *критерий:* одна команда выкладывает APK и обновляет манифест
+- [ ] **13.5** [FE] (P1) Своя версия приложения
+      → ✅ сделано: `@capacitor/app@^7.1.2` (ветка под Capacitor 7: 8.x требует Capacitor 8),
+      `updateService.loadCurrentVersion()` берёт `App.getInfo()` (`build` → `versionCode`) и
+      кэширует в хранилище; в браузере версия считается неизвестной (фолбэк на кэш)
+      → осталось: проверить на устройстве, что показывается версия из сборки
+      → *критерий:* в «Ещё» видно «Версия 1.1»
+- [x] **13.6** [FE] (P1) Чистая логика «есть обновление / обязательно / отложено»
+      → `src/utils/appUpdateView.js` (по образцу `syncStatusView.js`): `parseVersionCode`,
+      `compareVersionNames` (построчно: «1.10 > 1.9»), `isUpdateAvailable` (сначала `versionCode`,
+      легаси-фолбэк на `versionName`), `isUpdateMandatory` (флаг релиза ИЛИ текущая версия ниже
+      `minSupportedVersionCode`), `appUpdateView` (приоритеты баннера), `appUpdateStatusText`
+      (текст для настроек), `formatBytes`
+      → приоритеты: обязательное обновление видно и **нельзя** отложить; ошибка/офлайн фоновой
+      проверки баннер не показывают (чтобы не шуметь поверх работы мастерской)
+      → *критерий:* `test/update-view.test.js` — 12 тестов ✅
+- [x] **13.7** [FE] (P1) Сервис проверки, неблокирующий и офлайн-терпимый
+      → `src/services/updateService.js` (singleton с подпиской и `startAutoCheck`, как у
+      `syncService`): `GET /app-version` через `apiClient`; кэш релиза/времени проверки/своей
+      версии в `storage`; пауза 6 часов (первый вызов — через 4 с после старта, `force` в обход);
+      повтор при появлении сети (`online`)
+      → **404 — не ошибка** («ничего не опубликовано»), офлайн — состояние `online: false`, а не
+      сбой; скачивание и установка — `downloadAndInstall()`: файл в кэш приложения с прогрессом
+      (`Filesystem.downloadFile` + событие `progress`), сверка **sha256** с манифестом (битый файл
+      удаляется и не ставится), затем нативный установщик; факт запуска установки запоминается
+      (`consumeInstalledVersion()` → разовое «обновлено» после перезапуска)
+      → *критерий:* `test/update-service.test.js` — 10 тестов ✅ (новая версия, та же версия,
+      mandatory двумя способами, 404, сбой сети, офлайн без запроса в сеть, пауза и `force`,
+      кэш при старте, «позже» против mandatory, флаг установки)
+- [x] **13.8** [FE] (P1) Boot-файл проверки
+      → `src/boot/updateCheck.js` + `'updateCheck'` в `quasar.config.js` после `auth`: `restore()`
+      из кэша и `startAutoCheck()` — приложение рисуется первым, сеть не блокирует старт
+      → *критерий:* сборка SPA проходит, офлайн-режим не меняется ✅
+- [x] **13.9** [FE] (P1) UI: чип, диалог, раздел «приложение»
+      → `src/stores/useUpdateStore.js` (состояние + действия `checkNow`/`dismiss`/`install`),
+      `src/components/UpdateBanner.vue` (чип над индикатором синка в `App.vue`, виден на всех
+      маршрутах), `src/components/UpdateDialog.vue` (версия, размер, «что нового», прогресс,
+      ошибки, «Позже»/«Скачать APK»/«Обновить»), раздел «приложение» в `OthersPage.vue`
+      (текущая версия, статус, «проверить», «Обновить до N»)
+      → *критерий:* сборка SPA проходит; прогон на устройстве — в 13.15
+- [x] **13.10** [FE] (P1) Запасной путь «скачать в браузере»
+      → `@capacitor/browser@^7.0.5`: если нативного установщика нет (веб-сборка или старый APK без
+      плагина) — `openDownloadPage()` открывает `apkUrl` (Custom Tab на устройстве, `window.open`
+      в браузере), APK скачивает система
+      → *критерий:* код есть и собирается ✅; живой прогон — 13.15
+- [ ] **13.11** [FE] (P0) Свой Capacitor-плагин установки APK (Java)
+      → ✅ сделано: `ApkInstallerPlugin.java` (`canInstall()` → `canRequestPackageInstalls()`,
+      `openSettings()` → `ACTION_MANAGE_UNKNOWN_APP_SOURCES`, `install({path})` → `PackageInstaller`
+      Session + `PendingIntent` FLAG_MUTABLE), `InstallResultReceiver.java` (запускает системный
+      диалог подтверждения и отдаёт итог в JS событием `installResult`), регистрация в
+      `MainActivity.onCreate` (`registerPlugin` до `super.onCreate`), разрешение
+      `REQUEST_INSTALL_PACKAGES` и `<receiver>` в манифесте
+      → почему свой и на Java: готовых поддерживаемых Capacitor-плагинов установки APK нет,
+      Cordova-плагины (`cordova-plugin-apkupdater`) не подходят (Cordova в проекте нет), а
+      `MainActivity` здесь на Java (Kotlin-плагин не подключён) — свой плагин дешевле, чем новый
+      Gradle-плагин ради 100 строк
+      → осталось: `./gradlew assembleRelease` и живой прогон (нужны JDK + Android SDK)
+      → *критерий:* на устройстве `install()` открывает системный диалог и приложение обновляется;
+      без разрешения — ведёт на нужный экран настроек
+      → ⚠️ **платформа `src-capacitor/android` git'ом не отслеживается** (0 файлов): наш плагин,
+      `MainActivity`, настройка подписи и манифест живут только локально. Перед передачей проекта
+      её нужно закоммитить (`git add src-capacitor/android`) — иначе `npx cap add android` на другой
+      машине создаст пустую платформу и плагин придётся восстанавливать. Исключения уже настроены:
+      `keystore.properties`, `*.keystore`/`*.jks`, `app/build/`
+      → ⚠️ проверить на устройстве первым делом: receiver объявлен `android:exported="false"`
+      (безопасно: чужое приложение не подсунет нам интент), а `PendingIntent` создаётся нами же,
+      поэтому система вправе его отправить. Если на конкретной прошивке диалог подтверждения не
+      появляется — receiver придётся открыть (`exported="true"`) и это решение зафиксировать с
+      обоснованием, либо перейти на активность-confirmation вместо broadcast
+- [ ] **13.12** [FE] (P0) Скачивание с прогрессом и проверкой хэша
+      → ✅ сделано: `updateService.downloadAndInstall()` — `Filesystem.downloadFile` в
+      `Directory.Cache` с событием `progress` (в UI проценты), сверка `sha256` из манифеста
+      (WebCrypto), при несовпадении файл удаляется и показывается «скачался с ошибкой»
+      → осталось: проверить на устройстве (в т.ч. обрыв связи)
+      → *критерий:* проценты видны, повреждённый APK не ставится
+- [ ] **13.13** [FE] (P1) UX полного цикла установки
+      → ✅ сделано: диалог с версией/размером/«что нового», запрет «Позже» для mandatory, экран
+      разрешения установки, разовое сообщение «обновлено: сборка N» после перезапуска, приложение
+      не блокируется офлайн (просто напоминает); для mandatory без сети — понятный текст
+      → осталось: живой прогон цепочки (чип → диалог → проценты → системный диалог → обновление →
+      «обновлено»)
+      → *критерий:* обновление с работающего приложения на новое проходит на живом устройстве
+- [x] **13.14** [FE] (P1) Тесты и линт
+      → `test/update-view.test.js` (12) + `test/update-service.test.js` (10) — фейковый `apiClient`,
+      без БД и без Capacitor; прогоны: `npm test` → **284 → 306 тестов** (36 → 38 файлов),
+      `npm run lint` → 0, `npm run build` (SPA) — ок
+      → *критерий:* как в предыдущих фазах (счёт тестов и «0» по линту) ✅
+- [ ] **13.15** [FE+BE] (P0) Документация и живой прогон
+      → ✅ сделано: README §«Обновление Android-приложения», `docs/API-INTEGRATION.md` §2.5,
+      бэкенд `docs/API.md` (контракт `AppVersionController`) и `docs/ENVIRONMENTS.md` §10
+      (публикация релиза на контуре), решение **D6** и эта фаза в трекере
+      → осталось: на dev-VPS выложить релиз (`versionCode 2`), обновить тестовое устройство с 1
+      на 2; отдельно проверить «нет разрешения на установку» → ведёт в настройки; битый хэш;
+      офлайн; `mandatory`
+      → *критерий:* обновление проходит на живом устройстве, улики — здесь же
+
+> **Фаза 13 — в работе (13.09.2026).** Код и тесты готовы, нативная часть не проверена: в окружении
+> нет JDK и Android SDK (`java -version` → «Unable to locate a Java Runtime», `ANDROID_HOME` пуст),
+> поэтому сборка APK и живой прогон — за разработчиком. Улики: BE — `php artisan test`
+> **96 passed / 687 assertions** (+12 тестов `AppVersionTest`); FE — `npm test` **306 тестов**
+> (+22), `npm run lint` — 0, `npm run build` — ок, в `dist/spa` есть код проверки версии и
+> `ApkInstaller` (но не `mockApi`).
+
+## Фаза 14 — Обратная связь: «Сообщить об ошибке» (P1/P2) — 🔧 в работе (14.1–14.7 сделаны)
+
+> Решение **D7**, контракт и цепочка целиком — `docs/FEEDBACK.md`. Фаза **не блокирует** выкат
+> (11.12) и не меняет схему синка: отчёты — отдельный контур. Постановка: мастер работает на
+> телефоне, где нет консоли; кнопка работает офлайн, а отчёт оказывается там, где его прочитает
+> разработчик **и ИИ-агент** — поэтому финальное звено это инбокс в репозитории
+> (`feedback/INBOX.md`, `npm run feedback:pull`), а не БД и не мессенджер.
+> Порядок: 14.1 → 14.2 → 14.3 → 14.4 → 14.5 → 14.6 → 14.7 (рабочая петля — ✅ сделана), 14.8–14.10 — сверху.
+
+- [x] **14.1** [FE] (P1) Постоянный буфер ошибок (`errorLog`) вместо dev-only буфера логов
+      → сейчас кольцевой буфер (12.5) живёт в памяти `src/utils/logger.js` и копится **только** в
+      dev-сборке или при включённом тумблере «режим разработчика»: мастер на боевом APK ошибок не
+      увидит, а после перезапуска не останется и следа
+      → новый `src/utils/errorLog.js`: кольцо на 100 записей `warn`/`error` (лимит сообщения — 500
+      символов), переживает перезапуск (хранилище `meta`/localStorage, как `devMode.js`), пишется
+      **всегда** и не зависит от `import.meta.env.DEV`; `logger.warn/error` дублируют туда запись
+      → новый boot-файл `src/boot/errorLog.js` (+ в `quasar.config.js` рядом с остальными boot'ами):
+      `window.onerror`, `window.onunhandledrejection`, `app.config.errorHandler` (Vue) — с экраном
+      (`router.currentRoute`) и без чувствительных данных; идемпотентность: повторная инициализация
+      не навешивает обработчики дважды
+      → *критерий:* после намеренного сбоя/`logger.error` запись видна в следующем запуске при
+      **выключенном** dev-режиме; буфер не растёт больше лимита; тесты `test/error-log.test.js`
+      → ✅ сделано: `src/utils/errorLog.js` — кольцо 100, лимит сообщения 500, дедупликация повторов
+      в окне 1 с, хранение через `utils/storage.js` (читается при старте), `logger.warn/error`
+      дублируют запись независимо от `import.meta.env.DEV`; новый boot-файл `src/boot/errorLog.js`
+      (первым в списке `quasar.config.js`) навешивает `error`/`unhandledrejection` и Vue
+      `app.config.errorHandler` идемпотентно, с экраном из роутера и цепочкой к предыдущему
+      обработчику. Тесты: `test/error-log.test.js` — 5 (лимиты/обрезка, дедуп и уровни,
+      персистентность + кольцо, браузерные перехватчики + идемпотентность, Vue-хендлер).
+
+- [x] **14.2** [FE] (P1) Локальная очередь отчётов (миграция 030 + `feedbackRepo`)
+      → отчёт должен сохраняться офлайн, как операции синка (3.3), только без FK и без «волн»
+      → миграция `src/database/migrations/030_create_feedback_reports_table.js` (идемпотентный стиль
+      как у 022/028) + запись в `src/database/migrations/index.js`; `SCHEMA_VERSION` растёт сам
+      (он = число миграций, 4.5) — обновить референс в доках, если он где-то назван числом
+      → таблица: `id` (uuid, локальный), `server_id`, `kind`, `message`, `payload` (JSON-строка),
+      `status` (`pending`/`sending`/`sent`/`failed`), `attempts`, `last_error`, `created_at`
+      → `src/database/queries/feedback.js` + `src/repositories/feedbackRepo.js`: `enqueue`,
+      `listPending`, `listAll`, `markSending`/`markPending`/`markSent`/`markFailed`, `clearAll`
+      (полный сброс/смена аккаунта — как у `operations`), обрезка `payload` перед записью
+      → *критерий:* отчёт, созданный без сети, лежит в БД после перезапуска и не теряется; статусы и
+      попытки видно в «Режиме разработчика»/диалоге; тесты миграций (`test/migrations.test.js`) и
+      репозитория (`test/feedback-queue.test.js`) зелёные
+      → ✅ сделано: миграция `030_create_feedback_reports_table.js` (+ `migrations/index.js`;
+      `SCHEMA_VERSION` = 30 считается сам от числа миграций), `src/database/queries/feedback.js`,
+      `src/repositories/feedbackRepo.js` (статусы `pending`/`sending`/`sent`/`failed`, `attempts`,
+      `last_error`, `sent_at`, `server_id`, `clearAll`); в `syncService.fullReset()` очередь отчётов
+      чистится при смене аккаунта (в отчёте есть аккаунт и профиль). Тесты: `test/migrations.test.js`
+      (таблица в схеме, версия), `test/feedback-queue.test.js` (офлайн/успех/повтор/сброс).
+
+- [x] **14.3** [FE] (P1) Чистая сборка отчёта (`src/utils/feedbackView.js`) и приватность
+      → payload не должен собираться «на месте» в диалоге: правила (лимиты, обрезка, отсутствие
+      данных мастерской) должны быть проверяемы без DOM и без сети
+      → `buildFeedbackReport({ kind, message, contact, screen, diagnostics })` — единственное место,
+      где формируется контракт `docs/FEEDBACK.md` §3; `canSubmitFeedback(text)` (3…4000),
+      `feedbackStatusView(status)` (подписи «в очереди»/«отправлено»/«не ушло»), `snapshotToText()`
+      (тот же `buildDiagnosticSnapshot` из `devInfo.js` — «снимок для поддержки», 12.5)
+      → в payload **нет** полей заказов/клиентов/сумм: список полей закрыт и проверяется тестом;
+      диагностика: `app_version` (13.5), `platform` (`utils/platform.js`), `api_url` (`config.js`),
+      `schema_version`/`schema_stored`, `account`/`profile`, `sync` (`SyncService.getStatus()`),
+      `errors` (≤ 50 из `errorLog`) и `logs` (≤ 100 из `getLogBuffer()`, только по галочке)
+      → *критерий:* тест `test/feedback-report.test.js` — контракт, лимиты, обрезка, отсутствие
+      запрещённых полей; функции чистые (без импорта БД/сети)
+      → ✅ сделано: `src/utils/feedbackView.js` — `buildFeedbackReport` (закрытый список
+      `FEEDBACK_FIELDS`, текст ≤ 4000, контакт ≤ 200, строки логов/ошибок ≤ 500, `errors` ≤ 50,
+      `logs` ≤ 100, снимок синка только по 5 известным полям), `canSubmitFeedback` (3…4000),
+      `clipText`/`limitEntries`, `feedbackStatusView`, `feedbackTextFromReport` (тот же «снимок для
+      поддержки» через `utils/devInfo.js`). Тесты: `test/feedback-report.test.js` — 7 (контракт и
+      приватность, обрезки, лимиты, типы, статусы, текст в буфер).
+
+- [x] **14.4** [FE+BE] (P1) Отправка отчёта: `feedbackService` (FE) + `POST /api/feedback` (BE)
+      → FE: `src/services/feedbackService.js` — `submit()` пишет отчёт в очередь (14.2) и пробует
+      отправить; при офлайне/таймауте остаётся `pending`, при появлении сети уходит из `flush()`
+      (зовётся рядом с синком: `App.vue`/`boot/db.js`, интерфейс не блокируется), `pendingCount()`
+      для индикации; ответы: `401` → `failed` («нужно войти», отчёт сохранён), `422` → `failed`,
+      `429`/сеть → `pending`; запросы только через `apiClient` (`src/services/api.js` — единственное
+      место сетевых вызовов), без батча и без записи в `operations`
+      → BE: таблица `feedback_reports` (`uuid_id` unique, `user_id` nullable, `kind`, `message`,
+      `contact`, `screen`, `app_version`, `platform`, `platform_version`, `device`, `api_url`,
+      `schema_version`, `schema_stored`, `account_email`, `profile_name`, `context` jsonb, `errors`
+      jsonb, `logs` jsonb, `client_created_at`, `ip`, `user_agent`, timestamps) + модель
+      `App\Models\FeedbackReport`; `app/Http/Controllers/FeedbackController.php::store` под
+      `auth:sanctum`: валидация, повторная обрезка (≤ 50/≤ 100 записей, сообщение ≤ 500, текст ≤ 4000,
+      тело ≤ 256 КБ), `user_id` из токена, идемпотентность по `uuid_id` (повтор отдаёт тот же
+      `server_id` — приём 3.5), rate limit 10/час на пользователя, ответ `201 { ok, server_id, uuid_id }`
+      → *критерий:* отчёт с телефона без сети сохраняется и уезжает сам при появлении сети; повтор
+      не создаёт дубль; тесты: `test/feedback-queue.test.js` + `tests/Feature/FeedbackTest.php`
+      (201, валидация 422, повтор идемпотентен, чужой/без токена 401, лимиты обрезаются)
+      → ✅ сделано FE: `src/services/feedbackService.js` — `submit()` (payload собирается в момент
+      отчёта, пишется в очередь, сразу попытка отправки), `flush()` (по одному отчёту, сеть/`429`/
+      `5xx` → `pending` до 5 попыток, `401/403/404/422` → `failed` с текстом ошибки, без токена входа
+      проход останавливается), `preview()`, `pendingCount()`, `listAll()`,
+      `startAutoFlush()`/`stopAutoFlush()` (включаются в `App.vue` вместе с автосинком)
+      → ✅ сделано BE (`LedgerCraftDocker03`): миграция `2026_09_20_000000_create_feedback_reports_table.php`,
+      модель `App\Models\FeedbackReport`, `FeedbackController::store` — `auth:sanctum` +
+      `throttle:10,60`, валидация полей контракта, повторная обрезка лимитов, отбрасывание «лишних»
+      полей, `user_id` из токена, идемпотентность по `uuid_id` (повтор и гонка отвечают
+      `duplicate: true` с тем же `server_id`), ответ `201 { ok, server_id, uuid_id }`
+      → проверено: FE `test/feedback-queue.test.js` — 8 (офлайн → `pending`, сеть → `sent` с
+      `server_id`, повтор не дублирует, хвост ошибок в payload, 401 → `failed`, сеть/429 → `pending`
+      с `attempts`, лимит попыток → `failed`, работа без токена); BE `tests/Feature/FeedbackTest.php`
+      (приём, идемпотентность, валидация, обрезка лимитов, 401 без токена).
+
+- [x] **14.5** [FE] (P1) UI: диалог «Сообщить об ошибке» и кнопка в «Ещё»
+      → мастер не должен искать отладку: точка входа — `src/pages/OthersPage.vue` (раздел настроек,
+      рядом с «данными и синхронизацией»), диалог — `src/pages/dialogs/FeedbackDialogPage.vue`
+      (по конвенции остальных диалогов страниц)
+      → содержимое: тип (`bug`/`suggestion`/`question`, по умолчанию `bug`), текст (3…4000, счётчик),
+      необязательный контакт, галочка «приложить диагностику» (по умолчанию включена: версия, схема,
+      платформа, состояние синка, хвост ошибок; полные логи — отдельным чекбоксом), кнопка
+      «копировать текст в буфер» (тот же «снимок для поддержки» — аварийный путь без сервера),
+      состояние отправки (`feedbackStatusView`: «в очереди»/«отправлено»/«не ушло» + причина)
+      → *критерий:* мастер отправляет отчёт за ≤ 3 тапа, в том числе без интернета, и видит, что он
+      сохранён и уйдёт позже; в payload нет данных мастерской; регресс — `test/phase12-dev.test.js`
+      или новый `test/feedback-dialog.test.js` (по разметке, как `profile-sections.test.js`)
+      → ✅ сделано: `src/pages/dialogs/FeedbackDialogPage.vue` (тип обращения, текст со счётчиком и
+      валидацией, контакт, «приложить диагностику», «приложить полные логи», «копировать текст в
+      буфер», список последних отчётов со статусом и подсказкой) + карточка «поддержка» со счётчиком
+      очереди и кнопкой «Сообщить об ошибке» в `src/pages/OthersPage.vue`; при офлайне уведомление
+      «Отчёт сохранён на устройстве — уедет автоматически», при успехе диалог закрывается. Тесты:
+      `test/feedback-dialog.test.js` — 6 (разметка диалога и настроек, boot-файл первым, `.gitignore`
+      инбокса, содержимое скрипта выгрузки).
+
+- [x] **14.6** [BE] (P1) Выгрузка отчётов для разработки и агента
+      → `GET /api/feedback?since=&limit=&status=` — под `auth:sanctum` **и** заголовком
+      `X-Feedback-Token` = `config('feedback.pull_token')` (env `FEEDBACK_PULL_TOKEN`): пользовательский
+      токен сам по себе чужих отчётов не отдаёт; ответ — JSON-массив с `server_id`, `uuid_id`,
+      автором, статусом и полным `payload`
+      → `php artisan feedback:export [--since=] [--md]` — дайджест-файл на сервере (путь через SSH,
+      когда HTTPS-выгрузки нет); P2 `PATCH /api/feedback/{uuid_id}` — статус разбора
+      (`new`/`read`/`accepted`/`rejected`), чтобы один отчёт не заводили дважды
+      → *критерий:* свежие отчёты выгружаются одной командой; без `X-Feedback-Token` (или с чужим)
+      — `403`; тесты в `tests/Feature/FeedbackTest.php` (выдача, фильтр `since`, 403)
+      → ✅ сделано: `GET /api/feedback` (`FeedbackController::index`) и `PATCH /api/feedback/{uuidId}`
+      под middleware `App\Http\Middleware\EnsureFeedbackPullToken` (алиас `feedback.pull`) — доступ
+      **только** по `X-Feedback-Token`, вне `auth:sanctum`: неверный токен → `403`, пустой в конфиге →
+      `503`; фильтры `since`/`status`/`limit` (1…500), ответ `{ count, reports: [{ server_id, uuid_id,
+      user_id, status, created_at, payload }] }`; `config/feedback.php` (+ `FEEDBACK_PULL_TOKEN`,
+      `FEEDBACK_RATE_LIMIT_PER_HOUR`, `FEEDBACK_EXPORT_DIR` в `.env.example`/`env.production`); запасной
+      путь — команда `php artisan feedback:export [--since=] [--md] [--out=]` (JSON + дайджест);
+      статус разбора с заметкой (`resolution_note`) — чтобы отчёт не заводили дважды
+      → проверено: `FeedbackTest` — 403 без/с чужим токеном (в т.ч. с пользовательским bearer),
+      выдача двух отчётов с payload, фильтр `since` (пустая выдача), `400` на неизвестный статус,
+      `PATCH` (accepted + заметка, 404 на неизвестный отчёт, 422 на чужой статус), команда экспорта
+      (два файла, содержимое); `php artisan test` → **105 passed**, 740 assertions.
+
+- [x] **14.7** [FE] (P1) Инбокс в репозитории: `npm run feedback:pull` → `feedback/INBOX.md`
+      → агент читает файлы рабочего каталога, а не БД и не переписку, поэтому отчёты должны
+      материализоваться в репо: `scripts/pull-feedback.mjs` (Node, без новых зависимостей — `fetch`
+      + `fs`) тянет `GET /api/feedback` с pull-токеном и раскладывает
+      `feedback/inbox/<дата>-<короткий-uuid>.md`, собирает `feedback/INBOX.md` (свежие сверху: тип,
+      дата, аккаунт/профиль, версия, текст, хвост ошибок, «сырой отчёт»), ведёт уже выгруженные
+      `uuid_id` в `feedback/.pulled.json`, чтобы повтор не дублировал записи; `--all` (заново всё) и
+      `--file=<путь>` (положить отчёт, присланный вручную — аварийный путь 14.5) → в `package.json`
+      скрипт `feedback:pull`
+      → `.env.local`: `FEEDBACK_PULL_TOKEN` (адрес берётся из `VITE_API_URL`); каталог `feedback/` с
+      `README.md` уже заведён, `INBOX.md`/`inbox/` — в `.gitignore`, `DECISIONS.md` — в git
+      → *критерий:* `npm run feedback:pull` кладёт только что отправленный отчёт в `feedback/INBOX.md`;
+      повторный запуск не дублирует; отчёт читается без SSH и без БД; без токена — понятная ошибка
+      → ✅ сделано: `scripts/pull-feedback.mjs` + скрипт `feedback:pull` в `package.json`: читает
+      `VITE_API_URL`/`FEEDBACK_PULL_TOKEN` из `.env.local`/`.env` (или `--api=`/`--token=`), тянет
+      `GET /api/feedback` (курсор `since` из `.pulled.json`), пишет `feedback/inbox/<штамп>-<id>.md` с
+      полным отчётом, собирает дайджест `feedback/INBOX.md` (свежие сверху) и поддерживает
+      `--all`/`--file=`(отчёт, присланный вручную)/`--since=`; без токена и при `403` — понятные
+      сообщения. Сырые отчёты и дайджест — в `.gitignore`, правила разбора — `feedback/README.md`.
+
+- [ ] **14.8** [FE] (P2) Авто-отчёт о сбое — с явным согласием мастера
+      → необработанное исключение уже попадает в `errorLog` (14.1), но мастер о нём не знает
+      → при следующем запуске, если есть незакрытая запись уровня `error`/`crash` и отчёт ещё не
+      отправлен, показать ненавязчивый чип/диалог «приложение в прошлый раз закрылось с ошибкой —
+      отправить отчёт?» (текст заготовлен, кнопки «отправить»/«не сейчас», повтор не навязывается)
+      → *критерий:* падение не остаётся незамеченным, но отправка **не** происходит без действия
+      мастера (приватность, `docs/FEEDBACK.md` §4); тест на «не спрашивать дважды»
+
+- [ ] **14.9** [FE] (P2) Журнал разбора отчётов и правило «ни одного отчёта в воздухе»
+      → отчёт бесполезен, если его выгрузили и забыли; нужна та же дисциплина, что у чек-листа 11.5
+      → `feedback/DECISIONS.md` (в git, без персональных данных): таблица «отчёт → вердикт
+      (баг/не баг/предложение) → задача (`TODO.md` ID) / объяснение отказа → дата»; правило — в
+      `feedback/README.md` и краткая ссылка из «Правил» этого файла
+      → *критерий:* после выгрузки у каждого отчёта есть строка вердикта; отчёты, ставшие задачами,
+      ссылаются на файл отчёта в коммите
+      → 🔧 заготовка есть: `feedback/DECISIONS.md` создан, правило записано в «Правилах» и в
+      `feedback/README.md`; осталось наполнить на первом живом отчёте (зависит от 14.10)
+
+- [ ] **14.10** [FE+BE] (P1) Документация и живая приёмка
+      → `docs/FEEDBACK.md` (контракт и цепочка), `docs/API-INTEGRATION.md` §2.6 (ручки приёма/выгрузки),
+      `docs/ARCHITECTURE.md` §10 + таблица ролей файлов, `docs/FRONTEND.md` §11, `docs/PLAN.md` §Фаза 14,
+      `README.md` (раздел + команда `feedback:pull`), `TODO.md` §Решения (D7 — уже есть);
+      серверные доки — `LedgerCraftDocker03/docs/API.md`, `docs/DB.md`
+      → живой прогон на dev-VPS: отчёт с телефона (офлайн → онлайн) доезжает до сервера и появляется
+      в `feedback/INBOX.md` после `npm run feedback:pull`
+      → *критерий:* критерии `docs/FEEDBACK.md` §11 выполнены; `npm test` и `npm run lint` — 0;
+      `php artisan test` зелёный (`FeedbackTest`); отчёт об ошибке, отправленный вживую, прочитан
+      агентом и разобран записью в `feedback/DECISIONS.md`
+      → 🔧 документация сделана: `docs/FEEDBACK.md`, `docs/API-INTEGRATION.md` §2.6,
+      `docs/ARCHITECTURE.md` §10, `docs/FRONTEND.md` §11, `docs/PLAN.md` §Фаза 14, `README.md`,
+      `feedback/README.md`; серверные — `LedgerCraftDocker03/docs/API.md` §5 и `docs/DB.md`.
+      Прогоны: FE `npm test` → **348 тестов** (43 файла), `npm run lint` — 0; BE `php artisan test` →
+      **105 passed**, 740 assertions. Осталось: накатить миграцию и `FEEDBACK_PULL_TOKEN` на dev-VPS,
+      собрать APK и прогнать живой отчёт с телефона (офлайн → онлайн) до `feedback/INBOX.md`.
+
+> **Рабочая петля Фазы 14 сделана (13.09.2026):** 14.1–14.7 (клиент + сервер). Итог прогонов:
+> FE `npm test` — **348 тестов** (было 322; новые файлы `test/error-log.test.js`,
+> `test/feedback-report.test.js`, `test/feedback-queue.test.js`, `test/feedback-dialog.test.js`),
+> `npm run lint` — 0; BE `php artisan test` — **105 passed**, 740 assertions (было 96; новый
+> `tests/Feature/FeedbackTest.php` — 9 тестов). Остались 14.8 (авто-отчёт о сбое с согласием),
+> 14.9 (правило разбора — заготовка есть) и 14.10 (живой прогон на dev-VPS + сборка APK).
+> ⚠️ на сервере нужно один раз: миграция `2026_09_20_000000` + `FEEDBACK_PULL_TOKEN` в env;
+> на клиенте — тот же токен в `.env.local` для `npm run feedback:pull`.
+
 ## Ориентир по бэкенду (без отдельного чек-листа)
 
 Бэкенд — Laravel-репозиторий `LedgerCraftDocker03` рядом с фронтом (обе папки в `.code-workspace`).
@@ -1616,6 +2019,9 @@ BE: миграции полей профиля, `template_key`, `equipment_ident
 | Фаза 1.3 IndexedDB-ветка хранилища | ✅ исправлено (11.6, 12.09.2026) | найдено живым прогоном 11.5 на **пустом localStorage** (перед прогоном почистили storage): `load()` падал `NotFoundError: One of the specified object stores was not found` и **не завершался**, `boot/db.js` висел на `await adapter.init()` → SPA показывала чёрный экран (в консоли обрыв после `[DB] Boot start`). Три дефекта в `src/database/adapters/storage-adapter.js`: (1) `db.transaction('readonly')`/`('readwrite')` — режим передан первым аргументом вместо имени стора (нужно `transaction(IDB_STORE_NAME, mode)`); (2) не было `onupgradeneeded` → стор `kv` не создавался никогда; (3) завершение ждали через `tx.done` (API Dexie) вместо `oncomplete`/`onerror`/`onabort`, а исключение летело из `onsuccess` мимо `try` — промис не завершался. Теперь: `openIdb()` (версия 2 + создание стора + лечение «битой» БД без стора пересозданием) и `withStore()` (промис завершается всегда, `db.close()`), `load()` деградирует к пустой БД + страховка по времени 3 с. Тесты: `test/storage-adapter.test.js` (8) + честный фейк `test/helpers/fakeIndexedDB.js`; регресс подтверждён мутацией — с прежним вызовом транзакции round-trip через IndexedDB падает с тем же `NotFoundError`. `npm test` → **215 тестов**, lint 0, SPA-сборка ok |
 | `QPage` вне `QLayout` (`/login`, `/register`) | ✅ исправлено (11.6, 12.09.2026) | находка живого прогона 11.5: экран входа не монтировался (`[Vue warn] QPage needs to be a deep child of QLayout`), а индикатор «требуется вход» вёл на уже открытый (и пустой) `/login` — со стороны выглядело как «кнопка с замком не реагирует». Причина: `/login` и `/register` — маршруты **верхнего уровня** (вне `MainLayout`), а корнем их шаблонов был `<q-page>`. Оба шаблона обёрнуты в `QLayout` + `QPageContainer` (с пояснением в комментарии), добавлен структурный тест `test/pages-layout.test.js` — идёт по реальному `src/router/routes.js` и требует каркас от каждой страницы вне `MainLayout`, использующей `<q-page>` (5 тестов) |
 | Двойная Pinia | ✅ исправлено (11.6, 12.09.2026) | находка живого прогона 11.5: `[Vue warn] App already provides property with key "Symbol(pinia)"`. Quasar сам ставит стор из `src/stores/index.js` (`.quasar/<mode>/app.js` → `app.use(store)` **до** boot-файлов), а `src/boot/pinia.js` создавал вторую инстанцию (риск разъехавшегося состояния у `useStore()` из разных мест). Boot-файл удалён, из `quasar.config.js` убран пункт `pinia` с комментарием-ссылкой на сгенерированный entry |
+| Правки живого прогона (FE) | ✅ сделано (13.09.2026) | (1) **карточка заказа**: убрана плавающая кнопка создания — на вкладке «работы» дублировалось «Новая работа» (кнопка в `OrderServicesPanel` + FAB; страница объявляет свой `QLayout` без таббара, поэтому `.lc-fab` висел в 76px от края); переключатели статуса/оплаты сведены к одному компактному ряду (`OrderHeaderActions.vue`: `dense` + `min-height: 28px`/`font-size: 12px`), «оплачено» стало таким же `q-btn-toggle` (одна опция + `clearable`), а не отдельной кнопкой; (2) **Android**: контент уезжал под системные панели (Android 15, `targetSdk 35` — edge-to-edge принудительный, а Capacitor по умолчанию отступы не применяет) → `android.adjustMarginsForEdgeToEdge: "auto"` в `src-capacitor/capacitor.config.json` (+ копия в `android/app/src/main/assets`), тема `AppTheme.NoActionBar` — чёрные фон окна/статус-бар/навигация и светлые иконки. Регрессы: `test/phase12-profile.test.js` (11 тестов, было 8); `npm test` → **309 тестов** (38 файлов), `npm run lint` — 0, SPA-сборка ok. ⚠️ Android-часть ждёт `npx cap sync android` и живого прогона на устройстве (JDK/SDK в окружении нет) |
+| Разделы профиля настраивает пользователь (FE) | ✅ сделано (13.09.2026) | Доработка 10.3: карточка «разделы профиля» в «Ещё» была read-only — флаги приходили только из пресета. Теперь это тумблеры: новый экшен стора `setFeatures(id, features)` пишет `specializations.features` (тот же JSON, что при создании профиля, поэтому выбор уезжает синком обычной `update`-операцией), а `resolveFeatures`/`featureGuard` сразу меняют состав вкладок и доступность URL. Пояснения к флагам — `FEATURE_HINTS` (`src/domain/features.js`). Попутно флаги, которые не были подключены к UI, стали рабочими: `shareLink` → кнопка share в `OrderHeaderActions.vue` (`showShare`), `store` → «Добавить товар со склада» в `OrderMaterialsPanel.vue` (`showStoreProducts`). Из `CatalogPage.vue` убрана кнопка «Начать с шаблона» и её логика (`startFromTemplate`/`templateBusy`): профиль создаётся из пресета сразу с готовым каталогом (12.1), осталась ссылка в управление профилями. Тесты: новый `test/profile-sections.test.js` (3 логических на sql.js + 4 структурных), `test/features.test.js` дополнен проверкой `FEATURE_HINTS` |
+
 
 Коммиты: `8ba14f0` — Фаза 3 (3.1–3.3), `36cb4b0` — 3.4, `85ab900` — 3.7, `f4dff1f` — 3.6 (FE-часть),
 3.5 — FE `aa9b986` + BE `5dc96fc`, 3.6 (BE-часть) — `f21ffd6`, 3.8 — FE `ea3e72c` + BE `e82d435`,

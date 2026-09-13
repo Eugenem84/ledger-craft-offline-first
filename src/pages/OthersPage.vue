@@ -9,21 +9,32 @@ import { createBackup, getLastBackupAt, listBackups, restoreBackup } from 'src/s
 import { isNativePlatform } from 'src/utils/platform.js'
 import { useAuthStore } from 'src/stores/useAuthStore.js'
 import { useSpecializationsStore } from 'src/stores/useSpecializationsStore.js'
+import { useUpdateStore } from 'src/stores/useUpdateStore.js'
+import { devModeEnabled, setDevMode } from 'src/utils/devMode.js'
 import { PRESETS } from 'src/domain/presets/index.js'
-import { resolveFeatures, FEATURE_LABELS } from 'src/domain/features.js'
+import { resolveFeatures, FEATURE_LABELS, FEATURE_HINTS } from 'src/domain/features.js'
+// Обратная связь (Фаза 14, задача 14.5): очередь отчётов «Сообщить об ошибке».
+import feedbackService from 'src/services/feedbackService.js'
 // Общие UI-элементы и подтверждение разрушительных действий (переработка интерфейса).
 import DeleteConfirmPage from 'pages/dialogs/DeleteConfirmPage.vue'
+import FeedbackDialogPage from 'pages/dialogs/FeedbackDialogPage.vue'
 import LcPageHeader from 'src/components/ui/LcPageHeader.vue'
 import LcSectionCard from 'src/components/ui/LcSectionCard.vue'
 import LcDialogShell from 'src/components/ui/LcDialogShell.vue'
+// Обновление приложения (Фаза 13, задача 13.9).
+import UpdateDialog from 'src/components/UpdateDialog.vue'
 
-// Задача 12.5: «Режим разработчика» — только dev-сборка. Флаг и динамический
-// импорт стоят под «точечным» `import.meta.env.DEV`: в проде Vite подставляет
-// `false`, условие сворачивается, и чанк панели в бандл не попадает.
-const DeveloperPanel =
-  import.meta.env.DEV === true
-    ? defineAsyncComponent(() => import('src/components/dev/DeveloperPanel.vue'))
-    : null
+// «Режим разработчика» (задача 12.5; доработка). Панель доступна всегда, но
+// подгружается лениво и показывается, только когда включён тумблер в настройках
+// (`utils/devMode.js`). Так логи и диагностику можно снять прямо на боевом APK,
+// где нет консоли разработчика. В обычной работе чанк панели не грузится.
+const DeveloperPanel = defineAsyncComponent(() => import('src/components/dev/DeveloperPanel.vue'))
+
+/** Тумблер: пишет флаг в storage, поэтому выбор переживает перезапуск. */
+const devMode = computed({
+  get: () => devModeEnabled.value,
+  set: value => setDevMode(value),
+})
 
 const $q = useQuasar()
 const router = useRouter()
@@ -41,6 +52,24 @@ const signOut = async () => {
 // 1. Получаем экземпляр хранилища
 const specializationsStore = useSpecializationsStore()
 
+// --- Обновление приложения (Фаза 13, задачи 13.9/13.10) ----------------------
+// Своя версия, статус фоновой проверки и кнопки «Проверить обновление» /
+// «Обновить». Скачивание и системную установку показывает `UpdateDialog`.
+const update = useUpdateStore()
+const updateDialogOpen = ref(false)
+const updateChecking = computed(() => update.status.checking)
+
+const checkUpdates = async () => {
+  await update.checkNow()
+
+  $q.notify({
+    type: update.status.available ? 'info' : 'positive',
+    message: update.statusText,
+    position: 'top',
+    timeout: 2500,
+  })
+}
+
 // --- Управление рабочими профилями (Фаза 10, задача 10.8; Фаза 12, 12.1/12.2) ---
 // Активный профиль переключается в шапке (`MainLayout.vue`). Здесь можно добавить
 // **ещё одну** специализацию — только выбором из доступных ниш: у нового профиля
@@ -49,11 +78,45 @@ const specializationsStore = useSpecializationsStore()
 // удаляем: у серверных `categories`/`product_categories` FK на `specializations`
 // с `onDelete('cascade')`, физическое удаление снесло бы весь каталог.
 const newProfilePreset = ref(null)
+// Диалог выбора ниши: открывается кнопкой «+ специализация». Держим отдельным флагом,
+// чтобы не открывать селектор в самой странице — на узком экране окно удобнее.
+const newProfileDialogOpen = ref(false)
 const busy = ref(false)
+
+const openNewProfileDialog = () => {
+  newProfilePreset.value = null
+  newProfileDialogOpen.value = true
+}
 
 const activeSpecialization = computed(() => specializationsStore.getSelectedSpecialization)
 const archivedItems = computed(() => specializationsStore.items.filter(item => item.archived))
 const activeFeatures = computed(() => resolveFeatures(activeSpecialization.value))
+
+/**
+ * Тумблеры разделов (10.3; доработка): пользователь сам выбирает, какие разделы
+ * нужны текущей специализации. Пишем в `specializations.features` — тот же JSON,
+ * что при создании профиля, поэтому выбор уезжает синком как обычная правка.
+ */
+const setFeature = async (flag, value) => {
+  const specialization = activeSpecialization.value
+  if (!specialization) return
+
+  try {
+    await specializationsStore.setFeatures(specialization.id, {
+      ...activeFeatures.value,
+      [flag]: value,
+    })
+  } catch (error) {
+    console.error('Ошибка сохранения разделов профиля:', error)
+    $q.notify({
+      type: 'negative',
+      message: 'Не удалось сохранить разделы профиля',
+      position: 'top',
+      timeout: 1500,
+    })
+  }
+}
+
 const presetOptions = computed(() =>
   PRESETS.map(preset => ({ label: preset.label, value: preset.key, icon: preset.icon }))
 )
@@ -65,6 +128,7 @@ const addProfile = async () => {
   try {
     await specializationsStore.createFromPreset(newProfilePreset.value)
     newProfilePreset.value = null
+    newProfileDialogOpen.value = false
     $q.notify({
       type: 'positive',
       message: 'Специализация добавлена',
@@ -119,7 +183,28 @@ const selectedSpecialization = computed({
 onMounted(async () => {
   await specializationsStore.load() // Первая специализация будет выбрана по умолчанию в сторе
   lastBackupAtValue.value = await getLastBackupAt()
+  await refreshFeedbackPending()
 })
+
+// --- Обратная связь (Фаза 14, задача 14.5) -----------------------------------
+// Диалог сам показывает историю отчётов и статус отправки; странице остаётся
+// открыть его и показать, сколько отчётов ещё лежит в очереди.
+const feedbackDialog = ref(null)
+const feedbackPending = ref(0)
+
+async function refreshFeedbackPending() {
+  try {
+    feedbackPending.value = await feedbackService.pendingCount()
+  } catch (error) {
+    // Счётчик — не повод ломать страницу настроек: показываем ноль и пишем в лог.
+    logger.warn('[Feedback] Не удалось прочитать очередь отчётов:', error?.message)
+    feedbackPending.value = 0
+  }
+}
+
+const openFeedback = () => {
+  feedbackDialog.value?.open()
+}
 
 const sync = async () => {
   try {
@@ -249,26 +334,17 @@ const confirmRestore = () => {
 
         <q-separator dark class="q-my-sm" />
 
-        <div class="lc-eyebrow">добавить ещё одну специализацию</div>
-        <q-select
-          v-model="newProfilePreset"
-          :options="presetOptions"
-          label="Специализация"
-          outlined
-          dense
-          emit-value
-          map-options
-          color="secondary"
-        />
+        <!-- Кнопка вместо селектора прямо на странице: по нажатию открывается
+             диалог с выбором ниши (задача 12.1/12.2). -->
         <q-btn
-          size="sm"
+          class="full-width"
           no-caps
-          outline
+          unelevated
           color="secondary"
+          text-color="black"
+          icon="add"
           label="Добавить ещё одну специализацию"
-          :loading="busy"
-          :disable="!newProfilePreset"
-          @click="addProfile"
+          @click="openNewProfileDialog"
         />
         <div class="text-caption lc-mute">
           Выбрать можно только из доступных ниш — каталог и разделы появятся сразу.
@@ -312,28 +388,83 @@ const confirmRestore = () => {
       </div>
     </LcSectionCard>
 
-    <!-- Разделы профиля — только просмотр (10.3): пресет задаётся при создании профиля. -->
-    <LcSectionCard title="разделы профиля" icon="visibility">
+    <!-- Разделы профиля (10.3; доработка): пользователь сам включает/выключает разделы
+         текущей специализации. Значение пишется в `specializations.features` и уезжает
+         синком — состав вкладок (`MainLayout.vue`) и блоков заказа читает те же флаги. -->
+    <LcSectionCard title="разделы профиля" icon="tune">
       <div class="q-gutter-y-sm">
+        <div class="text-caption lc-mute">
+          Включите разделы, которые нужны этой специализации. Выбор применяется сразу
+          и синхронизируется с сервером.
+        </div>
+
         <div
           v-for="(label, flag) in FEATURE_LABELS"
           :key="flag"
-          class="row items-center no-wrap text-caption"
+          class="row items-center no-wrap"
         >
-          <q-icon
-            :name="activeFeatures[flag] ? 'check_circle' : 'visibility_off'"
-            size="16px"
-            :color="activeFeatures[flag] ? 'positive' : 'grey-6'"
-            class="q-mr-sm"
+          <div class="col">
+            <div class="lc-muted">{{ label }}</div>
+            <div class="text-caption lc-mute">{{ FEATURE_HINTS[flag] }}</div>
+          </div>
+          <q-toggle
+            :model-value="activeFeatures[flag] !== false"
+            color="secondary"
+            :disable="!activeSpecialization"
+            @update:model-value="value => setFeature(flag, value)"
           />
-          <span class="lc-muted">{{ label }}</span>
-          <q-space />
-          <span class="lc-mute">{{ activeFeatures[flag] ? 'включено' : 'скрыто' }}</span>
+        </div>
+
+        <div v-if="!activeSpecialization" class="text-caption lc-mute">
+          Нет активного профиля — сначала добавьте специализацию.
         </div>
       </div>
     </LcSectionCard>
 
-    <!-- Синхронизация и бэкап: индикатор состояния живёт внизу экрана. -->
+    <!-- Обновление приложения (Фаза 13, задача 13.9): своя версия, статус проверки
+         и кнопка «Обновить». Скачивание и системную установку ведёт `UpdateDialog`. -->
+    <LcSectionCard title="приложение" icon="system_update">
+      <div class="q-gutter-y-sm">
+        <div class="row items-center no-wrap">
+          <div class="col">
+            <div class="lc-muted">Версия {{ update.currentLabel }}</div>
+            <div class="text-caption lc-mute">{{ update.statusText }}</div>
+          </div>
+          <q-btn
+            flat
+            dense
+            no-caps
+            size="sm"
+            color="secondary"
+            icon="refresh"
+            label="проверить"
+            :loading="updateChecking"
+            @click="checkUpdates"
+          />
+        </div>
+
+        <div v-if="update.releaseNotes" class="text-caption lc-mute">
+          Что нового: {{ update.releaseNotes }}
+        </div>
+
+        <q-btn
+          v-if="update.canUpdate"
+          class="full-width"
+          no-caps
+          outline
+          :color="update.view.kind === 'mandatory' ? 'deep-orange' : 'secondary'"
+          icon="system_update_alt"
+          :label="`Обновить до ${update.releaseLabel}`"
+          @click="updateDialogOpen = true"
+        />
+
+        <div class="text-caption lc-mute">
+          Файл обновления скачивается с сервера мастерской; данные и настройки сохраняются.
+        </div>
+      </div>
+    </LcSectionCard>
+
+    <!-- Синхронизация и бэкап: индикатор состояния живёт в шапке (`SyncStatusBar`). -->
     <LcSectionCard title="данные и синхронизация" icon="cloud_sync">
       <div class="q-gutter-y-sm">
         <q-btn
@@ -378,9 +509,45 @@ const confirmRestore = () => {
       </div>
     </LcSectionCard>
 
-    <!-- Режим разработчика (задача 12.5): только dev-сборка. `DeveloperPanel`
-         равен `null` в проде, поэтому секции там нет вовсе. -->
-    <component :is="DeveloperPanel" v-if="DeveloperPanel" />
+    <!-- Обратная связь (Фаза 14, задача 14.5): отчёт уходит разработчику вместе с
+         диагностикой. Без сети он остаётся в локальной очереди и уезжает сам. -->
+    <LcSectionCard title="поддержка" icon="support_agent">
+      <div class="q-gutter-y-sm">
+        <q-btn
+          class="full-width"
+          no-caps
+          outline
+          color="secondary"
+          icon="bug_report"
+          label="Сообщить об ошибке"
+          @click="openFeedback"
+        />
+        <div class="text-caption lc-mute">
+          К отчёту прикладывается диагностика: версия приложения, версия схемы, состояние
+          синхронизации и последние ошибки. Заказы, клиенты и суммы не отправляются.
+        </div>
+        <div v-if="feedbackPending" class="text-caption lc-mute">
+          В очереди: {{ feedbackPending }} — уедет при появлении сети.
+        </div>
+        <div v-else class="text-caption lc-mute">Очередь отчётов пуста.</div>
+      </div>
+    </LcSectionCard>
+
+    <!-- Режим разработчика (задача 12.5; доработка): тумблер в настройках, панель
+         (логи/диагностика/очередь) появляется под ним и подгружается лениво. -->
+    <LcSectionCard title="разработка" icon="bug_report">
+      <div class="row items-center no-wrap">
+        <div class="col">
+          <div class="lc-muted">Режим разработчика</div>
+          <div class="text-caption lc-mute">
+            Логи, диагностика и очередь синка. Выбор запоминается на устройстве.
+          </div>
+        </div>
+        <q-toggle v-model="devMode" color="secondary" />
+      </div>
+    </LcSectionCard>
+
+    <component :is="DeveloperPanel" v-if="devMode" />
 
     <LcSectionCard title="аккаунт" icon="person">
       <div class="q-gutter-y-sm">
@@ -436,6 +603,39 @@ const confirmRestore = () => {
         Бэкапов не найдено — сначала создайте бэкап.
       </div>
     </LcDialogShell>
+
+    <!-- Диалог добавления специализации (задача 12.1/12.2): выбор ниши из доступных
+         пресетов. Сама страница селектор больше не показывает. -->
+    <LcDialogShell
+      v-model="newProfileDialogOpen"
+      title="Ещё одна специализация"
+      subtitle="выберите нишу из доступных"
+      confirm-label="Добавить"
+      :confirm-disable="!newProfilePreset"
+      :loading="busy"
+      @confirm="addProfile"
+    >
+      <q-select
+        v-model="newProfilePreset"
+        :options="presetOptions"
+        label="Специализация"
+        outlined
+        dense
+        emit-value
+        map-options
+        color="secondary"
+      />
+      <div class="text-caption lc-mute q-mt-sm">
+        Каталог, лексикон и разделы появятся сразу. Переименовать профиль или сменить
+        его пресет позже нельзя — можно переключить активный или добавить ещё нишу.
+      </div>
+    </LcDialogShell>
+
+    <!-- Диалог обновления (задача 13.13): версия, «что нового», прогресс, установка. -->
+    <UpdateDialog v-model="updateDialogOpen" />
+
+    <!-- Диалог «Сообщить об ошибке» (Фаза 14): форма + очередь последних отчётов. -->
+    <FeedbackDialogPage ref="feedbackDialog" @changed="refreshFeedbackPending" />
 
     <DeleteConfirmPage ref="dangerConfirm" />
   </q-page>

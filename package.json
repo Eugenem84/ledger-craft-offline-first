@@ -13,10 +13,16 @@
     "test:watch": "vitest",
     "dev": "quasar dev",
     "build": "quasar build",
+    "release:android": "bash scripts/release-apk.sh",
+    "feedback:pull": "node scripts/pull-feedback.mjs",
+    "landing:serve": "node scripts/serve-landing.mjs",
+    "landing:publish": "bash scripts/publish-landing.sh",
     "postinstall": "quasar prepare"
   },
   "dependencies": {
     "@capacitor-community/sqlite": "^7.0.3",
+    "@capacitor/app": "^7.1.2",
+    "@capacitor/browser": "^7.0.5",
     "@capacitor/core": "^7.6.9",
     "@capacitor/filesystem": "^7.1.8",
     "@quasar/extras": "^1.16.4",

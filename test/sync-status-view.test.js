@@ -14,7 +14,7 @@ describe('6.2 представление состояния синка', () => {
     expect(view.label).toBe('требуется вход')
   })
 
-  it('нет интернета — высший приоритет', () => {
+  it('нет сети — высший приоритет', () => {
     const view = syncStatusView({
       online: false,
       syncing: true,
@@ -23,7 +23,7 @@ describe('6.2 представление состояния синка', () => {
     })
 
     expect(view).toMatchObject({ kind: 'offline', icon: 'cloud_off' })
-    expect(view.label).toBe('нет интернета')
+    expect(view.label).toBe('нет сети')
   })
 
   it('идёт синхронизация — спиннер', () => {

@@ -22,6 +22,7 @@ import * as productCategoriesRepo from 'src/repositories/productCategoriesRepo.j
 import * as productsRepo from 'src/repositories/productsRepo.js'
 
 import * as analyticsRepo from 'src/repositories/analyticsRepo.js'
+import * as orderServiceRepo from 'src/repositories/orderServiceRepo.js'
 import { useAnalyticsStore } from 'src/stores/useAnalyticsStore.js'
 import { useSpecializationsStore } from 'src/stores/useSpecializationsStore.js'
 import { getPeriodRange, orderCost, orderMargin, statusBreakdown, summarize } from 'src/utils/analytics.js'
@@ -194,6 +195,31 @@ describe('9.1 analyticsRepo: цифры как на сервере', () => {
     expect(Number(materials[0].quantity)).toBe(2)
     expect(Number(materials[0].total)).toBe(100)
     expect(Number(materials[0].margin)).toBe(60) // 2 × (50 − 20)
+  })
+
+  // Регрессия живого прогона: работы, добавленные **офлайн** реальным путём формы
+  // (`orderServiceRepo.add`), должны сразу попадать в выручку и топы. Раньше
+  // `sale_price` уезжал в БД как `NULL`, и аналитика считала работы нулём.
+  it('работы, добавленные офлайн, считаются без ожидания синка', async () => {
+    const workshop = await seedWorkshop()
+    await insertOrder({
+      id: 'offline',
+      specializationId: workshop.specializationId,
+      clientId: workshop.clientId,
+    })
+
+    await orderServiceRepo.add('offline', workshop.serviceId, 300)
+
+    const orders = await analyticsRepo.getOrders(workshop.specializationId)
+    const offline = orders.find(order => order.id === 'offline')
+
+    expect(Number(offline.services_total)).toBe(300)
+
+    const { from, to } = getPeriodRange('month')
+    const services = await analyticsRepo.getTopServices(workshop.specializationId, from, to)
+
+    expect(services[0].name).toBe('Замена масла')
+    expect(Number(services[0].total)).toBe(300)
   })
 
   it('распределение по статусам: 3 закрытых и 1 в ожидании (удалённый не считаем)', async () => {

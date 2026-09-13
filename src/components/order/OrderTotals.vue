@@ -24,7 +24,7 @@ const markupText = computed(() =>
 </script>
 
 <template>
-  <div class="lc-totals q-pa-md">
+  <div class="lc-totals lc-pad">
     <div class="lc-totals-row">
       <span class="lc-muted">работы</span>
       <span class="lc-money">{{ servicesTotal }} р</span>

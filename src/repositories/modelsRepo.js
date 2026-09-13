@@ -17,6 +17,26 @@ export async function getAll() {
   return rows
 }
 
+/**
+ * Модели техники активного профиля (Фаза 10, строгий фильтр).
+ *
+ * У модели две формы FK (`specialization_id` — локальный UUID,
+ * `specialization_server_id` — серверный id), поэтому ищем по обеим:
+ * `server_id` специализации достаём из её локальной строки.
+ *
+ * @param {string} specializationId локальный UUID специализации
+ * @returns {Promise<Array>}
+ */
+export async function getBySpecializationId(specializationId) {
+  const spec = await dbAdapter.queryOne(
+    'SELECT server_id FROM specializations WHERE id = ?',
+    [specializationId]
+  );
+  const serverId = spec ? spec.server_id : null;
+
+  return dbAdapter.query(queries.getBySpecializationId, [specializationId, serverId]);
+}
+
 export async function findByServerId(serverId) {
   const result = await dbAdapter.query(queries.findByServerId, [serverId]);
   return result.length > 0 ? result[0] : null;

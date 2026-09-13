@@ -2,6 +2,12 @@ export default {
   getAll: `
     SELECT * FROM equipment_models
   `,
+  // Строгий фильтр по рабочему профилю (Фаза 10). У модели две формы FK —
+  // локальный UUID и серверный id, — поэтому параметров два.
+  getBySpecializationId: `
+    SELECT * FROM equipment_models
+    WHERE specialization_id = ? OR specialization_server_id = ?
+  `,
   getById: `
     SELECT * FROM equipment_models
     WHERE id = ?

@@ -186,20 +186,32 @@ describe('5.3 orderServiceRepo', () => {
     const serviceId = await servicesRepo.save({ service: 'Работа', price: 500, category_id: categoryId })
     const orderId = await ordersRepo.save({ total_amount: 100 })
 
-    await orderServiceRepo.add(orderId, serviceId)
+    await orderServiceRepo.add(orderId, serviceId, 500)
     const line = await db.queryOne('SELECT * FROM order_service WHERE order_id = ?', [orderId])
 
     return { orderId, serviceId, line }
   }
 
-  it('add кладёт строку связки и INSERT-операцию', async () => {
+  it('add кладёт строку связки (с ценой работы) и INSERT-операцию', async () => {
     const { orderId, serviceId, line } = await addLine()
 
-    expect(line).toMatchObject({ order_id: orderId, service_id: serviceId, quantity: 1, server_id: null })
+    // `sale_price` пишем сразу: иначе офлайн-аналитика считает работы нулём до синка.
+    expect(line).toMatchObject({
+      order_id: orderId,
+      service_id: serviceId,
+      quantity: 1,
+      sale_price: 500,
+      server_id: null,
+    })
 
     const insertOp = (await queue()).find(operation => operation.table === 'order_service')
     expect(insertOp).toMatchObject({ type: 'insert', table: 'order_service' })
-    expect(insertOp.payload).toEqual({ local_id: line.id, order_id: orderId, service_id: serviceId })
+    expect(insertOp.payload).toEqual({
+      local_id: line.id,
+      order_id: orderId,
+      service_id: serviceId,
+      sale_price: 500,
+    })
   })
 
   it('remove строки, уехавшей на сервер, ставит delete по натуральному ключу (3.5)', async () => {

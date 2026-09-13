@@ -238,6 +238,73 @@ Headers: X-Sync-ID: <uuid устройства>
 (`SyncController::stripClientFields`), иначе правка заказа с клиента (у него токена нет, он
 прислал бы `null`) затирала бы уже выданную ссылку.
 
+## 2.5. `GET /api/app-version` — версия приложения и раздача APK
+
+Задача 13.1. Эндпоинт обслуживает самообновление Android-клиента: приложение сравнивает
+свой нативный `versionCode` с ответом и предлагает скачать и установить новую сборку.
+Старый путь `/api/app-quasar-android-version` отвечает тем же (для уже собранных сборок).
+
+Ответ (манифест релиза, `storage/app/public/releases/releases.json`):
+
+```json
+{
+  "versionCode": 2,
+  "versionName": "1.1",
+  "apkUrl": "https://dev.medovf2h.beget.tech/api/download-apk?versionCode=2",
+  "sha256": "…",
+  "sizeBytes": 12345678,
+  "mandatory": false,
+  "minSupportedVersionCode": 0,
+  "notes": "Чиним склад",
+  "releasedAt": "2026-09-13T20:00:00+00:00",
+  "signed": true,
+  "version": "1.1",
+  "apk_name": "2-1.1.apk"
+}
+```
+
+- **`versionCode` — критерий «новее»** (Android сравнивает именно его; строку `1.10` так
+  сравнивать нельзя). Поля `version`/`apk_name` оставлены для совместимости.
+- **`apkUrl`** → `GET /api/download-apk[?versionCode=N]` (без параметра — последний релиз).
+  Заголовки ответа: `X-Apk-Version-Code`, `X-Apk-Version-Name`, `X-Apk-Sha256`.
+- **Легаси-путь:** если манифеста ещё нет, а APK лежит прямо в `storage/app/public/*.apk`,
+  ответ содержит `versionCode: null` и `legacy: true` (версия берётся из имени файла,
+  клиент сравнивает `versionName` построчно).
+- 404 — «дистрибутив не опубликован»: для клиента это нормальное состояние, а не ошибка связи.
+- Публикация — `php artisan app:publish-apk` (см. `LedgerCraftDocker03/docs/ENVIRONMENTS.md`).
+
+Со стороны клиента: `src/services/updateService.js` (проверка, скачивание, установка),
+`src/utils/appUpdateView.js` (чистая логика «есть обновление / обязательно / отложено»),
+чип «доступна версия N» — `src/components/UpdateBanner.vue`, диалог — `UpdateDialog.vue`,
+раздел «приложение» на странице «Ещё».
+
+### 2.6. `POST /api/feedback` — отчёты об ошибках (Фаза 14, реализовано)
+
+Кнопка «Сообщить об ошибке» (в «Ещё»). Отчёт — **не** таблица синка (решение **D7**): у него свой
+контур, потому что «полный сброс»/бэкап не должны его тащить, а второе устройство владельца не
+должно видеть чужие отчёты. Цепочка целиком и контракт payload — `docs/FEEDBACK.md`.
+
+- `POST /api/feedback` — под `auth:sanctum` + `throttle:10,60`; идемпотентность по `uuid_id` (повтор
+  отдаёт тот же `server_id`, дубля нет — приём 3.5); валидация и повторная обрезка (≤ 50
+  error-записей, ≤ 100 log-записей, сообщение ≤ 500 символов, текст ≤ 4000); ответ
+  `201 { ok, server_id, uuid_id }`.
+- `GET /api/feedback?since=&limit=&status=` — выгрузка для разработки/ИИ-агента: **только** по
+  заголовку `X-Feedback-Token` (env `FEEDBACK_PULL_TOKEN`), маршрут **вне** `auth:sanctum` —
+  пользовательский токен мастерской чужих отчётов не отдаёт (`403`).
+- `PATCH /api/feedback/{uuid_id}` — статус разбора (`new`/`read`/`accepted`/`rejected`) + заметка.
+- `php artisan feedback:export [--since=] [--md] [--out=]` — JSON + дайджест на сервере (путь по SSH).
+
+Хранение — таблица `feedback_reports` (`uuid_id` unique, `user_id`, `kind`, `message`, `contact`,
+`screen`, версии приложения/схемы, `platform`/`platform_version`/`device`, `context`/`errors`/`logs`
+jsonb, `client_created_at`, `ip`, `user_agent`). В отчёт **не** попадают данные мастерской (заказы,
+клиенты, суммы), отправка — только по действию пользователя.
+
+Со стороны клиента: `src/services/feedbackService.js`, `src/repositories/feedbackRepo.js`,
+`src/utils/feedbackView.js` (чистая сборка payload), `src/utils/errorLog.js` (постоянный буфер
+ошибок — в отличие от dev-only буфера `utils/logger.js`, 12.5), диалог
+`src/pages/dialogs/FeedbackDialogPage.vue`. Выгрузка в репозиторий (то, что читает агент) —
+`npm run feedback:pull` → `feedback/INBOX.md`.
+
 ## 3. Ожидания сервера от клиента (FK по таблицам)
 
 Судя по `fkTransformationMap` в `syncService.js`, клиент переводит локальные FK в
@@ -373,6 +440,9 @@ Headers: X-Sync-ID: <uuid устройства>
 | 9.1 ✅ | свести методику «выручки» к одной: `billedOrdersSubquery()` — `status='done'` + `paid` + не удалён, выручка = позиции (работы + товары + материалы), средний чек; топы товаров/материалов и распределение по статусам | `StatisticRepository`, `StatisticController`, `routes/api.php`, `tests/Feature/StatisticRepositoryTest.php` |
 | 7.6 | гигиена API: дубли/мёртвые роуты, scaffold `Auth/*`, `auth:api` | `routes/api.php`, `app/Http/Controllers/Auth/*` |
 | 5.6 | тесты `SyncController` (PHPUnit) | `tests/Feature` |
+| 13.1–13.2 ✅ | версия приложения и раздача APK: манифест релизов + `/api/app-version` | `ApkReleaseRepository`, `AppVersionController`, `tests/Feature/AppVersionTest.php` |
+| 14.4 | приём отчётов об ошибках: таблица `feedback_reports` + `POST /api/feedback` (идемпотентность по `uuid_id`, rate limit) | миграция, `App\Models\FeedbackReport`, `FeedbackController`, `tests/Feature/FeedbackTest.php` |
+| 14.6 | выгрузка отчётов: `GET /api/feedback` под `X-Feedback-Token` + `php artisan feedback:export` | `FeedbackController`, `config/feedback.php`, `routes/api.php` |
 
 ## 6. Решения (приняты 11.09.2026)
 

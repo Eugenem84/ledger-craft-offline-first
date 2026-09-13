@@ -22,6 +22,9 @@ import m025 from './025_specialization_profile_fields.js'
 import m026 from './026_template_key_columns.js'
 import m027 from './027_order_equipment_identifier.js'
 import m028 from './028_operations_attempts.js'
+// Строгий фильтр каталога по профилю (Фаза 10/12): разовая привязка «ничьих» записей.
+import m029 from './029_backfill_catalog_specialization.js'
+import m030 from './030_create_feedback_reports_table.js'
 
 const migrations = [
   m001,
@@ -47,6 +50,8 @@ const migrations = [
   m026,
   m027,
   m028,
+  m029,
+  m030,
 ]
 
 export default migrations

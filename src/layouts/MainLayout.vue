@@ -21,6 +21,7 @@ import { useLexicon } from 'src/domain/lexicon.js'
 import { resolveAccent } from 'src/domain/theme.js'
 import { getPreset } from 'src/domain/presets/index.js'
 import { refreshTemplates } from 'src/services/presetService.js'
+import SyncStatusBar from 'src/components/SyncStatusBar.vue'
 
 const store = useSpecializationsStore()
 const router = useRouter()
@@ -143,7 +144,11 @@ watch(
 
         <q-space />
 
-        <div class="lc-eyebrow">Ledger Craft</div>
+        <!-- Индикатор синка (6.2): компактный чип в шапке, тап — ручная синхронизация.
+             Бренд на узких экранах скрыт (`.lc-hide-sm`), чтобы чип не сжимался. -->
+        <SyncStatusBar class="q-mr-sm" />
+
+        <div class="lc-eyebrow lc-hide-sm">Ledger Craft</div>
       </q-toolbar>
     </q-header>
 

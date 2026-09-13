@@ -13,13 +13,13 @@ defineProps({
 
 <template>
   <section class="lc-card">
-    <header v-if="title" class="row items-center no-wrap q-px-md q-pt-md q-pb-sm">
+    <header v-if="title" class="row items-center no-wrap lc-pad-x q-pt-md q-pb-sm">
       <q-icon v-if="icon" :name="icon" size="18px" class="lc-mute q-mr-sm" />
       <div class="lc-eyebrow">{{ title }}</div>
       <q-space />
       <slot name="actions" />
     </header>
-    <div :class="flush || !title ? '' : 'q-px-md q-pb-md'">
+    <div :class="flush || !title ? '' : 'lc-pad-x q-pb-md'">
       <slot />
     </div>
   </section>

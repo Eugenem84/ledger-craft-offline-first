@@ -18,11 +18,22 @@ export const useCategoriesStore = defineStore('categories', {
   },
 
   actions: {
-    async load() {
+    /**
+     * Каталог работ активного профиля (Фаза 10, строгий фильтр).
+     *
+     * Без выбранного профиля (в БД ещё нет специализаций) работает прежний
+     * `getAll` — иначе экран каталога остался бы пустым. Это тот же компромисс,
+     * что и в `useOrdersStore`.
+     *
+     * @param {string} [specializationId] локальный UUID активной специализации
+     */
+    async load(specializationId) {
       this.loading = true
       this.error = null
       try {
-        this.items = await categoriesRepo.getAll()
+        this.items = specializationId
+          ? await categoriesRepo.getBySpecializationId(specializationId)
+          : await categoriesRepo.getAll()
       } catch (err) {
         this.error = err
       } finally {

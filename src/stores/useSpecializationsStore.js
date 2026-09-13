@@ -142,6 +142,21 @@ export const useSpecializationsStore = defineStore('specializations', {
     },
 
     /**
+     * Сохраняет флаги разделов профиля (задача 10.3; доработка).
+     *
+     * Пользователь сам включает/выключает разделы текущей специализации тумблерами
+     * в «Ещё». Значение сериализуется в JSON — так же, как при создании профиля
+     * (`RegisterPage`/`createFromPreset`), поэтому выбор едет в синк обычной
+     * `update`-операцией и не требует отдельных полей схемы.
+     *
+     * @param {string} id локальный id специализации
+     * @param {Record<string, boolean>} features полный набор известных флагов
+     */
+    async setFeatures(id, features) {
+      await this.update(id, { features: serializeFeatures(features) })
+    },
+
+    /**
      * Применяет пресет к профилю (задача 10.4): материализует каталог и записывает
      * метаданные UI (`preset_key`, `accent`, `features`, `template_version`).
      * Повторное применение идемпотентно — дублей не будет.

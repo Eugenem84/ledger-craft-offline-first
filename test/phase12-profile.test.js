@@ -6,6 +6,9 @@
 //   • 12.2 — у существующего профиля нет UI-пути менять `name`/`preset_key`;
 //   • 12.3 — в карточке заказа статус/оплата управляются одним органом (переключатели).
 //
+// Плюс правки живого прогона (13.09.2026): компактные переключатели статуса/оплаты,
+// «оплачено» — тумблер, и отсутствие дублирующей кнопки создания позиции в карточке заказа.
+//
 // Логика проверяется на настоящем sql.js (`test/helpers/testDb.js`), UI — структурно
 // по исходникам `.vue` (в проекте нет @vue/test-utils — см. `test/order-tabs.test.js`).
 import { readFileSync } from 'node:fs'
@@ -104,9 +107,38 @@ describe('12.3 Карточка заказа: статус и оплата — �
     expect(header).not.toContain('lc-status--paid')
   })
 
-  it('остались переключатель статуса и кнопка «оплачено»', () => {
-    expect(header.match(/<q-btn-toggle\s/g)).toHaveLength(1)
+  it('статус и оплата — два переключателя одного вида, без отдельной кнопки', () => {
+    // Правка живого прогона: «оплачено» стало таким же `q-btn-toggle` (одна опция +
+    // `clearable`), поэтому в шапке ровно два тумблера и нет кнопки с `@click`.
+    expect(header.match(/<q-btn-toggle\s/g)).toHaveLength(2)
     expect(header).toContain('@update:model-value="value => emit(\'update:status\', value)"')
-    expect(header).toContain('@click="emit(\'update:paid\', !paid)"')
+    expect(header).toContain('@update:model-value="value => emit(\'update:paid\', value === true)"')
+    expect(header).not.toContain("@click=\"emit('update:paid'")
+  })
+
+  it('переключатели компактные и оформлены одним классом', () => {
+    // «Компактнее»: сегменты ниже за счёт `dense` + уменьшенного кегля в стилях.
+    expect(header.match(/class="col lc-toggle"/g)).toHaveLength(1)
+    expect(header.match(/class="lc-toggle"/g)).toHaveLength(1)
+    expect(header).toContain('min-height: 28px')
+    expect(header).toContain('font-size: 12px')
+  })
+})
+
+describe('Правка живого прогона: создание позиции — одной кнопкой', () => {
+  it('в карточке заказа нет плавающей кнопки-дубля создания', () => {
+    // Дефект: на вкладке «работы» дублировалось «Новая работа» — кнопка в панели
+    // (`OrderServicesPanel`) плюс тот же FAB в `OrderDetailsPage`. FAB убран: страница
+    // объявляет свой `QLayout` без нижнего таббара, поэтому `.lc-fab` (76px) «висел».
+    const page = read('src/pages/OrderDetailsPage.vue')
+
+    expect(page).not.toContain('<LcFab')
+    expect(page).not.toContain('LcFab.vue')
+  })
+
+  it('на вкладке «работы» осталась одна кнопка создания', () => {
+    const panel = read('src/components/order/OrderServicesPanel.vue')
+
+    expect(panel.match(/Новая \$\{t\('service'\)\}/g)).toHaveLength(1)
   })
 })

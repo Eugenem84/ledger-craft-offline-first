@@ -1,5 +1,8 @@
 {
   "appId": "com.ledgercraft.app",
   "appName": "ledger-craft",
-  "webDir": "www"
+  "webDir": "www",
+  "android": {
+    "adjustMarginsForEdgeToEdge": "auto"
+  }
 }

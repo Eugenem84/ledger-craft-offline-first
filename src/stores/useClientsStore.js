@@ -18,11 +18,19 @@ export const useClientsStore = defineStore('clients', {
   },
 
   actions: {
-    async load() {
+    /**
+     * Клиенты активного профиля (Фаза 10, строгий фильтр).
+     *
+     * @param {string} [specializationId] локальный UUID активной специализации;
+     *   без него (профилей ещё нет) — прежний `getAll`
+     */
+    async load(specializationId) {
       this.loading = true
       this.error = null
       try {
-        this.items = await clientsRepo.getAll()
+        this.items = specializationId
+          ? await clientsRepo.getBySpecializationId(specializationId)
+          : await clientsRepo.getAll()
       } catch (err) {
         this.error = err
       } finally {

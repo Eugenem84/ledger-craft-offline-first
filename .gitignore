@@ -17,6 +17,15 @@ node_modules
 /src-capacitor/www
 /src-capacitor/node_modules
 
+# Android-платформа (Фаза 13): исходники нативной части коммитим (в них наш плагин
+# установки ApkInstallerPlugin и настройка подписи), а сборочный мусор — нет.
+# Свой `.gitignore` платформы уже закрывает `.gradle/`, `build/`, `local.properties`,
+# копию web-ассетов и `capacitor-cordova-android-plugins`; ниже — страховка на уровне репозитория.
+/src-capacitor/android/.gradle/
+/src-capacitor/android/.idea/
+/src-capacitor/android/local.properties
+*.iml
+
 # Log files
 npm-debug.log*
 yarn-debug.log*
@@ -34,3 +43,19 @@ yarn-error.log*
 
 # local .env files
 .env.local*
+
+# Android signing (Фаза 13): ключ и пароли подписи не в git.
+# Шаблон лежит рядом — `src-capacitor/android/keystore.properties.example`.
+/src-capacitor/android/keystore.properties
+*.jks
+*.keystore
+
+# Локальные релизы Android-сборки (APK и манифест релизов)
+/src-capacitor/android/app/build/outputs/
+
+# Отчёты об ошибках (Фаза 14, docs/FEEDBACK.md): сырые отчёты и дайджест содержат
+# логи и аккаунт мастера, поэтому в публичный репозиторий они не попадают.
+# В git живут только `feedback/README.md` и `feedback/DECISIONS.md` (разборы без ПД).
+/feedback/INBOX.md
+/feedback/inbox/
+/feedback/.pulled.json

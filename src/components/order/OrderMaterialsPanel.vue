@@ -13,6 +13,11 @@ const props = defineProps({
   productsTotal: { type: Number, default: 0 },
   /** Правка: в режиме просмотра строки только читаются (вкладка теперь видна всегда). */
   editMode: { type: Boolean, default: false },
+  /**
+   * Показ кнопки «Добавить товар со склада»: если раздел «склад» выключен флагом
+   * профиля (10.3), товары со склада в заказ не добавляются.
+   */
+  showStoreProducts: { type: Boolean, default: true },
 })
 
 const emit = defineEmits([
@@ -28,7 +33,7 @@ const emit = defineEmits([
 <template>
   <!-- Панель вкладки живёт в `OrderDetailsPage.vue` (прямой ребёнок `q-tab-panels`). -->
   <div>
-    <div class="q-pa-md">
+    <div class="lc-pad">
       <!-- Главные действия вкладки — заметные кнопки с «+» (раньше были мелкие dense). -->
       <q-btn
         class="full-width"
@@ -42,6 +47,7 @@ const emit = defineEmits([
       />
 
       <q-btn
+        v-if="props.showStoreProducts"
         class="full-width q-mt-sm"
         outline
         no-caps
@@ -53,7 +59,9 @@ const emit = defineEmits([
 
       <div class="text-caption lc-mute q-mt-sm">
         материалы: <span class="lc-money">{{ props.materialsTotal }} р</span>
-        · товары: <span class="lc-money">{{ props.productsTotal }} р</span>
+        <template v-if="props.showStoreProducts || props.products.length">
+          · товары: <span class="lc-money">{{ props.productsTotal }} р</span>
+        </template>
       </div>
     </div>
 

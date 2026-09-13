@@ -15,7 +15,7 @@ import LcPageHeader from 'src/components/ui/LcPageHeader.vue'
 import { useClientsStore } from 'stores/useClientsStore.js'
 import { useCategoriesStore } from 'stores/useCategoriesStore.js'
 import { useServicesStore } from 'stores/useServicesStore.js'
-// Фаза 10: лексикон ниши (10.1) и запуск каталога из шаблона (10.4).
+// Фаза 10: лексикон ниши (10.1) и активный рабочий профиль (смена профиля — 10.8).
 import { useSpecializationsStore } from 'stores/useSpecializationsStore.js'
 import { useLexicon } from 'src/domain/lexicon.js'
 
@@ -27,38 +27,6 @@ const clientsStore = useClientsStore()
 const categoriesStore = useCategoriesStore()
 const servicesStore = useServicesStore()
 const specializationsStore = useSpecializationsStore()
-
-const templateBusy = ref(false)
-
-/** «Начать с шаблона» (10.4): подтягиваем пресет активного профиля одним действием. */
-const startFromTemplate = async () => {
-  const specialization = specializationsStore.getSelectedSpecialization
-
-  if (!specialization?.preset_key) {
-    // Пресет ещё не выбран — ведём в управление профилями.
-    await router.push('/other')
-    return
-  }
-
-  templateBusy.value = true
-  try {
-    const result = await specializationsStore.applyPreset(specialization.id, specialization.preset_key)
-    await clientsStore.load()
-    await categoriesStore.load()
-
-    $q.notify({
-      type: 'positive',
-      message: `Каталог готов: категорий ${result.created.categories}, работ ${result.created.services}`,
-      position: 'top',
-      timeout: 2500,
-    })
-  } catch (error) {
-    console.error('Ошибка применения шаблона:', error)
-    $q.notify({ type: 'negative', message: 'Не удалось применить шаблон' })
-  } finally {
-    templateBusy.value = false
-  }
-}
 
 const newClientDialog = ref(null)
 const newServiceDialog = ref(null)
@@ -84,8 +52,11 @@ const showServiceDetails = ref(false)
 const showCategoryDetails = ref(false)
 
 onMounted(async () => {
-  await clientsStore.load()
-  await categoriesStore.load()
+  // Строгий фильтр по активному профилю (Фаза 10): иначе в каталог попадали
+  // категории и клиенты всех ниш (например, «Дозаправка фреона» у аквариумов).
+  const specializationId = specializationsStore.selectedId
+  await clientsStore.load(specializationId)
+  await categoriesStore.load(specializationId)
 })
 
 // Смена рабочего профиля (задача 10.8) меняет и каталог, и клиентов: перечитываем
@@ -95,8 +66,8 @@ watch(
   async () => {
     selectedServiceCategory.value = null
     servicesStore.items = []
-    await clientsStore.load()
-    await categoriesStore.load()
+    await clientsStore.load(specializationsStore.selectedId)
+    await categoriesStore.load(specializationsStore.selectedId)
   }
 )
 
@@ -242,30 +213,22 @@ const openNewServiceCategoryDialog = () => {
 
       <q-tab-panels v-model="tab" animated class="bg-transparent">
         <q-tab-panel name="services" class="q-pa-none">
-          <!-- «Начать с шаблона» (задача 10.4): готовый каталог одним действием. -->
-          <div class="row items-center q-pa-md q-gutter-x-sm">
-            <q-btn
-              color="secondary"
-              text-color="black"
-              no-caps
-              size="sm"
-              icon="auto_awesome"
-              label="Начать с шаблона"
-              :loading="templateBusy"
-              @click="startFromTemplate"
-            />
+          <!-- Старт каталога из шаблона (10.4) убран: профиль создаётся из пресета и сразу
+               получает готовый каталог (Фаза 12, 12.1), повторное применение пресета —
+               легаси-путь. Осталась ссылка в управление профилями, где ниша и создаётся. -->
+          <div class="row items-center lc-pad q-gutter-x-sm">
             <q-btn
               flat
               no-caps
               size="sm"
               color="grey-5"
               icon="tune"
-              label="Выбрать шаблон"
+              label="Управление профилями"
               @click="router.push('/other')"
             />
           </div>
 
-          <div class="row items-center no-wrap q-px-md q-pb-md q-gutter-x-sm">
+          <div class="row items-center no-wrap lc-pad-x q-pb-md q-gutter-x-sm">
             <q-select
               v-model="selectedServiceCategory"
               :options="categoriesStore.items"

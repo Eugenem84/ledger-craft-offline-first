@@ -10,7 +10,6 @@ import { useQuasar } from 'quasar'
 import { storeToRefs } from 'pinia'
 
 import DeleteConfirmPage from 'pages/dialogs/DeleteConfirmPage.vue'
-import LcFab from 'src/components/ui/LcFab.vue'
 import OrderClientDialog from 'src/components/order/dialogs/OrderClientDialog.vue'
 import OrderHeaderActions from 'src/components/order/OrderHeaderActions.vue'
 import OrderMaterialDialog from 'src/components/order/dialogs/OrderMaterialDialog.vue'
@@ -228,6 +227,7 @@ const handleShare = async () => {
           :status="status"
           :paid="paid"
           :busy="isLoading"
+          :show-share="isEnabled('shareLink')"
           @back="router.back()"
           @share="handleShare"
           @clear="draft.clearPositions()"
@@ -238,7 +238,7 @@ const handleShare = async () => {
           @update:paid="draft.togglePaid()"
         />
 
-        <div class="lc-card q-pa-md q-mt-sm">
+        <div class="lc-card lc-pad q-mt-sm">
           <OrderPartySelectors
             v-model:client="client"
             v-model:model="model"
@@ -324,6 +324,7 @@ const handleShare = async () => {
                 :materials-total="materialsTotal"
                 :products-total="productsTotal"
                 :edit-mode="editMode"
+                :show-store-products="isEnabled('store')"
                 @remove-material="draft.removeMaterial($event)"
                 @remove-product="draft.removeProduct($event)"
                 @update-material-line="
@@ -339,19 +340,10 @@ const handleShare = async () => {
           </q-tab-panels>
         </q-card>
 
-        <!-- Нижнее основное действие: всегда видно, куда нажать, чтобы добавить позицию. -->
-        <LcFab
-          v-if="tab === 'servicesChoice'"
-          icon="add"
-          :label="`Новая ${t('service')}`"
-          @click="openServiceDialog"
-        />
-        <LcFab
-          v-else-if="tab === 'materialsChoice'"
-          icon="add"
-          label="Новый материал"
-          @click="openMaterialDialog"
-        />
+        <!-- Плавающей кнопки создания здесь нет: то же действие уже есть в самих
+             панелях («Новая работа» / «Добавить материал»), а страница объявляет
+             собственный QLayout без нижнего таббара — FAB «висел» в 76px от края.
+             Дублирование убрано по правке живого прогона. -->
       </q-page>
     </q-page-container>
   </q-layout>

@@ -7,6 +7,7 @@ import { describe, it, expect } from 'vitest'
 import {
   DEFAULT_FEATURES,
   FEATURE_LABELS,
+  FEATURE_HINTS,
   normalizeFeatures,
   serializeFeatures,
   resolveFeatures,
@@ -62,9 +63,10 @@ describe('10.3 Флаги видимости по пресету', () => {
     expect(resolveFeatures({ preset_key: 'unknown' })).toEqual({ ...DEFAULT_FEATURES })
   })
 
-  it('все флаги имеют человекочитаемую подпись', () => {
+  it('все флаги имеют человекочитаемую подпись и пояснение для тумблера', () => {
     for (const flag of Object.keys(DEFAULT_FEATURES)) {
       expect(FEATURE_LABELS[flag], flag).toBeTruthy()
+      expect(FEATURE_HINTS[flag], flag).toBeTruthy()
     }
   })
 

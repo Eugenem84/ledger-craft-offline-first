@@ -15,7 +15,7 @@ const emit = defineEmits(['remove'])
 
 <template>
   <div>
-    <div v-if="!props.services.length" class="text-caption lc-mute q-pa-md">
+    <div v-if="!props.services.length" class="text-caption lc-mute lc-pad">
       работ пока нет — добавьте их на вкладке «{{ t('service') }}»
     </div>
 

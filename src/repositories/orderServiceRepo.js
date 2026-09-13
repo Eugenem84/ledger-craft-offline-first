@@ -15,12 +15,27 @@ export async function getByOrderId(orderId) {
   return rows
 }
 
-export async function add(orderId, serviceId) {
+/**
+ * Добавляет работу в заказ.
+ *
+ * @param {string} orderId локальный id заказа
+ * @param {string} serviceId локальный id работы (услуги)
+ * @param {number|null} [salePrice] цена работы на момент добавления. Пишем её сразу,
+ *   чтобы офлайн-аналитика считала работы (без неё `sale_price` оставался `null` до
+ *   первого синка и выручка по работам была нулевой). Если не передана — `null`,
+ *   и сервер возьмёт цену из каталога `services` (задача 3.12).
+ */
+export async function add(orderId, serviceId, salePrice = null) {
   // локальный ID связи используем только в payload для синка
   const id = uuidv4()
 
+  const price = salePrice == null ? null : Number(salePrice)
+
   // создаём локальную запись связи в таблице order_service (порядок колонок — в маппере, 8.3)
-  await dbAdapter.execute(queries.insert, orderServiceLineInsertParams({ id, orderId, serviceId }))
+  await dbAdapter.execute(
+    queries.insert,
+    orderServiceLineInsertParams({ id, orderId, serviceId, salePrice: price })
+  )
 
   // кладём операцию INSERT в очередь синхронизации
   const opId = uuidv4()
@@ -28,6 +43,7 @@ export async function add(orderId, serviceId) {
     local_id: id,
     order_id: orderId,
     service_id: serviceId,
+    sale_price: price,
   }
   const opParams = [opId, 'insert', 'order_service', JSON.stringify(payload), Date.now()]
   await operationsRepo.enqueue(opParams)

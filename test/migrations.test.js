@@ -52,6 +52,7 @@ describe('5.5 Миграции локальной БД', () => {
         'categories',
         'clients',
         'equipment_models',
+        'feedback_reports',
         'incoming_products',
         'materials',
         'meta',

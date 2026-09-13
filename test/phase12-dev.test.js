@@ -16,9 +16,18 @@ import { setupTestDb } from './helpers/testDb.js'
 import operationsRepo from 'src/repositories/operationsRepo.js'
 import { logger, getLogBuffer, clearLogBuffer, LOG_BUFFER_LIMIT } from 'src/utils/logger.js'
 import {
+  DEV_MODE_KEY,
+  devModeEnabled,
+  isDevModeEnabled,
+  setDevMode,
+  toggleDevMode,
+} from 'src/utils/devMode.js'
+import {
+  buildDiagnosticSnapshot,
   describeOperation,
   describeSchemaVersion,
   describeSyncStatus,
+  describeTableCounts,
   formatLogEntry,
   summarizePayload,
   truncate,
@@ -104,6 +113,58 @@ describe('12.5 Форматтеры отладочной панели', () => {
     expect(describeSchemaVersion(19, 18)).toContain('расхождение')
     expect(describeSchemaVersion(19, null)).toContain('неизвестно')
   })
+
+  it('describeTableCounts сортирует таблицы и показывает количество', () => {
+    expect(describeTableCounts({ orders: 3, clients: 1 })).toEqual([
+      { label: 'clients', value: '1' },
+      { label: 'orders', value: '3' },
+    ])
+    expect(describeTableCounts({})).toEqual([])
+  })
+
+  it('buildDiagnosticSnapshot склеивает секции в один текст для поддержки', () => {
+    const text = buildDiagnosticSnapshot([
+      { title: 'окружение', rows: [{ label: 'платформа', value: 'браузер' }] },
+      { title: 'логи', lines: ['12:00 [warn] что-то'] },
+      { title: 'пусто' },
+    ])
+
+    expect(text).toContain('## окружение')
+    expect(text).toContain('  платформа: браузер')
+    expect(text).toContain('## логи')
+    expect(text).toContain('  12:00 [warn] что-то')
+    expect(text).not.toContain('## пусто')
+    expect(buildDiagnosticSnapshot()).toBe('')
+  })
+})
+
+describe('«Режим разработчика»: переключатель и буфер логов', () => {
+  beforeEach(() => {
+    setDevMode(false)
+    clearLogBuffer()
+  })
+
+  it('тумблер сохраняет выбор и переживает импорт заново (флаг в storage)', () => {
+    expect(isDevModeEnabled()).toBe(false)
+
+    setDevMode(true)
+    expect(isDevModeEnabled()).toBe(true)
+    expect(devModeEnabled.value).toBe(true)
+    expect(globalThis.localStorage.getItem(DEV_MODE_KEY)).toBe('1')
+
+    expect(toggleDevMode()).toBe(false)
+    expect(isDevModeEnabled()).toBe(false)
+    expect(globalThis.localStorage.getItem(DEV_MODE_KEY)).toBe('0')
+  })
+
+  it('getLogBuffer умеет фильтровать логи по уровню', () => {
+    logger.log('первая')
+    logger.warn('вторая')
+    logger.log('третья')
+
+    expect(getLogBuffer('warn').map(entry => entry.message)).toEqual(['вторая'])
+    expect(getLogBuffer()).toHaveLength(3)
+  })
 })
 
 describe('12.5 Буфер логов (обёртка над logger)', () => {
@@ -168,14 +229,21 @@ describe('12.4/12.5 UI: настройки и dev-панель', () => {
     expect(page).toContain('Создать бэкап')
   })
 
-  it('dev-панель подключена динамическим импортом под import.meta.env.DEV', () => {
-    expect(page).toMatch(/import\.meta\.env\.DEV === true/)
+  it('режим разработчика включается тумблером, панель грузится лениво и по флагу', () => {
+    expect(page).toContain('devMode')
+    expect(page).toContain('<q-toggle v-model="devMode"')
     expect(page).toContain("import('src/components/dev/DeveloperPanel.vue')")
     expect(page).not.toMatch(/import\s+DeveloperPanel\s+from/)
-    expect(page).toContain('<component :is="DeveloperPanel"')
+    expect(page).toContain('<component :is="DeveloperPanel" v-if="devMode" />')
   })
 
-  it('в панели есть окружение, схема, синк, очередь, логи, бэкап и сброс', () => {
+  it('добавление специализации — кнопкой с диалогом-селектором, а не селектором на странице', () => {
+    expect(page).toContain('openNewProfileDialog')
+    expect(page).toContain('newProfileDialogOpen')
+    expect(page).toMatch(/<LcDialogShell[\s\S]{0,400}newProfileDialogOpen/)
+  })
+
+  it('в панели есть вкладки, окружение, схема, синк, очередь, логи, бэкап и сброс', () => {
     for (const marker of [
       'API_URL',
       'USE_MOCK',
@@ -187,6 +255,14 @@ describe('12.4/12.5 UI: настройки и dev-панель', () => {
       'logAllServicesForDebugging',
       'fullReset',
       'deleteLocalDB',
+      // доработка отладки: вкладки и инструменты
+      'q-tabs',
+      'диагностика',
+      'copySnapshot',
+      'downloadLogs',
+      'describeTableCounts',
+      'buildDiagnosticSnapshot',
+      'disableDevMode',
     ]) {
       expect(panel, `в DeveloperPanel.vue нет «${marker}»`).toContain(marker)
     }

@@ -5,6 +5,9 @@ import dbAdapter from 'src/database/db.js';
 import api, { hasAuthToken } from 'src/services/api';
 import * as metaRepo from 'src/repositories/metaRepo';
 import operationsRepo from 'src/repositories/operationsRepo';
+// Очередь отчётов «Сообщить об ошибке» (Фаза 14): чистится полным сбросом, но в синк
+// не входит (решение D7 — отдельный транспорт).
+import feedbackRepo from 'src/repositories/feedbackRepo';
 import { toEpochMs } from 'src/utils/timestamps.js';
 
 import * as clientsRepo from 'src/repositories/clientsRepo';
@@ -1049,6 +1052,9 @@ class SyncService {
     // Очередь операций — это outbox, а не сущность: в `this.repos` её нет, поэтому
     // чистим явно. Иначе после смены аккаунта старые операции уедут под новым токеном.
     await operationsRepo.clearAll();
+    // Очередь отчётов «Сообщить об ошибке» (Фаза 14) — по той же причине: в отчёте
+    // остаётся аккаунт и профиль, чужие отчёты уезжать не должны.
+    await feedbackRepo.clearAll();
     await metaRepo.resetLastSyncedAt();
 
     // Сбрасываем и состояние сети: после полного сброса ждём первой попытки без паузы.

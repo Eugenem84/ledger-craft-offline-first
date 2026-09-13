@@ -31,7 +31,7 @@ const lineMargin = line =>
       <div class="lc-col-del"></div>
     </div>
 
-    <div v-if="!props.materials.length" class="text-caption lc-mute q-pa-md">
+    <div v-if="!props.materials.length" class="text-caption lc-mute lc-pad">
       нет материалов — добавьте кнопкой «+»
     </div>
 

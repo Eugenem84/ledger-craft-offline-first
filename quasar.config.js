@@ -12,10 +12,15 @@ export default defineConfig((/* ctx */) => {
     // --> boot files are part of "main.js"
     // https://v2.quasar.dev/quasar-cli-vite/boot-files
     boot: [
+      'errorLog', // первым: перехватчики ошибок пишут в постоянный буфер (14.1)
       'axios',
       'db',
-      'pinia',
-      'auth', // после pinia: читает сессию и связывает 401 с auth-стором (7.4)
+      // Pinia (стор) ставится самим Quasar из `src/stores/index.js` — см. сгенерированный
+      // `.quasar/<mode>/app.js` (`app.use(store)` до boot-файлов). Отдельный `boot/pinia.js`
+      // создавал **вторую** инстанцию Pinia: Vue предупреждал «App already provides property
+      // with key "Symbol(pinia)"», а `useStore()` из разных мест мог попадать в разные инстанции.
+      'auth', // после db: читает сессию и связывает 401 с auth-стором (7.4)
+      'updateCheck', // после auth: фоновая проверка версии приложения (13.8)
     ],
 
     // https://v2.quasar.dev/quasar-cli-vite/quasar-config-file#css

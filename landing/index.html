@@ -1,0 +1,260 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Ledger Craft — учёт работ и запчастей для мастерских</title>
+    <meta
+      name="description"
+      content="Ledger Craft — офлайн-первое приложение для мастерских: заказы, клиенты, каталог работ и запчастей, склад, аналитика. Работает без интернета, синхронизируется при появлении сети. Скачать APK для Android."
+    />
+    <meta name="theme-color" content="#000000" />
+    <meta property="og:title" content="Ledger Craft — учёт работ и запчастей для мастерских" />
+    <meta
+      property="og:description"
+      content="Офлайн-первое приложение для мастерских. Скачайте свежую сборку для Android."
+    />
+    <meta property="og:type" content="website" />
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23000'/%3E%3Ctext x='16' y='23' font-size='18' text-anchor='middle' fill='%23ffeb3b' font-family='sans-serif' font-weight='bold'%3ELC%3C/text%3E%3C/svg%3E"
+    />
+    <link rel="stylesheet" href="landing.css" />
+  </head>
+  <body>
+    <header class="nav">
+      <a class="brand" href="#top">
+        <span class="brand__mark">LC</span>
+        <span class="brand__name">Ledger&nbsp;Craft</span>
+      </a>
+      <nav class="nav__links">
+        <a href="#features">возможности</a>
+        <a href="#offline">офлайн</a>
+        <a href="#how">как начать</a>
+      </nav>
+      <a class="btn btn--sm btn--accent nav__cta" id="nav-download" href="#download">
+        скачать APK
+      </a>
+    </header>
+
+    <main id="top">
+      <section class="hero">
+        <div class="hero__content">
+          <div class="pill">
+            <span class="pill__dot"></span>
+            офлайн-первое приложение для мастерских
+          </div>
+          <h1>
+            Заказы, работы и запчасти<br />
+            <span class="accent">без интернета</span>
+          </h1>
+          <p class="lead">
+            Ведите заказы, клиентов, работы, товары со склада и ручные материалы в одном месте.
+            Приложение работает на телефоне мастера без сети и синхронизируется, когда сеть
+            появляется.
+          </p>
+
+          <div class="hero__actions">
+            <a class="btn btn--accent btn--lg" id="download-button" href="#download" rel="noopener">
+              <span class="btn__icon">⬇</span>
+              <span class="btn__text">Скачать свежий APK</span>
+            </a>
+            <a class="btn btn--ghost btn--lg" href="#features">Что внутри</a>
+          </div>
+
+          <div class="release" id="release" hidden>
+            <div class="release__row">
+              <span class="release__label">последняя сборка</span>
+              <span class="release__value" id="release-version">—</span>
+            </div>
+            <div class="release__row">
+              <span class="release__label">размер</span>
+              <span class="release__value" id="release-size">—</span>
+            </div>
+            <p class="release__notes" id="release-notes"></p>
+            <p class="release__meta" id="release-meta"></p>
+          </div>
+
+          <p class="hero__hint" id="download-hint">
+            APK для Android. Настройте адрес сервера в <code>landing.js</code>, чтобы страница
+            показывала ваши сборки.
+          </p>
+        </div>
+
+        <div class="hero__art" aria-hidden="true">
+          <div class="phone">
+            <div class="phone__bar"></div>
+            <div class="phone__screen">
+              <div class="mock-chip">веломастер</div>
+              <div class="mock-kpi">
+                <div class="mock-kpi__label">выручка · месяц</div>
+                <div class="mock-kpi__value">128 400 р</div>
+              </div>
+              <div class="mock-offline">● офлайн — данные целы</div>
+              <div class="mock-row"><span>Замена масла</span><b>2</b></div>
+              <div class="mock-row"><span>Фильтр воздушный</span><b>1</b></div>
+              <div class="mock-row"><span>Герметик</span><b>2</b></div>
+            </div>
+          </div>
+        </div>
+      </section>
+      <section class="features" id="features">
+        <div class="section-head">
+          <div class="eyebrow">возможности</div>
+          <h2>Всё, что нужно мастерской</h2>
+          <p>Один рабочий контур вместо блокнота, таблиц и переписок в мессенджерах.</p>
+        </div>
+
+        <div class="grid">
+          <article class="card">
+            <div class="card__icon">🧾</div>
+            <h3>Заказы и работы</h3>
+            <p>
+              Заказ, клиент, объект обслуживания, статус и оплата одним экраном. Работы добавляются
+              из каталога и сразу попадают в сумму.
+            </p>
+          </article>
+          <article class="card">
+            <div class="card__icon">📦</div>
+            <h3>Склад и запчасти</h3>
+            <p>
+              Товары со склада, себестоимость на момент продажи, остатки и ручные позиции «куплено
+              по пути» — с маржой по каждой строке.
+            </p>
+          </article>
+          <article class="card">
+            <div class="card__icon">📊</div>
+            <h3>Аналитика</h3>
+            <p>
+              Выручка за день, неделю, месяц и год, топ работ и товаров, средний чек и распределение
+              заказов по статусам. Считается локально.
+            </p>
+          </article>
+          <article class="card">
+            <div class="card__icon">🗂️</div>
+            <h3>Рабочие профили</h3>
+            <p>
+              Ведите несколько ниш в одном аккаунте: «веломастер + аквариумист». Переключение меняет
+              заказы, клиентов и каталог, термины и разделы.
+            </p>
+          </article>
+          <article class="card">
+            <div class="card__icon">💾</div>
+            <h3>Бэкап и восстановление</h3>
+            <p>
+              Автоматические копии локальной базы и аварийное восстановление файлом — даже если
+              сервер потерян или недоступен.
+            </p>
+          </article>
+          <article class="card">
+            <div class="card__icon">🔗</div>
+            <h3>Отчёт клиенту</h3>
+            <p>
+              Публичная share-ссылка на отчёт по заказу: клиент видит работы, материалы и сумму без
+              установки приложения.
+            </p>
+          </article>
+        </div>
+      </section>
+      <section class="offline" id="offline">
+        <div class="section-head">
+          <div class="eyebrow">офлайн-первый</div>
+          <h2>Работает там, где нет связи</h2>
+          <p>
+            Всё пишется сначала в базу на телефоне и в очередь операций. Синхронизация — фоновая и
+            не блокирует мастера.
+          </p>
+        </div>
+
+        <div class="steps">
+          <div class="step">
+            <span class="step__num">1</span>
+            <h3>Пишем локально</h3>
+            <p>Заказ, позиция или клиент сохраняются мгновенно, даже в подвале или на выезде.</p>
+          </div>
+          <div class="step">
+            <span class="step__num">2</span>
+            <h3>Ждём сеть</h3>
+            <p>Очередь операций держит изменения и повторяет отправку с растущей паузой.</p>
+          </div>
+          <div class="step">
+            <span class="step__num">3</span>
+            <h3>Синхронизируем</h3>
+            <p>Операции уезжают на сервер по порядку «родитель → ребёнок», без дублей.</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="how" id="how">
+        <div class="section-head">
+          <div class="eyebrow">как начать</div>
+          <h2>Три шага до первой записи</h2>
+        </div>
+
+        <ol class="how__list">
+          <li><b>Скачайте APK</b> кнопкой выше и установите его на Android-телефон.</li>
+          <li><b>Войдите</b> (email и пароль) или зарегистрируйтесь — первый вход требует сети.</li>
+          <li>
+            <b>Выберите нишу</b> мастерской — каталог работ, термины и разделы появятся сразу.
+            Дальше приложение работает офлайн.
+          </li>
+        </ol>
+
+        <p class="how__note">
+          Нужен режим разработчика? Включите тумблер в настройках приложения — появятся вкладки с
+          логами, диагностикой и очередью синхронизации.
+        </p>
+      </section>
+      <section class="cta" id="download">
+        <div class="cta__inner">
+          <div class="eyebrow">загрузка</div>
+          <h2>Скачать Ledger Craft</h2>
+          <p class="cta__lead">
+            Свежая сборка для Android. Обновления приложение находит само и предлагает установиться
+            прямо из приложения.
+          </p>
+
+          <a class="btn btn--accent btn--lg cta__button" id="download-button-2" href="#download">
+            <span class="btn__icon">⬇</span>
+            <span class="btn__text">Скачать APK</span>
+          </a>
+
+          <dl class="cta__facts" id="cta-facts">
+            <div>
+              <dt>версия</dt>
+              <dd id="cta-version">—</dd>
+            </div>
+            <div>
+              <dt>размер</dt>
+              <dd id="cta-size">—</dd>
+            </div>
+            <div>
+              <dt>sha256</dt>
+              <dd id="cta-sha" class="mono">—</dd>
+            </div>
+          </dl>
+
+          <p class="cta__status" id="cta-status">Проверяем последнюю сборку…</p>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <div class="footer__brand">
+        <span class="brand__mark">LC</span>
+        <div>
+          <div>Ledger Craft</div>
+          <div class="footer__muted">учёт работ и запчастей для мастерских</div>
+        </div>
+      </div>
+      <div class="footer__muted">© <span id="year">2026</span> Ledger Craft</div>
+    </footer>
+
+    <!-- Адрес API: поменяйте на боевой домен при выкате промо-страницы.
+         Свободный `/app-version` отдаёт версию, заметки и ссылку на APK. -->
+    <script>
+      window.LEDGER_CRAFT_API = window.LEDGER_CRAFT_API || 'https://dev.medovf2h.beget.tech/api'
+    </script>
+    <script src="landing.js"></script>
+  </body>
+</html>

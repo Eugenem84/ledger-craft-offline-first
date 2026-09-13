@@ -203,15 +203,22 @@ export const useOrderDraftStore = defineStore('orderDraft', {
 
     /** Справочники формы: клиенты, модели, категории работ, категории товаров. */
     async loadCatalogs() {
-      this.clients = await clientsRepo.getAll()
-      this.models = await modelsRepo.getAll()
+      // Строгий фильтр по активному профилю (Фаза 10): без него в форме заказа
+      // смешивались клиенты/модели/категории всех ниш.
+      const specializationId = this.effectiveSpecializationId()
+
+      this.clients = specializationId
+        ? await clientsRepo.getBySpecializationId(specializationId)
+        : await clientsRepo.getAll()
+      this.models = specializationId
+        ? await modelsRepo.getBySpecializationId(specializationId)
+        : await modelsRepo.getAll()
       logger.table(this.models)
 
       const categoriesStore = useCategoriesStore()
-      await categoriesStore.load()
+      await categoriesStore.load(specializationId)
       this.categories = [...categoriesStore.items]
 
-      const specializationId = this.effectiveSpecializationId()
       this.productCategories = specializationId
         ? await productCategoriesRepo.getBySpecializationId(specializationId)
         : []
@@ -370,7 +377,10 @@ export const useOrderDraftStore = defineStore('orderDraft', {
       })
 
       for (const service of this.services) {
-        await orderServiceRepo.add(orderId, service.id)
+        // Цену работы фиксируем в самой строке заказа (а не «оставляем на сервер»):
+        // офлайн-аналитика считает выручку как `SUM(quantity * sale_price)` и без
+        // этого показывала работы нулём до первого синка.
+        await orderServiceRepo.add(orderId, service.id, service.price)
       }
       for (const material of this.materials) {
         // Ручная позиция заказа: на сервере это строка `materials` (name/price/amount/buy_price).
@@ -408,7 +418,7 @@ export const useOrderDraftStore = defineStore('orderDraft', {
 
       await orderServiceRepo.removeByOrderId(this.order.id)
       for (const service of this.services) {
-        await orderServiceRepo.add(this.order.id, service.id)
+        await orderServiceRepo.add(this.order.id, service.id, service.price)
       }
 
       await materialsRepo.removeByOrderId(this.order.id)

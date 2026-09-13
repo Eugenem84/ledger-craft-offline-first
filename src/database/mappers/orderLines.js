@@ -10,12 +10,19 @@
 /**
  * `queries.order_service.insert` — строка «работа в заказе».
  * У связки нет собственного PK на сервере, поэтому `server_id`/`*_server_id` пустые
- * (заполняются после синка), `sale_price` сервер берёт из цены услуги (задача 3.12).
+ * (заполняются после синка).
  *
- * @param {{ id: string, orderId: string, serviceId: string }} input
+ * ⚠️ `salePrice` пишем **сразу на клиенте** (цена работы из каталога на момент
+ * добавления), а не оставляем `null` «на сервер». Иначе до первого синка аналитика
+ * (она офлайн-первая: `SUM(quantity * sale_price)`) считала бы работы нулём — именно
+ * так «аналитика не считала работы». Сервер, если `sale_price` пришёл, доверяет ему
+ * и не подменяет цену каталога (см. `docs/API-INTEGRATION.md` §2.1 — спец-обработка
+ * `order_service`).
+ *
+ * @param {{ id: string, orderId: string, serviceId: string, salePrice?: number|null }} input
  * @returns {Array<string|number|null>}
  */
-export function orderServiceLineInsertParams({ id, orderId, serviceId }) {
+export function orderServiceLineInsertParams({ id, orderId, serviceId, salePrice }) {
   return [
     id, // id (локальный UUID)
     null, // server_id (у связки его нет)
@@ -23,7 +30,7 @@ export function orderServiceLineInsertParams({ id, orderId, serviceId }) {
     null, // order_server_id
     serviceId, // service_id (локальный ID услуги)
     null, // service_server_id
-    null, // sale_price
+    salePrice ?? null, // sale_price (цена работы на момент добавления)
     1, // quantity
   ]
 }

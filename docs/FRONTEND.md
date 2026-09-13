@@ -16,7 +16,8 @@ src/
 │   ├── api.js                    # axios-клиент: baseURL, X-Sync-ID, send()/fetchUpdates()
 │   ├── syncService.js            # движок синхронизации
 │   ├── presetService.js          # пресеты: серверный контент + read-only кэш в `meta` (10.7)
-│   └── backupService.js          # бэкап локальной БД (задача 4.4)
+│   ├── backupService.js          # бэкап локальной БД (задача 4.4)
+│   └── feedbackService.js        # отчёты об ошибке: офлайн-первый submit() + flush() (Фаза 14)
 ├── database/
 │   ├── db.js                     # единая точка доступа к БД (делегат на активный адаптер, 4.3)
 │   ├── migrate.js                # прогон миграций + сверка версии схемы (4.5)
@@ -51,7 +52,8 @@ src/
 │   ├── productStocksRepo.js      # остаток: локально оптимистично, источник истины — сервер (9.2)
 │   ├── buyProductPricesRepo.js   # закупочные цены (9.2; маржа — 9.5)
 │   ├── salesProductPricesRepo.js # цены продажи по заказам (9.3)
-│   └── analyticsRepo.js          # аналитика страницы: только SELECT, очередь синка не трогает (9.1)
+│   ├── analyticsRepo.js          # аналитика страницы: только SELECT, очередь синка не трогает (9.1)
+│   └── feedbackRepo.js           # очередь отчётов об ошибке: pending/sending/sent/failed (Фаза 14)
 ├── domain/                       # Фаза 10: лексикон, пресеты, флаги, акцент (без UI-зависимостей)
 │   ├── lexicon.js                # словарь терминов по `preset_key` + useLexicon() (10.1)
 │   ├── presets/                  # пресеты ниш: bike, aquarium, hvac, auto + index.js (10.4)
@@ -73,7 +75,7 @@ src/
 │                                 #   OrderMaterialsPanel, OrderServicesBlock, OrderMaterialsBlock,
 │                                 #   OrderProductsBlock, OrderMaterialsEditor, OrderProductsEditor,
 │                                 #   OrderTotals, dialogs/* (5 диалогов)
-│   └── dev/                      # DeveloperPanel.vue — «Режим разработчика» (12.5, только DEV)
+│   └── dev/                      # DeveloperPanel.vue — «Режим разработчика» (12.5, тумблер в настройках)
 ├── pages/
 │   ├── OrdersPage.vue            # список ордеров
 │   ├── OrderDetailsPage.vue      # 300 строк: «клей» страницы заказа (стор + уведомления + диалоги);
@@ -88,7 +90,8 @@ src/
 │   └── dialogs/                  # NewClientDialogPage, ProductDialogPage,
 │                                 #   ArrivalProductDialogPage, ProductCategoryDialogPage,
 │                                 #   NewServiceDialogPage, NewServiceCategoryDialogPage,
-│                                 #   EditServiceCategoryDialogPage, DeleteConfirmPage
+│                                 #   EditServiceCategoryDialogPage, DeleteConfirmPage,
+│                                 #   FeedbackDialogPage («Сообщить об ошибке», Фаза 14)
 ├── router/
 │   ├── index.js                  # createRouter (hash-режим)
 │   └── routes.js                 # маршруты (см. ниже)
@@ -373,8 +376,8 @@ return id;
 6. ~~**Синхронизация блокирует UI** (`await syncService.sync()` в boot-файле) и вызывается
    только при старте~~ — исправлено в Фазе 6 (6.1/6.2/6.3): boot-файл только готовит БД, синк
    стартует фоном из `App.vue` после монтирования (`startAutoSync()`), повторяется по таймеру
-   и сразу по событию `online`; состояние видно в индикаторе `SyncStatusBar.vue` («нет
-   интернета» / «синхронизация…» / «ошибка синка» / «не отправлено: N»), тап по нему —
+   и сразу по событию `online`; состояние видно в компактном индикаторе `SyncStatusBar.vue`
+   в шапке («нет сети» / «синхронизация…» / «ошибка синка» / «не отправлено: N»), тап по нему —
    ручной `sync({ force: true })`.
 
 ### Значимые
@@ -420,9 +423,16 @@ return id;
 
 **Что уже есть в UI.** Единственное место, где специализация видна пользователю, — селект
 «Выберите специализацию» в `pages/OthersPage.vue` (пишет в `useSpecializationsStore.selectedId`).
-От него зависят: список заказов (`useOrdersStore` → `ordersRepo.getBySpecializationId`), клиенты,
-каталог (`categories`/`services`), категории товаров и модели техники, а также создание заказа
-(`useOrderDraftStore.effectiveSpecializationId`). Маршруты и вкладки от специализации **не зависят**:
+От него зависят: список заказов (`useOrdersStore` → `ordersRepo.getBySpecializationId`), клиенты
+(`useClientsStore.load(specializationId)` → `clientsRepo.getBySpecializationId`), каталог
+(`useCategoriesStore.load(specializationId)` → `categoriesRepo.getBySpecializationId`; работы — по
+выбранной категории), категории товаров и модели техники (`modelsRepo.getBySpecializationId`), а
+также создание заказа (`useOrderDraftStore.effectiveSpecializationId`). Фильтр **строгий**: при
+выбранном профиле чужие записи не показываются. Репозитории ищут обе формы FK — локальный UUID (до
+синка) и серверный id (после); у `categories` парной колонки нет, поэтому серверный id специализации
+подставляется из её строки. Легаси-записи без `specialization_id` разово привязывает миграция
+`029_backfill_catalog_specialization`. Если специализаций в БД ещё нет, сторы работают по прежнему
+`getAll` (тот же компромисс, что в `useOrdersStore`). Маршруты и вкладки от специализации **не зависят**:
 `MainLayout.vue` жёстко рисует «ордеры / склад / каталог / аналитика / другие».
 
 **Что сделано:**
@@ -434,8 +444,13 @@ return id;
 - **Акцент и «лицо» профиля** (10.2) — runtime `setCssVar` (Quasar 2) + иконка/бейдж активной
   специализации; `quasar.variables.scss` не трогаем, полный ре-скин не делаем (тёмная тема
   `dark: true` — следим за контрастом).
-- **Видимость вкладок** (10.3) — флаги пресета (`features`); прямые переходы по URL ведут на
-  доступный раздел, а не на пустой экран.
+- **Видимость вкладок** (10.3; доработка) — флаги профиля (`features`): состав вкладок
+  (`MainLayout.vue`) и блоков заказа (`модель техники`, `share-ссылка`, `товар со склада`,
+  `идентификатор объекта`); прямые переходы по URL ведут на доступный раздел, а не на пустой
+  экран. Пользователь настраивает разделы сам: тумблеры в карточке «разделы профиля»
+  (`OthersPage.vue`, экшен стора `setFeatures`) пишут тот же JSON, что при создании профиля,
+  поэтому выбор уезжает синком как обычная правка. Пояснения к флагам — `FEATURE_HINTS`
+  (`src/domain/features.js`).
 - **Переключатель профиля в шапке** (10.8) — вместо спрятанного селекта в «Другие»; там же
   добавление/**архивирование** (физическое удаление запрещено: у серверных
   `categories`/`product_categories` FK на `specializations` с `onDelete('cascade')`).
@@ -469,12 +484,17 @@ return id;
   органом управления (`q-btn-toggle` + кнопка «оплачено»), без дублирующих чипов сверху; чип статуса
   остался в списке заказов (`OrdersPage.vue`). Моментальная запись статуса/оплаты в просмотре
   сохранена — это быстрый рабочий сценарий, общий «Сохранить» относится к позициям.
-- **Режим разработчика** (12.4/12.5) — `components/dev/DeveloperPanel.vue` подключается
-  динамическим импортом под `import.meta.env.DEV` (в prod-бандле его нет, проверено по `dist/spa`):
-  окружение (`API_URL`, `USE_MOCK`, платформа), версия схемы, снимок синка, очередь операций
-  (`operationsRepo.listAll`), буфер логов (`logger.getLogBuffer`/`clearLogBuffer`, лимит 200),
-  дата бэкапа, `logAllServicesForDebugging` и перенесённые сюда «полный сброс»/«удалить локальную
-  БД». Форматтеры — `src/utils/devInfo.js`, регрессы — `test/phase12-dev.test.js`.
+- **Режим разработчика** (12.4/12.5; доработка) — `components/dev/DeveloperPanel.vue` подключается
+  динамическим импортом (ленивый чанк) и показывается только при включённом тумблере «разработка»
+  в «Ещё» (`src/utils/devMode.js`, флаг хранится в `localStorage` и переживает перезапуск).
+  Панель **доступна и в боевой сборке**: на телефоне нет консоли, а логи иногда нужно снять.
+  Внутри — вкладки: «логи» (буфер `logger`, фильтр по уровню, копирование и выгрузка в файл
+  `services/logExport.js`), «диагностика» (окружение `API_URL`/`USE_MOCK`/платформа/версия/аккаунт,
+  версия схемы, снимок синка, счётчики таблиц, «снимок для поддержки» в буфер), «очередь»
+  (`operationsRepo.listAll`, «убрать сдавшихся») и «опасное» (перенесённые сюда «полный сброс» /
+  «удалить локальную БД», выключение режима). Буфер логов ведётся, если `import.meta.env.DEV`
+  **или** включён режим разработчика. Форматтеры — `src/utils/devInfo.js`, регрессы —
+  `test/phase12-dev.test.js`.
 
 ### Дефекты живого прогона (11.6), найденные на dev
 
@@ -512,4 +532,47 @@ return id;
   `FORBIDDEN_NOT_OWNER`, `MISSING_ID_FOR_UPDATE`/`_DELETE`, битый payload) «сдаются» сразу — статус
   `failed` («сдалась»). Видно в индикаторе синка (`syncStatusView` → `failedCount`) и в «Режиме
   разработчика», где кнопка «убрать сдавшиеся» вызывает `syncService.discardFailedOperations()`.
-  Регрессы — `test/operations-retry.test.js`, `test/sync-status-view.test.js`.
+- **Дубль кнопки «Новая работа» и «разнокалиберные» переключатели** в карточке заказа
+  (13.09.2026). На вкладке «работы» одно действие рисовалось дважды: кнопка в
+  `OrderServicesPanel.vue` и FAB в `OrderDetailsPage.vue` (у страницы свой `QLayout` без
+  нижнего таббара, поэтому `.lc-fab` с `bottom: 76px` «висел» в отрыве от края). FAB убран —
+  создание позиции осталось в панелях («Новая работа», «Добавить материал»). Переключатели
+  статуса и оплаты сведены к одному компактному ряду (`OrderHeaderActions.vue`: `dense` +
+  `min-height: 28px`/`font-size: 12px`), а «оплачено» стало таким же `q-btn-toggle` (одна опция
+  + `clearable`), а не отдельной кнопкой со своим размером. Регрессы —
+  `test/phase12-profile.test.js`.
+- **Контент уезжал под системные панели Android** (13.09.2026). С `targetSdk 35` (Android 15)
+  система включает edge-to-edge принудительно, а Capacitor по умолчанию отступы **не** применяет
+  (`android.adjustMarginsForEdgeToEdge: "disable"`), поэтому шапка приложения оказывалась под
+  статус-баром. В `src-capacitor/capacitor.config.json` включено `"auto"` (Capacitor сам
+  добавляет margin = высота системных панелей; в Capacitor 8 это станет дефолтом), а тема
+  `AppTheme.NoActionBar` (её ставит `BridgeActivity` до `setContentView`) получила чёрный фон
+  окна/статус-бара/навигационной панели и светлые иконки — под тёмное приложение. CSS
+  `env(safe-area-inset-*)` на Android для статус-бара не помогает. ⚠️ после правки нужен
+  `npx cap sync android` и живая проверка на устройстве.
+
+## 11. Обратная связь: «Сообщить об ошибке» (Фаза 14) — реализовано
+
+Задачи **14.1–14.7** сделаны (клиент + сервер), **14.8–14.10** — сверху; решение **D7**, контракт и
+цепочка — `docs/FEEDBACK.md`. Фаза схему синка не меняет: отчёт — **отдельный** контур (своя
+очередь, свой эндпоинт), потому что «полный сброс» и восстановление из бэкапа не должны его тащить,
+а второе устройство владельца не должно видеть чужие отчёты.
+
+Что появилось на клиенте:
+
+| Файл | Роль |
+|---|---|
+| `src/utils/errorLog.js` | **постоянный** буфер ошибок: кольцо на 100 записей `warn`/`error`, переживает перезапуск, пишется и в проде — в отличие от буфера `utils/logger.js`, который живёт только в dev или при включённом «режиме разработчика» (12.5) |
+| `src/boot/errorLog.js` | глобальные перехватчики: `window.onerror`, `window.onunhandledrejection`, `app.config.errorHandler` (Vue) |
+| миграция `030_create_feedback_reports_table.js` + `src/database/queries/feedback.js` + `src/repositories/feedbackRepo.js` | локальная очередь отчётов (`pending`/`sending`/`sent`/`failed`, `attempts`, `last_error`) — по образцу `operations`/`operationsRepo` (3.3); **не** таблица синка, в `TABLE_ORDER` не входит |
+| `src/utils/feedbackView.js` | чистые функции: `buildFeedbackReport`, `canSubmitFeedback`, `feedbackStatusView`; единственное место, где собирается payload контракта (§3 в `docs/FEEDBACK.md`) — данных мастерской там нет по построению |
+| `src/services/feedbackService.js` | `submit()` (локально → пробует уйти → офлайн остаётся `pending`) и `flush()` (досылает вместе с синком; 401/422 → `failed`, сеть/429 → `pending`) |
+| `src/pages/dialogs/FeedbackDialogPage.vue` + кнопка в `pages/OthersPage.vue` | тип, текст, «приложить диагностику», «копировать текст в буфер» (аварийный путь), состояние отправки |
+
+Вне репозитория (инбокс, который читает агент): `npm run feedback:pull` →
+`feedback/INBOX.md` + `feedback/inbox/*.md`; разбор — `feedback/DECISIONS.md`. Сырые отчёты и
+дайджест — в `.gitignore` (там логи и аккаунт), в git живут только `feedback/README.md` и
+`feedback/DECISIONS.md`.
+
+Тесты фазы: `test/error-log.test.js`, `test/feedback-queue.test.js`, `test/feedback-report.test.js`,
+`test/feedback-dialog.test.js` + обновление `test/migrations.test.js`.

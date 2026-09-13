@@ -18,7 +18,7 @@ const lineMargin = line =>
 
 <template>
   <div>
-    <div v-if="!props.products.length" class="text-caption lc-mute q-pa-md">
+    <div v-if="!props.products.length" class="text-caption lc-mute lc-pad">
       товаров из склада пока нет — добавьте их на вкладке «материалы»
     </div>
 

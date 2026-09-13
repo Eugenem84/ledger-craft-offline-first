@@ -10,84 +10,158 @@ const IDB_DB_NAME = 'ledgercraft-db'
 const IDB_STORE_NAME = 'kv'
 const IDB_KEY = 'sqljs_db'
 
+// Версия схемы IndexedDB (БД с одним стором). ⚠️ Прежняя версия этого файла открывала
+// БД без версии и без `onupgradeneeded`, поэтому в браузерах пользователей уже могла
+// остаться пустая БД версии 1 **без стора** — её лечит `openIdb()` (пересоздаёт).
+const IDB_VERSION = 2
+
+// Страховка на загрузку: boot приложения не должен ждать IndexedDB бесконечно
+// (например, БД занята другой вкладкой и событие не приходит) — тогда стартуем
+// с пустой базой, а не с чёрным экраном.
+const IDB_LOAD_TIMEOUT_MS = 3000
+
 /**
- * Доступен ли современный IndexedDB-глобал (Chrome 131+ / 2025+).
- * В браузерах постарше и в части WebView может отсутствовать — тогда
- * работаем только с localStorage (основной путь).
+ * Доступен ли IndexedDB (браузер, WebView Capacitor). В приватном режиме и в части
+ * старых WebView глобала может не быть — тогда остаётся только localStorage.
  */
 function indexedDbAvailable() {
   return typeof indexedDB !== 'undefined' && typeof indexedDB.open === 'function'
 }
 
 /**
+ * Ожидание с гарантированным результатом: либо `promise`, либо `fallback` через `ms`.
+ * Отклонение промиса не всплывает наружу (иначе оно стало бы unhandled rejection).
+ */
+function withTimeout(promise, ms, fallback) {
+  return new Promise(resolve => {
+    const timer = setTimeout(() => resolve(fallback), ms)
+
+    promise.then(
+      value => {
+        clearTimeout(timer)
+        resolve(value)
+      },
+      () => {
+        clearTimeout(timer)
+        resolve(fallback)
+      }
+    )
+  })
+}
+
+/**
+ * Открывает БД и **гарантирует** наличие стора `kv`.
+ *
+ * Стор создаётся только в `onupgradeneeded`: без него транзакция по несуществующему
+ * стору падает с `NotFoundError: One of the specified object stores was not found`.
+ * @returns {Promise<IDBDatabase>}
+ */
+function openIdb() {
+  return new Promise((resolve, reject) => {
+    let request
+
+    try {
+      request = indexedDB.open(IDB_DB_NAME, IDB_VERSION)
+    } catch (err) {
+      reject(err)
+      return
+    }
+
+    request.onupgradeneeded = () => {
+      const upgraded = request.result
+      if (!upgraded.objectStoreNames.contains(IDB_STORE_NAME)) {
+        upgraded.createObjectStore(IDB_STORE_NAME)
+      }
+    }
+
+    request.onerror = () => reject(request.error || new Error('IndexedDB open failed'))
+    request.onblocked = () => reject(new Error('IndexedDB open blocked by another tab'))
+
+    request.onsuccess = () => {
+      const opened = request.result
+
+      if (opened.objectStoreNames.contains(IDB_STORE_NAME)) {
+        resolve(opened)
+        return
+      }
+
+      // БД, созданная прежней (сломанной) версией кода: версия уже совпадает,
+      // upgrade не сработает, стора нет. Пересоздаём — данных там всё равно не было.
+      opened.close()
+      const drop = indexedDB.deleteDatabase(IDB_DB_NAME)
+      drop.onsuccess = () => openIdb().then(resolve, reject)
+      drop.onerror = () => reject(drop.error || new Error('IndexedDB delete failed'))
+      drop.onblocked = () => reject(new Error('IndexedDB delete blocked by another tab'))
+    }
+  })
+}
+
+/**
+ * Выполняет одну операцию над стором внутри транзакции.
+ *
+ * ⚠️ `IDBDatabase.transaction(storeNames, mode)`: **имя стора — первый аргумент**,
+ * режим — второй. Раньше режим передавали первым (`db.transaction('readonly')`),
+ * поэтому браузер искал стор с именем «readonly» и бросал `NotFoundError`.
+ *
+ * Завершение — по `oncomplete`/`onerror`/`onabort`: у нативных транзакций нет
+ * `tx.done` (это API Dexie), а промис этой функции обязан завершиться **всегда** —
+ * иначе висящий `await` в boot-файле оставляет приложение с чёрным экраном.
+ *
+ * @param {'readonly'|'readwrite'} mode
+ * @param {(store: IDBObjectStore) => IDBRequest} run
+ * @returns {Promise<*>} `result` запроса (если запрос возвращается)
+ */
+function withStore(mode, run) {
+  return openIdb().then(
+    db =>
+      new Promise((resolve, reject) => {
+        let tx
+
+        try {
+          tx = db.transaction(IDB_STORE_NAME, mode)
+          const request = run(tx.objectStore(IDB_STORE_NAME))
+
+          tx.oncomplete = () => {
+            db.close()
+            resolve(request ? request.result : undefined)
+          }
+          tx.onerror = () => {
+            db.close()
+            reject(tx.error)
+          }
+          tx.onabort = () => {
+            db.close()
+            reject(tx.error || new Error('IndexedDB transaction aborted'))
+          }
+        } catch (err) {
+          // Ошибка синхронная частью API (например, стора нет) — промис всё равно
+          // должен завершиться, иначе вызывающий код повиснет.
+          db.close()
+          reject(err)
+        }
+      })
+  )
+}
+
+/**
  * Пишет Uint8Array в IndexedDB (structured clone хранит его нативно).
  */
 function idbPut(value) {
-  return new Promise((resolve, reject) => {
-    try {
-      const openReq = indexedDB.open(IDB_DB_NAME)
-      openReq.onsuccess = () => {
-        const db = openReq.result
-        const tx = db.transaction('readwrite')
-        tx.objectStore(IDB_STORE_NAME).put(value, IDB_KEY)
-        tx.done.onsuccess = () => resolve()
-        tx.done.onerror = () => reject(tx.done.error)
-      }
-      openReq.onerror = () => reject(openReq.error)
-    } catch (err) {
-      reject(err)
-    }
-  })
+  return withStore('readwrite', store => store.put(value, IDB_KEY))
 }
 
 /**
  * Достаёт Uint8Array из IndexedDB (или null).
  */
 function idbGet() {
-  return new Promise((resolve, reject) => {
-    try {
-      const openReq = indexedDB.open(IDB_DB_NAME)
-      openReq.onsuccess = () => {
-        const db = openReq.result
-        const tx = db.transaction('readonly')
-        const getReq = tx.objectStore(IDB_STORE_NAME).get(IDB_KEY)
-        tx.done.onsuccess = () => resolve(getReq.result ?? null)
-        tx.done.onerror = () => reject(tx.done.error)
-      }
-      openReq.onerror = () => {
-        // «нет БД» — это нормально (ещё ничего не сохраняли)
-        const err = openReq.error
-        if (err && (err.name === 'NotFoundError' || /not found/i.test(String(err)))) {
-          resolve(null)
-        } else {
-          reject(err)
-        }
-      }
-    } catch (err) {
-      reject(err)
-    }
-  })
+  return withStore('readonly', store => store.get(IDB_KEY)).then(value => value ?? null)
 }
 
 /**
  * Очищает IndexedDB-копию дампа.
  */
 function idbClear() {
-  return new Promise((resolve, reject) => {
-    try {
-      const openReq = indexedDB.open(IDB_DB_NAME)
-      openReq.onsuccess = () => {
-        const db = openReq.result
-        const tx = db.transaction('readwrite')
-        tx.objectStore(IDB_STORE_NAME).clear()
-        tx.done.onsuccess = () => resolve()
-        tx.done.onerror = () => reject(tx.done.error)
-      }
-      openReq.onerror = reject
-    } catch (err) {
-      reject(err)
-    }
-  })
+  return withStore('readwrite', store => store.clear())
 }
 
 // Uint8Array → base64 (localStorage умеет хранить только строки).
@@ -154,21 +228,24 @@ export default {
 
   /**
    * Загружает сохранённый дамп базы (сначала localStorage, затем IndexedDB).
+   *
+   * Любая проблема резервного хранилища — это **не** повод не стартовать: возвращаем
+   * `null` (приложение поднимется на пустой БД), а причину пишем в лог. Плюс страховка
+   * по времени: зависший IndexedDB не должен останавливать boot.
    * @returns {Promise<Uint8Array|null>}
    */
   async load() {
     const raw = storage.getItem(DB_STORAGE_KEY)
     if (raw) return base64ToBytes(raw)
 
-    if (indexedDbAvailable()) {
-      try {
-        const fromIdb = await idbGet()
-        if (fromIdb) return fromIdb
-      } catch (err) {
-        logger.warn('[StorageAdapter] IndexedDB load failed:', err && err.message)
-      }
+    if (!indexedDbAvailable()) return null
+
+    try {
+      return await withTimeout(idbGet(), IDB_LOAD_TIMEOUT_MS, null)
+    } catch (err) {
+      logger.warn('[StorageAdapter] IndexedDB load failed:', err && err.message)
+      return null
     }
-    return null
   },
 
   /**

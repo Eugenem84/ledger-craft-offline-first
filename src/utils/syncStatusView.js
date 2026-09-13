@@ -5,9 +5,12 @@
 // Это чистая функция без Vue и Quasar: компонент `SyncStatusBar.vue` остаётся «тонким»,
 // а приоритет состояний проверяется обычным юнит-тестом (`test/sync-status-view.test.js`).
 //
-// Приоритет (сверху вниз): требуется вход → нет интернета → идёт синхронизация →
+// Приоритет (сверху вниз): требуется вход → нет сети → идёт синхронизация →
 // «сдавшиеся» операции → ошибка → очередь не пуста → всё синхронизировано. Так
 // пользователь видит самую важную причину текущего состояния.
+//
+// Подпись «нет сети» намеренно короткая: чип живёт в шапке (`MainLayout`) и должен
+// оставаться компактным даже на узком экране (задача UX).
 
 /**
  * @param {{online?: boolean, syncing?: boolean, lastError?: string|null, pendingCount?: number,
@@ -24,7 +27,7 @@ export function syncStatusView(status) {
   }
 
   if (s.online === false) {
-    return { kind: 'offline', icon: 'cloud_off', color: 'deep-orange', label: 'нет интернета', spin: false }
+    return { kind: 'offline', icon: 'cloud_off', color: 'deep-orange', label: 'нет сети', spin: false }
   }
 
   if (s.syncing) {

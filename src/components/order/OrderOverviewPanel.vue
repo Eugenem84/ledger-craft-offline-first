@@ -44,7 +44,7 @@ const emit = defineEmits([
          что добавить позиции можно там же — правка включится автоматически. -->
     <div
       v-if="!props.editMode"
-      class="row items-start no-wrap q-px-md q-pt-md q-gutter-x-xs text-caption lc-mute"
+      class="row items-start no-wrap lc-pad-x q-pt-md q-gutter-x-xs text-caption lc-mute"
     >
       <q-icon name="info" size="14px" />
       <span>
@@ -61,7 +61,7 @@ const emit = defineEmits([
 
     <div
       v-if="props.servicesTotal > 0"
-      class="row items-baseline justify-between q-px-md q-pt-sm text-caption lc-mute"
+      class="row items-baseline justify-between lc-pad-x q-pt-sm text-caption lc-mute"
     >
       <span>итого по работам</span>
       <span class="lc-money">{{ props.servicesTotal }} р</span>
@@ -91,7 +91,7 @@ const emit = defineEmits([
       :has-unknown-cost="props.hasUnknownCost"
     />
 
-    <div class="q-px-md q-pb-md q-gutter-y-md">
+    <div class="lc-pad-x q-pb-md q-gutter-y-md">
       <q-input
         type="textarea"
         :model-value="props.comments"

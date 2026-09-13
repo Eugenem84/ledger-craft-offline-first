@@ -88,3 +88,35 @@ export function describeSchemaVersion(expected, stored) {
     ? `${expected} (совпадает)`
     : `эталон ${expected} · в БД ${stored} (расхождение)`
 }
+
+/**
+ * Строки «сколько записей в таблице» для отладки: видно, дошёл ли синк и не пуста ли
+ * база. Принимает `{ [table]: count }`, отдаёт отсортированный по таблице список.
+ */
+export function describeTableCounts(counts = {}) {
+  return Object.keys(counts)
+    .sort()
+    .map(table => ({ label: table, value: String(counts[table] ?? 0) }))
+}
+
+/**
+ * Текстовая выгрузка «снимок для поддержки» (Фаза 12): окружение, схема, синк,
+ * очереди, счётчики таблиц и последние логи одним куском — его можно скопировать
+ * в буфер и переслать, не разбирая экраны по одному.
+ *
+ * Чистая функция: панель собирает секции, а склейка текста живёт здесь и покрыта тестом.
+ *
+ * @param {Array<{title: string, rows?: Array<{label: string, value: string}>, lines?: string[]}>} sections
+ * @returns {string}
+ */
+export function buildDiagnosticSnapshot(sections = []) {
+  return sections
+    .filter(section => section && (section.rows?.length || section.lines?.length))
+    .map(section => {
+      const rows = (section.rows || []).map(row => `  ${row.label}: ${row.value}`)
+      const lines = (section.lines || []).map(line => `  ${line}`)
+
+      return [`## ${section.title || 'без названия'}`, ...rows, ...lines].join('\n')
+    })
+    .join('\n\n')
+}

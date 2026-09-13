@@ -38,10 +38,32 @@
   // Геометрия
   --lc-radius: 14px;
   --lc-radius-sm: 10px;
-  --lc-gap: 16px;
+  --lc-gap: 16px; // вертикальный ритм между блоками
+  --lc-pad-x: 12px; // боковое поле страницы
+  --lc-pad-card: 12px; // боковое поле внутри карточек и строк
   --lc-tap: 44px;
   --lc-shadow-1: 0 1px 2px rgba(0, 0, 0, 0.55);
   --lc-shadow-2: 0 10px 24px rgba(0, 0, 0, 0.5);
+}
+
+// Поля по краям экрана.
+//
+// На телефоне экран узкий, поэтому боковые поля считаем «экономно»: карточки и
+// строки почти касаются краёв, а не «отъезжают» от них вдвойне (поле страницы
+// плюс поле внутри карточки). На планшете/десктопе возвращаем прежние 16px,
+// на очень узких экранах ужимаем ещё на шаг.
+@media (min-width: 600px) {
+  :root {
+    --lc-pad-x: 16px;
+    --lc-pad-card: 16px;
+  }
+}
+
+@media (max-width: 360px) {
+  :root {
+    --lc-pad-x: 10px;
+    --lc-pad-card: 10px;
+  }
 }
 
 body {
@@ -86,7 +108,21 @@ body {
 }
 
 .lc-shell {
-  padding: var(--lc-gap);
+  padding: var(--lc-gap) var(--lc-pad-x);
+}
+
+// Внутренние отступы карточек и панелей.
+//
+// Раньше здесь стояли Quasar-классы `q-pa-md` / `q-px-md` (16px), и вместе с
+// полем страницы контент уезжал от края на 32px. Эти утилиты берут размер из
+// `--lc-pad-card`, поэтому карточка «сидит» на экране плотнее.
+.lc-pad {
+  padding: var(--lc-pad-card);
+}
+
+.lc-pad-x {
+  padding-left: var(--lc-pad-card);
+  padding-right: var(--lc-pad-card);
 }
 
 .lc-muted {
@@ -138,6 +174,10 @@ body {
 
 .lc-card .q-item {
   min-height: calc(var(--lc-tap) + 8px);
+  // Ряды списков выравниваем по тому же боковому полю, что и строки позиций
+  // (`.lc-linerow`), иначе внутри карточки контент уезжал от края на 16px.
+  padding-left: var(--lc-pad-card);
+  padding-right: var(--lc-pad-card);
 }
 
 // --- Статусы ---------------------------------------------------------------
@@ -239,7 +279,7 @@ body {
 
 .lc-fab {
   position: fixed;
-  right: 16px;
+  right: var(--lc-pad-x);
   bottom: calc(76px + env(safe-area-inset-bottom, 0px));
   z-index: 1400;
   box-shadow: var(--lc-shadow-2);
@@ -259,7 +299,7 @@ body {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 8px 16px;
+  padding: 8px var(--lc-pad-card);
   border-bottom: 1px solid var(--lc-border);
   font-variant-numeric: tabular-nums;
 }
@@ -333,15 +373,22 @@ body {
   border-radius: 999px;
 }
 
+// Компактный вариант для шапки: меньше кнопка и текст, чтобы чип не «раздувал»
+// тулбар и оставлял место переключателю профиля и бренду.
+.lc-sync-chip--xs {
+  min-height: 20px;
+  padding: 0 8px;
+  font-size: 11px;
+  line-height: 1.1;
+}
+
+.lc-sync-chip--xs .q-icon {
+  font-size: 14px;
+}
+
 // На узком экране прячем второстепенные числовые колонки (склад, каталог).
 @media (max-width: 420px) {
   .lc-hide-sm {
     display: none !important;
-  }
-}
-
-@media (max-width: 360px) {
-  .lc-shell {
-    padding: 12px;
   }
 }

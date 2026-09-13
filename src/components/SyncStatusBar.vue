@@ -1,16 +1,27 @@
 <script setup>
 // src/components/SyncStatusBar.vue
 //
-// Индикатор сети и синка (задача 6.2): «нет интернета», «синхронизация…», «ошибка синка»,
+// Индикатор сети и синка (задача 6.2): «нет сети», «синхронизация…», «ошибка синка»,
 // «не отправлено: N». Тап по бейджу — ручная синхронизация (`sync({ force: true })`,
 // то есть в обход паузы после сбоя, задача 3.7).
 //
-// Живёт в `App.vue`, поэтому виден на всех маршрутах, включая страницу заказа (она
-// рендерится вне `MainLayout`). Состояние берётся из `syncService.getStatus()`/`subscribe()`.
+// Два места монтирования:
+//   • `MainLayout.vue` (шапка) — на основных экранах чип стоит в тулбаре, и по умолчанию
+//     это обычный inline-элемент (позиционирования нет, `floating` не задан);
+//   • `App.vue` с `floating` — на маршрутах вне каркаса (карточка заказа, вход, 404),
+//     где шапки нет; там чип крепится внизу слева, как раньше.
+//
+// Состояние берётся из `syncService.getStatus()`/`subscribe()`, а подпись и цвет —
+// из чистой функции `syncStatusView.js` (в офлайне она отдаёт «нет сети»).
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import syncService from 'src/services/syncService.js'
 import { syncStatusView } from 'src/utils/syncStatusView.js'
+
+// `floating` включается только когда компонент рендерится вне `MainLayout`.
+defineProps({
+  floating: { type: Boolean, default: false },
+})
 
 const router = useRouter()
 const status = ref(syncService.getStatus())
@@ -94,13 +105,13 @@ async function syncNow() {
 </script>
 
 <template>
-  <div class="sync-status">
+  <div class="sync-status" :class="{ 'sync-status--float': floating }">
     <q-btn
       dense
       no-caps
       unelevated
       size="sm"
-      class="lc-sync-chip text-caption"
+      class="lc-sync-chip lc-sync-chip--xs text-caption"
       :color="view.color"
       :text-color="textColor"
       :icon="view.icon"
@@ -116,8 +127,10 @@ async function syncNow() {
 </template>
 
 <style scoped>
-/* Над таббаром (~56px) и с учётом safe-area; не мешает FAB справа. */
-.sync-status {
+/* В шапке (`MainLayout`) чип лежит прямо в тулбаре — позиционирования нет.
+   `floating` — только для маршрутов вне каркаса: крепим внизу слева
+   (над таббаром ~56px, с учётом safe-area); не мешает FAB справа. */
+.sync-status--float {
   position: fixed;
   left: 10px;
   bottom: calc(72px + env(safe-area-inset-bottom, 0px));
