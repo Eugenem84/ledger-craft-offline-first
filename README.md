@@ -431,6 +431,10 @@ adb uninstall com.ledgercraft.app.debug               # снести тольк�
 ### Выпуск релиза
 
 ```bash
+# 0. Java для gradle: Homebrew-openjdk 21 keg-only, в PATH его нет
+export JAVA_HOME=/opt/homebrew/opt/openjdk@21
+export PATH="$JAVA_HOME/bin:$PATH"
+
 # 1. Поднять версию: src-capacitor/android/gradle.properties
 #    APP_VERSION_CODE=6      # +1 к предыдущему
 #    APP_VERSION_NAME=1.5
@@ -460,6 +464,18 @@ RELEASE_SERVER=prod-vps RELEASE_REMOTE_DIR=/var/www/<prod-репозиторий
 в prod — только проверенное (Фаза 11). Prod-путь в скрипте уже заготовлен, но **включится вместе с
 prod-VPS** (задача 11.12): пока контура нет, `--channel prod` без явных `RELEASE_API_URL`,
 `RELEASE_SERVER` и `RELEASE_REMOTE_DIR` просто откажется работать.
+
+⚠️ Публикация ходит по `ssh`/`scp`, поэтому запускать надо из **обычного терминала**: в фоне/CI без tty
+шаг `ssh` встаёт на запросе ввода (`suspended (tty input)`) — сборка уже готова, а релиз на контуре
+остаётся старым. Если так вышло, публикуйте руками тем же порядком (сборка в
+`src-capacitor/android/app/build/outputs/apk/release/app-release.apk`):
+
+```bash
+ssh -o BatchMode=yes dev-vps "mkdir -p /var/www/LedgerCraftDocker03/storage/app/releases"
+scp -o BatchMode=yes <apk> dev-vps:/var/www/LedgerCraftDocker03/storage/app/releases/
+ssh -o BatchMode=yes dev-vps "cd /var/www/LedgerCraftDocker03 && php artisan app:publish-apk \
+  storage/app/releases/app-release.apk --version-code=6 --version-name=1.5 --notes='…'"
+```
 
 > **Ключ, toolchain и первый релиз (13.09.2026).** Ключ подписи — `~/keystores/ledger-craft-release.jks`
 > (`CN=Ledger Craft`, RSA 2048), пароли — `src-capacitor/android/keystore.properties`; оба файла в
