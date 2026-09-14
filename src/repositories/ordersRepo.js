@@ -7,6 +7,9 @@ import { findByServerId as findSpecializationByServerId } from "src/repositories
 import { findByServerId as findClientByServerId } from "src/repositories/clientsRepo.js";
 import { getById as getModelById } from "src/repositories/modelsRepo.js";
 import { findByServerId as findModelByServerId } from "src/repositories/modelsRepo.js";
+import * as orderServiceRepo from 'src/repositories/orderServiceRepo.js'
+import * as orderProductRepo from 'src/repositories/orderProductRepo.js'
+import * as materialsRepo from 'src/repositories/materialsRepo.js'
 import { toEpochSeconds } from 'src/utils/timestamps.js'
 import {
   orderInsertParams,
@@ -196,19 +199,47 @@ export async function update(order) {
   }
 }
 
+/**
+ * Удаляет заказ вместе с его строками: работами (`order_service`), товарами со
+ * склада (`order_product`) и ручными позициями (`materials`).
+ *
+ * ⚠️ Дефект живого прогона (14.09.2026, отчёт мастера №2): удалялся только сам
+ * заказ, а строки оставались. На Android плагин SQLite открывает соединение с
+ * `PRAGMA foreign_keys = ON` (`Database.java`: `setForeignKeyConstraintsEnabled(true)`),
+ * а `order_service.order_id` и `materials.order_id` — внешние ключи на `orders(id)`
+ * (миграции 020 и 023), поэтому `DELETE FROM orders` при живых строках падал
+ * `FOREIGN KEY constraint failed`: мастер видел «Ошибка удаления ордера», а заказ
+ * оставался в списке. Если заказ ещё не уезжал на сервер (`server_id` пуст),
+ * tombstone для него не придёт никогда — заказ «залипал» навсегда.
+ * Тот же порядок (строки → заказ) уже был в `syncService._applyServerDeletion`
+ * (задача 3.9) — в этом пути удаления его просто не было.
+ *
+ * Порядок важен дважды: (1) строки снимают/отменяют свои операции через свои
+ * репозитории (delete по натуральному ключу либо отмена незаезженного INSERT);
+ * (2) всё идёт в одной транзакции, иначе при сбое удаления заказа в очереди
+ * осталась бы серверная `delete`-операция без локального удаления.
+ *
+ * @param {string} id локальный id заказа
+ */
 export async function remove(id) {
   const order = await dbAdapter.queryOne(queries.getById, [id]);
 
-  if (order && order.server_id) {
-    const opId = uuidv4();
-    const opPayload = JSON.stringify({ id: order.server_id });
-    const opParams = [opId, 'delete', 'orders', opPayload, Date.now()];
-    await operationsRepo.enqueue(opParams);
-  } else if (order) {
-    await operationsRepo.removeByLocalId('orders', id);
-  }
+  await dbAdapter.transaction(async () => {
+    await orderServiceRepo.removeByOrderId(id);
+    await orderProductRepo.removeByOrderId(id);
+    await materialsRepo.removeByOrderId(id);
 
-  await dbAdapter.execute(queries.delete, [id]);
+    if (order && order.server_id) {
+      const opId = uuidv4();
+      const opPayload = JSON.stringify({ id: order.server_id });
+      const opParams = [opId, 'delete', 'orders', opPayload, Date.now()];
+      await operationsRepo.enqueue(opParams);
+    } else if (order) {
+      await operationsRepo.removeByLocalId('orders', id);
+    }
+
+    await dbAdapter.execute(queries.delete, [id]);
+  });
 }
 
 export async function applyServerRecord(record) {

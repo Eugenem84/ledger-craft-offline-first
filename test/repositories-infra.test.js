@@ -11,6 +11,9 @@ import { setupTestDb } from './helpers/testDb.js'
 import operationsRepo from 'src/repositories/operationsRepo.js'
 import * as metaRepo from 'src/repositories/metaRepo.js'
 import * as clientsRepo from 'src/repositories/clientsRepo.js'
+import * as ordersRepo from 'src/repositories/ordersRepo.js'
+import * as servicesRepo from 'src/repositories/servicesRepo.js'
+import * as categoriesRepo from 'src/repositories/categoriesRepo.js'
 
 const ISO_1 = '2026-09-12T10:00:00.000Z'
 const seconds = value => Math.floor(Date.parse(value) / 1000)
@@ -85,9 +88,16 @@ describe('5.3 operationsRepo (очередь)', () => {
   })
 
   it('markSynced запоминает серверные id родителей для order_service (3.5)', async () => {
+    // Родители должны существовать: БД открыта с включёнными внешними ключами
+    // (`PRAGMA foreign_keys = ON`, как на устройстве — см. test/helpers/testDb.js).
+    const orderId = await ordersRepo.save({ total_amount: 100 })
+    const categoryId = await categoriesRepo.save({ category_name: 'Электрика' })
+    const serviceId = await servicesRepo.save({ service: 'Розетка', category_id: categoryId })
+
     // Локальная строка связки (server_id у неё на сервере нет вовсе).
     await db.execute(
-      `INSERT INTO order_service (id, order_id, service_id) VALUES ('line-1', 'order-local', 'service-local')`
+      `INSERT INTO order_service (id, order_id, service_id) VALUES ('line-1', ?, ?)`,
+      [orderId, serviceId]
     )
     await insertOperation({
       id: 'op-line',

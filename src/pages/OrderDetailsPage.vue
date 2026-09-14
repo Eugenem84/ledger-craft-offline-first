@@ -22,6 +22,10 @@ import OrderServicesPanel from 'src/components/order/OrderServicesPanel.vue'
 import OrderStoreProductDialog from 'src/components/order/dialogs/OrderStoreProductDialog.vue'
 import { useOrderDraftStore } from 'src/stores/useOrderDraftStore.js'
 import { shareLinkErrorView } from 'src/utils/shareLinkError.js'
+// Ошибки экрана — в постоянный буфер (`logger.error` → `utils/errorLog.js`): без этого
+// они жили только в консоли, и отчёт мастера «Сообщить об ошибке» приходил без причины
+// (дефект разбора отчёта №2, 14.09.2026: «ордер не удаляется» без текста ошибки).
+import { logger } from 'src/utils/logger'
 // Фаза 10: лексикон профиля (10.1) и видимость блока идентификатора объекта (10.9).
 import { useLexicon } from 'src/domain/lexicon.js'
 import { useFeatures } from 'src/domain/features.js'
@@ -103,7 +107,7 @@ onMounted(async () => {
       tab.value = 'servicesChoice'
     }
   } catch (err) {
-    console.error(err)
+    logger.error('[Order] Не удалось открыть заказ:', err)
     notify('negative', 'Ошибка загрузки заказа')
   }
 })
@@ -114,7 +118,7 @@ const handleServiceCategoryChange = async categoryId => {
   try {
     await draft.loadServicesByCategory(categoryId)
   } catch (err) {
-    console.error(err)
+    logger.error('[Order] Не удалось загрузить работы категории:', err)
     notify('negative', 'Ошибка загрузки работ')
   }
 }
@@ -123,7 +127,7 @@ const handleStoreCategoryChange = async categoryId => {
   try {
     await draft.loadProductsByCategory(categoryId)
   } catch (err) {
-    console.error(err)
+    logger.error('[Order] Не удалось загрузить товары категории:', err)
     notify('negative', 'Ошибка загрузки товаров')
   }
 }
@@ -141,7 +145,7 @@ const handleAddService = async payload => {
     notify('positive', 'Работа добавлена')
     showServiceDialog.value = false
   } catch (err) {
-    console.error(err)
+    logger.error('[Order] Не удалось добавить работу:', err)
     notify('negative', 'Ошибка добавления работы')
   }
 }
@@ -152,7 +156,7 @@ const handleAddClient = async payload => {
     notify('positive', 'Клиент добавлен')
     showClientDialog.value = false
   } catch (err) {
-    console.error(err)
+    logger.error('[Order] Не удалось добавить клиента:', err)
     notify('negative', 'Ошибка добавления клиента')
   }
 }
@@ -163,7 +167,7 @@ const handleAddModel = async payload => {
     notify('positive', 'Модель добавлена')
     showModelDialog.value = false
   } catch (err) {
-    console.error(err)
+    logger.error('[Order] Не удалось добавить модель:', err)
     notify('negative', 'Ошибка добавления модели')
   }
 }
@@ -175,7 +179,7 @@ const handleSave = async () => {
     notify('positive', 'Ордер сохранен')
     router.back()
   } catch (err) {
-    console.error(err)
+    logger.error('[Order] Не удалось сохранить ордер:', err)
     notify('negative', 'Ошибка сохранения ордера')
   }
 }
@@ -190,7 +194,7 @@ const handleDelete = () => {
         notify('positive', 'Ордер удален')
         router.back()
       } catch (err) {
-        console.error(err)
+        logger.error('[Order] Не удалось удалить ордер:', err)
         notify('negative', 'Ошибка удаления ордера')
       }
     }
@@ -207,7 +211,7 @@ const handleShare = async () => {
     await navigator.clipboard.writeText(url)
     notify('positive', 'Ссылка скопирована')
   } catch (err) {
-    console.error('[OrderDetails] Не удалось создать share-ссылку:', err)
+    logger.error('[Order] Не удалось создать share-ссылку:', err)
     const view = shareLinkErrorView(err)
     notify(view.level, view.message)
   } finally {

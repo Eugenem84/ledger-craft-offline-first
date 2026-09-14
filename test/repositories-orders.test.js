@@ -180,6 +180,91 @@ describe('5.3 ordersRepo', () => {
   })
 })
 
+describe('5.3 ordersRepo: удаление заказа вместе со строками (дефект 14.09.2026, отчёт мастера №2)', () => {
+  /**
+   * «Полный» заказ мастера: работа, товар со склада и ручная позиция.
+   * На устройстве БД открыта с `PRAGMA foreign_keys = ON` (как на Android — см.
+   * `test/helpers/testDb.js`), поэтому строки `order_service`/`materials` держат
+   * заказ внешним ключом.
+   */
+  async function orderWithLines() {
+    const categoryId = await categoriesRepo.save({ category_name: 'Электрика' })
+    const serviceId = await servicesRepo.save({ service: 'Работа', price: 500, category_id: categoryId })
+    const productCategoryId = await productCategoriesRepo.save({ name: 'Подшипники' })
+    const productId = await productsRepo.save({ name: 'Подшипник', product_category_id: productCategoryId })
+    const orderId = await ordersRepo.save({ total_amount: 1300 })
+
+    await orderServiceRepo.add(orderId, serviceId, 500)
+    await orderProductRepo.add(orderId, productId, 2, 300)
+    await materialsRepo.add(orderId, { name: 'Клей', price: 300, amount: 2 })
+
+    return { orderId }
+  }
+
+  /** Сколько строк осталось у заказа в каждой из «детских» таблиц. */
+  async function linesLeft(orderId) {
+    const count = async table =>
+      (await db.query(`SELECT id FROM ${table} WHERE order_id = ?`, [orderId])).length
+
+    return {
+      services: await count('order_service'),
+      products: await count('order_product'),
+      materials: await count('materials'),
+    }
+  }
+
+  it('незаезженный заказ (offline) удаляется со всеми строками — раньше падал FOREIGN KEY', async () => {
+    const { orderId } = await orderWithLines()
+
+    // Так вело себя прежнее удаление: сносим только заказ, а строки живы → SQLite
+    // отказывает, мастер видит «Ошибка удаления ордера», заказ остаётся в списке.
+    expect(() => db.execute('DELETE FROM orders WHERE id = ?', [orderId])).toThrow(/FOREIGN KEY/)
+
+    await ordersRepo.remove(orderId)
+
+    expect(await db.queryOne('SELECT * FROM orders WHERE id = ?', [orderId])).toBeNull()
+    expect(await linesLeft(orderId)).toEqual({ services: 0, products: 0, materials: 0 })
+
+    const ops = await queue()
+
+    // Незаезженные строки не оставляют своих INSERT-ов в очереди (иначе сервер
+    // получил бы строки к уже удалённому заказу).
+    expect(ops.filter(op => ['order_service', 'order_product', 'materials'].includes(op.table))).toHaveLength(0)
+    expect(ops.filter(op => op.table === 'orders' && op.payload.local_id === orderId)).toHaveLength(0)
+  })
+
+  it('синхронизированный заказ: снимает с сервера и заказ, и его строки', async () => {
+    const { orderId } = await orderWithLines()
+    await db.execute('UPDATE orders SET server_id = ? WHERE id = ?', [100, orderId])
+    await db.execute(
+      'UPDATE order_service SET order_server_id = 100, service_server_id = 200 WHERE order_id = ?',
+      [orderId]
+    )
+    await db.execute('UPDATE order_product SET server_id = 900 WHERE order_id = ?', [orderId])
+    await db.execute('UPDATE materials SET server_id = 901 WHERE order_id = ?', [orderId])
+    await db.execute('DELETE FROM operations')
+
+    await ordersRepo.remove(orderId)
+
+    const ops = await queue()
+    const opFor = table => ops.find(op => op.table === table)
+
+    expect(opFor('orders')).toMatchObject({ type: 'delete' })
+    expect(opFor('orders').payload).toEqual({ id: 100 })
+
+    // Работа уходит по натуральному ключу: у связки нет своего PK на сервере (3.5).
+    expect(opFor('order_service')).toMatchObject({ type: 'delete' })
+    expect(opFor('order_service').payload).toMatchObject({ order_id: 100, service_id: 200 })
+    expect(opFor('order_product')).toMatchObject({ type: 'delete' })
+    expect(opFor('order_product').payload).toEqual({ id: 900 })
+    expect(opFor('materials')).toMatchObject({ type: 'delete' })
+    expect(opFor('materials').payload).toEqual({ id: 901 })
+
+    expect(await db.queryOne('SELECT * FROM orders WHERE id = ?', [orderId])).toBeNull()
+    expect(await linesLeft(orderId)).toEqual({ services: 0, products: 0, materials: 0 })
+  })
+})
+
 describe('5.3 orderServiceRepo', () => {
   async function addLine() {
     const categoryId = await categoriesRepo.save({ category_name: 'Электрика' })

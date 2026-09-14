@@ -182,8 +182,12 @@ describe('5.4 отложенные операции', () => {
   it('операция с неразрешимым FK откладывается точечно, остальной батч уезжает', async () => {
     const categoryId = await categoriesRepo.save({ category_name: 'Электрика' })
 
-    // Заказ ссылается на клиента, которого в локальной БД нет: FK не разрешить.
-    await ordersRepo.save({ client_id: 'missing-client', total_amount: 100 })
+    // Клиент есть локально, но на сервер не уезжал (`server_id` пуст, операции в
+    // очереди нет) — FK заказа разрешить нельзя, и операция должна отложиться.
+    // Раньше здесь ссылались на «missing-client», но с включёнными внешними ключами
+    // (как на реальном устройстве) такую строку уже не создать.
+    await db.execute(`INSERT INTO clients (id, name) VALUES (?, ?)`, ['client-local', 'Иван'])
+    await ordersRepo.save({ client_id: 'client-local', total_amount: 100 })
 
     await syncService.sync()
 

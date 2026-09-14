@@ -44,7 +44,16 @@ export async function createSqlJsAdapter() {
   return {
     name: 'test-sqljs',
 
-    init: async () => {},
+    /**
+     * Реальное поведение устройства: Android-плагин открывает БД с
+     * `PRAGMA foreign_keys = ON` (`setForeignKeyConstraintsEnabled(true)` в
+     * `Database.java`), поэтому тесты обязаны видеть внешние ключи включёнными —
+     * иначе дефект «удаляем родителя, а строки остались» (отчёт мастера №2,
+     * 14.09.2026) проходит мимо всего набора. В sql.js ключи по умолчанию ВЫКЛЮЧЕНЫ.
+     */
+    init: async () => {
+      db.run('PRAGMA foreign_keys = ON')
+    },
 
     execute(sql, params = []) {
       if (!db) throw new Error('Database not initialized')

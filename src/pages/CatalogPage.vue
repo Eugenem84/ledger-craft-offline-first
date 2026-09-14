@@ -15,6 +15,9 @@ import LcPageHeader from 'src/components/ui/LcPageHeader.vue'
 import { useClientsStore } from 'stores/useClientsStore.js'
 import { useCategoriesStore } from 'stores/useCategoriesStore.js'
 import { useServicesStore } from 'stores/useServicesStore.js'
+// Ошибки каталога — в постоянный буфер (`utils/errorLog.js`), иначе в отчёте мастера
+// «Сообщить об ошибке» нет причины (дефект разбора отчёта №2, 14.09.2026).
+import { logger } from 'src/utils/logger'
 // Фаза 10: лексикон ниши (10.1) и активный рабочий профиль (смена профиля — 10.8).
 import { useSpecializationsStore } from 'stores/useSpecializationsStore.js'
 import { useLexicon } from 'src/domain/lexicon.js'
@@ -92,7 +95,7 @@ const deleteClient = async () => {
     $q.notify({ type: 'positive', message: 'Клиент удален', position: "top", timeout: 1000 })
   } catch (err){
     $q.notify({ type: 'negative', message: 'Ошибка удаления клиента', position: "top", timeout: 1000 })
-    console.error(err)
+    logger.error('[Catalog] Не удалось удалить клиента:', err)
   }
 }
 
@@ -104,7 +107,7 @@ const deleteCategory = async () => {
     $q.notify({ type: 'positive', message: 'Категория удалена', position: "top", timeout: 1000 })
   } catch (err){
     $q.notify({ type: 'negative', message: 'Ошибка удаления категории', position: "top", timeout: 1000 })
-    console.error(err)
+    logger.error('[Catalog] Не удалось удалить категорию:', err)
   }
 }
 
@@ -115,7 +118,7 @@ const deleteService = async () => {
     $q.notify({ type: 'positive', message: 'Услуга удалена', position: "top", timeout: 1000 })
   } catch (err){
     $q.notify({ type: 'negative', message: 'Ошибка удаления услуги', position: "top", timeout: 1000 })
-    console.error(err)
+    logger.error('[Catalog] Не удалось удалить услугу:', err)
   }
 }
 
@@ -145,7 +148,7 @@ const editClient = async () => {
     $q.notify({ type: 'positive', message: 'Клиент изменен', position: "top", timeout: 1000 })
   } catch (err){
     $q.notify({ type: 'negative', message: 'Ошибка редактирования клиента', position: "top", timeout: 1000 })
-    console.error(err)
+    logger.error('[Catalog] Не удалось изменить клиента:', err)
   }
 }
 
@@ -157,7 +160,7 @@ const editCategory = async () => {
     $q.notify({ type: 'positive', message: 'Категория изменена', position: "top", timeout: 1000 })
   } catch (err){
     $q.notify({ type: 'negative', message: 'Ошибка редактирования категории', position: "top", timeout: 1000 })
-    console.error(err)
+    logger.error('[Catalog] Не удалось изменить категорию:', err)
   }
 }
 
@@ -169,7 +172,7 @@ const editService = async () => {
     $q.notify({ type: 'positive', message: 'Услуга изменена', position: "top", timeout: 1000 })
   } catch (err){
     $q.notify({ type: 'negative', message: 'Ошибка изменения услуги', position: "top", timeout: 1000 })
-    console.error(err)
+    logger.error('[Catalog] Не удалось изменить услугу:', err)
   }
 }
 
