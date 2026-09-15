@@ -22,7 +22,7 @@ describe('6.2 представление состояния синка', () => {
       pendingCount: 3,
     })
 
-    expect(view).toMatchObject({ kind: 'offline', icon: 'cloud_off' })
+    expect(view).toMatchObject({ kind: 'offline', icon: 'cloud_off', color: 'warning' })
     expect(view.label).toBe('нет сети')
   })
 

@@ -1,11 +1,14 @@
 <script setup>
 // Статус заказа одним «чипом»: иконка + слово + цвет.
 //
-// Слова берём из `ORDER_STATUSES` (`src/utils/analytics.js`), чтобы список заказов,
-// карточка заказа и аналитика говорили одинаково. Раньше статус был только иконкой
-// (и мигающей), а подписи жили по месту («враб», «опл»).
+// Слова берём из `ORDER_STATUSES`, иконки — из `ORDER_STATUS_ICONS`
+// (`src/utils/analytics.js`), чтобы список заказов, карточка заказа и аналитика
+// говорили одинаково. Той же картой иконок пользуются сегменты переключателя
+// статуса в карточке заказа — чип и тумблер выглядят как одно (правка владельца
+// 15.09.2026). Раньше статус был только иконкой (и мигающей), а подписи жили по
+// месту («враб», «опл»).
 import { computed } from 'vue'
-import { ORDER_STATUSES } from 'src/utils/analytics.js'
+import { ORDER_STATUSES, ORDER_STATUS_ICONS } from 'src/utils/analytics.js'
 
 const props = defineProps({
   status: { type: String, default: 'waiting' },
@@ -15,13 +18,11 @@ const props = defineProps({
   compact: { type: Boolean, default: false },
 })
 
-const ICONS = { waiting: 'schedule', process: 'build', done: 'check_circle', unknown: 'help' }
-
 const meta = computed(
   () => ORDER_STATUSES.find(item => item.value === props.status) || { value: 'unknown', label: 'без статуса' }
 )
 
-const icon = computed(() => ICONS[meta.value.value] || ICONS.unknown)
+const icon = computed(() => ORDER_STATUS_ICONS[meta.value.value] || ORDER_STATUS_ICONS.unknown)
 </script>
 
 <template>

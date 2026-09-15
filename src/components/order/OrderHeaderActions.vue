@@ -16,11 +16,14 @@
 // кнопка со своим размером: раньше статус и оплата читались как два разных органа.
 //
 // Правка владельца (15.09.2026): активный сегмент «переезжает» к выбранному, а его
-// цвет — светофорный, как у чипов статуса: «ожидает» оранжевый, «в работе» красный,
-// «готово» зелёный. Цвет/позицию индикатора задают классы `.lc-toggle--waiting/…`
-// в scoped-стилях, поэтому в разметке нет инлайн-цветов (см. `docs/UI.md`).
+// оформление — как у чипа статуса: светофорный цвет (жёлтый/красный/зелёный) плюс
+// мягкая заливка и тонкая рамка из тех же токенов, что у чипа (`.lc-status--*`).
+// Иконки сегментов берём из общей карты `ORDER_STATUS_ICONS`, поэтому чип в списке
+// заказов и тумблер в карточке читаются как один элемент. Цвет/позицию индикатора
+// задают классы `.lc-toggle--waiting/…` в scoped-стилях, поэтому в разметке нет
+// инлайн-цветов (см. `docs/UI.md`).
 import { computed } from 'vue'
-import { ORDER_STATUSES } from 'src/utils/analytics.js'
+import { ORDER_STATUSES, ORDER_STATUS_ICONS } from 'src/utils/analytics.js'
 
 // Пропсы читаются и в шаблоне, и в скрипте (`statusModifier` ниже — по `status`).
 const props = defineProps({
@@ -46,8 +49,18 @@ const emit = defineEmits([
   'update:paid',
 ])
 
-/** Подписи статусов — общий словарь (`src/utils/analytics.js`). */
-const statusOptions = computed(() => ORDER_STATUSES.map(item => ({ label: item.label, value: item.value })))
+/**
+ * Подписи и иконки статусов — общий словарь (`src/utils/analytics.js`). Иконки берём
+ * из той же карты, что чип статуса (`LcStatusChip.vue`): сегмент тумблера выглядит как
+ * чип — иконка + слово (правка владельца 15.09.2026).
+ */
+const statusOptions = computed(() =>
+  ORDER_STATUSES.map(item => ({
+    label: item.label,
+    value: item.value,
+    icon: ORDER_STATUS_ICONS[item.value],
+  }))
+)
 
 /**
  * Класс-модификатор статуса для «переезжающего» индикатора. Сам цвет и позиция
@@ -62,9 +75,10 @@ const statusModifier = computed(() => {
 
 /**
  * «Оплачено» — переключатель из одной опции: клик выставляет `true`, повторный клик
- * сбрасывает (`clearable` отдаёт `null`, его и считаем «не оплачено»).
+ * сбрасывает (`clearable` отдаёт `null`, его и считаем «не оплачено»). Иконка и цвет —
+ * как у чипа «оплачено» в списке заказов (`OrdersPage.vue`).
  */
-const paidOptions = [{ label: 'оплачено', value: true }]
+const paidOptions = [{ label: 'оплачено', value: true, icon: 'paid' }]
 </script>
 
 <template>
@@ -144,11 +158,13 @@ const paidOptions = [{ label: 'оплачено', value: true }]
          вида: сегменты ниже (`dense` + уменьшенный кегль в стилях), интерактив один.
 
          Правка владельца (15.09.2026): активный сегмент не «вспыхивает» заливкой,
-         а плавно переезжает к выбранному — под подписями лежит цветной индикатор
-         (`.lc-toggle::before`). Цвет индикатора светофорный, как у чипов статуса:
-         «ожидает» оранжевый, «в работе» красный, «готово» зелёный; сегмент оплаты
-         зелёный — как чип «оплачено» в списке заказов. -->
-    <div class="row items-center no-wrap q-gutter-x-sm q-mt-sm">
+         а плавно переезжает к выбранному — под подписями лежит индикатор
+         (`.lc-toggle::before`). Оформление активного сегмента — как у чипа статуса:
+         мягкая заливка (12 %) и тонкая рамка (35 %) из общих токенов
+         (`--lc-waiting/process/done/paid-soft` / `-line`), подпись и иконка цветом
+         статуса. Иконки — из `ORDER_STATUS_ICONS` (общая карта с `LcStatusChip`),
+         поэтому тумблер и чип в списке заказов выглядят одинаково. -->
+    <div class="row items-center no-wrap q-gutter-x-xs q-mt-sm">
       <q-btn-toggle
         :model-value="status"
         class="col lc-toggle"
@@ -186,19 +202,27 @@ const paidOptions = [{ label: 'оплачено', value: true }]
 
 /* Переключатели статуса и оплаты: один компактный сегмент на оба органа.
    `dense` задаёт внутренние отступы, здесь ужимаем высоту и кегль, чтобы шапка
-   заказа занимала меньше места (правка живого прогона). */
+   заказа занимала меньше места (правка живого прогона). Форма — «пилюля», как у
+   чипа статуса (правка владельца 15.09.2026). */
 .lc-toggle {
   position: relative;
-  border-radius: var(--lc-radius-sm);
+  border-radius: 999px;
   overflow: hidden;
   background: var(--lc-surface-3);
+  /* Quasar рисует группе кнопок собственную тень — «таблетке» она не нужна. */
+  box-shadow: none;
 }
 
 /* «Переезжающий» индикатор (правка владельца 15.09.2026). `::before` — первый
    ребёнок группы, поэтому лежит ПОД подписями: сегменты прозрачные, текст читается
-   поверх цветной заливки. Ширина — один сегмент (`--lc-toggle-count`), положение —
-   номер активного (`--lc-toggle-shift`); и `transform`, и `background-color`
-   анимированы, так что смена статуса — переезд с одновременной сменой цвета. */
+   поверх заливки. Ширина — один сегмент (`--lc-toggle-count`), положение — номер
+   активного (`--lc-toggle-shift`); и `transform`, и цвета анимированы, так что смена
+   статуса — переезд с одновременной сменой цвета.
+
+   Заливка и рамка индикатора — те же токены, что у чипа статуса (`.lc-status--*` в
+   `src/css/app.scss`): мягкий фон (12 %) и тонкая рамка (35 %). Рамку рисует
+   inset-тень — у псевдоэлемента нет собственных границ, а выглядеть он должен как
+   чип. Поэтому активный сегмент тумблера и чип в списке заказов совпадают. */
 .lc-toggle::before {
   content: '';
   position: absolute;
@@ -210,54 +234,63 @@ const paidOptions = [{ label: 'оплачено', value: true }]
      индикатора ПЛЮС те же 4px (`100% + 4px`), и «пилюля» встаёт ровно в сегмент
      на любой позиции, а не только в крайние. */
   width: calc(100% / var(--lc-toggle-count, 1) - 4px);
-  border-radius: var(--lc-radius-sm);
-  background-color: var(--lc-toggle-color, var(--lc-border-strong));
+  border-radius: 999px;
+  background-color: var(--lc-toggle-soft, transparent);
+  box-shadow: inset 0 0 0 1px var(--lc-toggle-line, transparent);
   transform: translateX(calc(var(--lc-toggle-shift, 0) * (100% + 4px)));
   transition:
     transform 0.28s cubic-bezier(0.4, 0, 0.2, 1),
     background-color 0.28s ease,
+    box-shadow 0.28s ease,
     opacity 0.28s ease;
   pointer-events: none;
 }
 
-/* Светофорная логика — те же токены, что у чипов статуса (`.lc-status--*`).
-   `--lc-toggle-ink` — цвет текста на заливке: на оранжевом тёмный, на красном и
-   зелёном белый (белый на оранжевом не читался бы). */
+/* Светофорная логика — те же токены, что у чипов статуса (`.lc-status--*`):
+   `--lc-toggle-soft` — мягкая заливка индикатора, `--lc-toggle-line` — тонкая рамка,
+   `--lc-toggle-ink` — цвет подписи и иконки активного сегмента. Белый/тёмный «ink»
+   больше не нужен: подпись не лежит на сплошной заливке, а красится в цвет статуса,
+   как слово в чипе. */
 .lc-toggle--waiting {
   --lc-toggle-count: 3;
   --lc-toggle-shift: 0;
-  --lc-toggle-color: var(--lc-waiting);
-  --lc-toggle-ink: #241a00;
+  --lc-toggle-soft: var(--lc-waiting-soft);
+  --lc-toggle-line: var(--lc-waiting-line);
+  --lc-toggle-ink: var(--lc-waiting);
 }
 
 .lc-toggle--process {
   --lc-toggle-count: 3;
   --lc-toggle-shift: 1;
-  --lc-toggle-color: var(--lc-process);
-  --lc-toggle-ink: #ffffff;
+  --lc-toggle-soft: var(--lc-process-soft);
+  --lc-toggle-line: var(--lc-process-line);
+  --lc-toggle-ink: var(--lc-process);
 }
 
 .lc-toggle--done {
   --lc-toggle-count: 3;
   --lc-toggle-shift: 2;
-  --lc-toggle-color: var(--lc-done);
-  --lc-toggle-ink: #ffffff;
+  --lc-toggle-soft: var(--lc-done-soft);
+  --lc-toggle-line: var(--lc-done-line);
+  --lc-toggle-ink: var(--lc-done);
 }
 
 /* Незнакомый/пустой статус — нейтральный серый индикатор в первой позиции. */
 .lc-toggle--unknown {
   --lc-toggle-count: 3;
   --lc-toggle-shift: 0;
-  --lc-toggle-color: var(--lc-border-strong);
+  --lc-toggle-soft: var(--lc-unknown-soft);
+  --lc-toggle-line: var(--lc-unknown-line);
   --lc-toggle-ink: var(--lc-text);
 }
 
-/* «Оплачено» — один сегмент: зелёная заливка, как чип оплаты. Пока значение не
-   выставлено, индикатор скрыт и появляется плавно (через `opacity`). */
+/* «Оплачено» — один сегмент: зелёный, как чип оплаты в списке заказов. Пока значение
+   не выставлено, индикатор скрыт и появляется плавно (через `opacity`). */
 .lc-toggle--paid {
   --lc-toggle-count: 1;
-  --lc-toggle-color: var(--lc-paid);
-  --lc-toggle-ink: #ffffff;
+  --lc-toggle-soft: var(--lc-paid-soft);
+  --lc-toggle-line: var(--lc-paid-line);
+  --lc-toggle-ink: var(--lc-paid);
 }
 
 .lc-toggle--paid:not(.lc-toggle--on)::before {
@@ -268,7 +301,10 @@ const paidOptions = [{ label: 'оплачено', value: true }]
   position: relative;
   z-index: 1;
   min-height: 28px;
-  padding: 2px 6px;
+  /* Горизонтальный отступ 5px (а не 6px): ряд из четырёх сегментов — три статуса плюс
+     «оплачено» — должен укладываться в карточку на 360px, там он занимает почти всю
+     ширину (иконки добавляют ~20px на сегмент). */
+  padding: 2px 5px;
   font-size: 12px;
   /* `!important` — потому что Quasar красит сегмент классами палитры
      (`.bg-primary`/`.text-white`, у `toggle-color` дефолт — `primary`), а они
@@ -279,8 +315,30 @@ const paidOptions = [{ label: 'оплачено', value: true }]
   transition: color 0.28s ease;
 }
 
-/* Активный сегмент: подписи подстраиваются под цвет индикатора. Quasar проставляет
-   `aria-pressed` на кнопку сегмента — по нему и цепляемся, без своих классов. */
+/* Иконка сегмента — как у чипа статуса: 14px. Quasar в кнопке рисует её кеглем
+   1.715em (для 12px это ~21px) — для компактного ряда слишком много. */
+.lc-toggle :deep(.q-icon) {
+  font-size: 14px;
+}
+
+/* Отступ иконки от слова: у чипа это `gap: 6px`, здесь 4px — по той же причине, что и
+   уменьшенный отступ сегмента (ширина ряда на 360px); `dense` у Quasar даёт 6px. */
+.lc-toggle :deep(.q-icon.on-left) {
+  margin-right: 4px;
+}
+
+/* Совсем узкие экраны (<360px): иконки сегментов скрываем — подписи статусов важнее.
+   360px — рабочий минимум приложения и там иконки ещё помещаются (см. `docs/UI.md` §6),
+   а на 320px ряд из четырёх сегментов с ними не влезал бы в карточку. */
+@media (max-width: 359px) {
+  .lc-toggle :deep(.q-icon) {
+    display: none;
+  }
+}
+
+/* Активный сегмент: подпись и иконка красятся цветом статуса — как слово и значок в
+   чипе. Quasar проставляет `aria-pressed` на кнопку сегмента — по нему и цепляемся,
+   без своих классов. */
 .lc-toggle :deep(.q-btn[aria-pressed='true']) {
   color: var(--lc-toggle-ink, var(--lc-text)) !important;
 }

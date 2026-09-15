@@ -89,19 +89,19 @@ onMounted(() => analytics.load())
         </div>
       </div>
 
-      <!-- Итоги выбранного масштаба + переключатель периода -->
+      <!-- Итоги выбранного масштаба + переключатель периода. Правка владельца
+           15.09.2026: ряд переносится (`no-wrap` убран) — на 360px подпись и тумблер
+           из четырёх сегментов вместе не помещались, и тумблер обрезался краем карточки. -->
       <div class="lc-card lc-pad q-mb-md">
-        <div class="row items-center justify-between no-wrap q-mb-md q-gutter-x-sm">
+        <div class="row items-center justify-between q-mb-md q-gutter-x-sm">
           <div class="lc-eyebrow">выручка за период</div>
+          <!-- Масштаб — тот же «чип»-переключатель (`.lc-seg`), что фильтр на складе. -->
           <q-btn-toggle
             v-model="period"
+            class="lc-seg"
             dense
             no-caps
             unelevated
-            color="grey-9"
-            text-color="grey-5"
-            toggle-color="secondary"
-            toggle-text-color="black"
             :options="analytics.periodOptions"
           />
         </div>

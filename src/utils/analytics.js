@@ -44,6 +44,22 @@ export const ORDER_STATUSES = [
 
 const UNKNOWN_STATUS = { value: 'unknown', label: 'без статуса' }
 
+/**
+ * Иконки статусов для UI. Чип статуса (`LcStatusChip.vue`) и сегменты переключателя
+ * в карточке заказа (`OrderHeaderActions.vue`) берут их из одной карты, чтобы
+ * «статус» и «тумблер статуса» читались одинаково (правка владельца 15.09.2026).
+ *
+ * Отдельной картой, а не полем в `ORDER_STATUSES`: словарь уходит в отчёты
+ * (`statusBreakdown` → `{ value, label, count }`) и сверяется с сервером, лишний
+ * ключ в нём сломал бы сверку.
+ */
+export const ORDER_STATUS_ICONS = {
+  waiting: 'schedule',
+  process: 'build',
+  done: 'check_circle',
+  unknown: 'help',
+}
+
 const DAY_MS = 24 * 60 * 60 * 1000
 
 const num = value => Number(value ?? 0) || 0

@@ -29,15 +29,44 @@
   --lc-accent-border: rgba(255, 235, 59, 0.35);
   --lc-accent-ink: #1a1a00;
 
-  // Статусы заказа
+  // Статусы заказа: насыщенный цвет + мягкая заливка и тонкая рамка чипа.
+  // Пара «заливка/рамка» (`--lc-*-soft` / `--lc-*-line`) у чипа статуса
+  // (`.lc-status--*`) и у переключателя статуса (`.lc-toggle--*`) — одна и та же,
+  // поэтому оформление статуса и тумблера статуса не разъезжается
+  // (правка владельца 15.09.2026).
   --lc-waiting: #ffb300;
+  --lc-waiting-soft: rgba(255, 179, 0, 0.12);
+  --lc-waiting-line: rgba(255, 179, 0, 0.35);
   --lc-process: #e53935;
+  --lc-process-soft: rgba(229, 57, 53, 0.12);
+  --lc-process-line: rgba(229, 57, 53, 0.35);
   --lc-done: #43a047;
+  --lc-done-soft: rgba(67, 160, 71, 0.12);
+  --lc-done-line: rgba(67, 160, 71, 0.35);
   --lc-paid: #43a047;
+  --lc-paid-soft: rgba(67, 160, 71, 0.12);
+  --lc-paid-line: rgba(67, 160, 71, 0.35);
+  // Незнакомый/пустой статус — нейтральный серый, а не «светофор».
+  --lc-unknown-soft: rgba(255, 255, 255, 0.06);
+  --lc-unknown-line: var(--lc-border-strong);
   // «Всё синхронизировано» в шапке: насыщенный зелёный. Палитровый `positive`
   // (#43a047) на маленьком круглом значке читался как салатовый (правка владельца
   // 15.09.2026), поэтому у индикатора синка свой, более глубокий зелёный.
   --lc-sync-ok: #2e7d32;
+
+  // Роли действий (кнопки). Значения те же, что у статусов, — палитра остаётся из
+  // четырёх цветов: «опасно» = красный «в работе», «успех» = зелёный «готово»,
+  // «внимание» = оранжевый «ожидает». Поэтому кнопка «удалить» и статус «в работе»
+  // читаются одинаково, а не двумя разными оттенками (правка владельца 15.09.2026).
+  --lc-danger: var(--lc-process);
+  --lc-danger-soft: var(--lc-process-soft);
+  --lc-danger-line: var(--lc-process-line);
+  --lc-ok: var(--lc-done);
+  --lc-ok-soft: var(--lc-done-soft);
+  --lc-ok-line: var(--lc-done-line);
+  --lc-warn: var(--lc-waiting);
+  --lc-warn-soft: var(--lc-waiting-soft);
+  --lc-warn-line: var(--lc-waiting-line);
 
   // Геометрия
   --lc-radius: 14px;
@@ -80,10 +109,179 @@ body {
 
 // --- Базовые компоненты Quasar --------------------------------------------
 
+// --- Кнопки ----------------------------------------------------------------
+//
+// Правка владельца (15.09.2026): кнопки приведены к тому же языку, что чипы статусов —
+// «мягкая заливка + тонкая рамка + насыщенный цвет подписи». Иерархия:
+//   • главное действие — заливка акцентом, тёмная подпись (`color="secondary"`);
+//   • второстепенное — «чип»: мягкая заливка 12 % и рамка 35 % (`outline`);
+//   • тихое/иконочное — прозрачный фон, цветной значок (`flat`);
+//   • опасное/подтверждающее — та же логика на красном и зелёном.
+// Палитровые классы Quasar (`bg-*` / `text-*`) переопределены здесь **один раз**, а не
+// по месту в разметке: экран говорит «это опасное действие», а не «это `deep-orange`».
+// Значения совпадают с токенами статусов (см. `:root`), поэтому кнопка «удалить» и
+// статус «в работе» — один и тот же красный.
+
 .q-btn {
   border-radius: var(--lc-radius-sm);
   font-weight: 600;
   letter-spacing: 0.01em;
+  // Подписи — строчными (правило текста в `docs/UI.md` §5): Quasar по умолчанию пишет
+  // их капсом, и кнопки с `no-caps` и без него выглядели по-разному.
+  text-transform: none;
+}
+
+// Роли цвета: палитровые классы Quasar → наши токены. Оттенки те же, что были
+// (`secondary`/`positive`/`negative`/`warning` совпадают с токенами статусов), кроме
+// `deep-orange` — он теперь просто «опасно», без пятого оттенка красного.
+.text-secondary {
+  color: var(--lc-accent) !important;
+}
+
+.text-positive {
+  color: var(--lc-ok) !important;
+}
+
+.text-negative,
+.text-deep-orange {
+  color: var(--lc-danger) !important;
+}
+
+.text-warning {
+  color: var(--lc-warn) !important;
+}
+
+// 1. Цветная (заполненная) кнопка — тот же «чип», что у статуса: мягкая заливка (12 %),
+//    тонкая рамка (35 %) и насыщенная подпись со значком. Раньше такие кнопки были
+//    сплошными плашками (`bg-secondary` / `bg-positive` / `bg-negative` / `bg-warning`)
+//    и выпадали из языка статусов и тумблеров — правка владельца 15.09.2026: «кнопки
+//    “новый заказ”, “новая работа”, “добавить материал”, кнопки обновления — тоже в
+//    таком стиле». Кольцо-рамку рисует inset-тень, а не `border`: геометрия кнопки и её
+//    тап-зона не меняются.
+//    У акцента дополнительно мягкое жёлтое свечение — на чёрном фоне оно помечает
+//    главное действие, не возвращая сплошную плашку.
+//    Исключение — индикатор синка в шапке (`.lc-sync-chip--icon`, «только значок»):
+//    это знак состояния, а не кнопка, поэтому он остаётся сплошным цветным.
+.q-btn.bg-secondary:not(.lc-sync-chip--icon) {
+  background: var(--lc-accent-soft) !important;
+  color: var(--lc-accent) !important;
+  box-shadow:
+    inset 0 0 0 1px var(--lc-accent-border),
+    0 2px 12px rgba(255, 235, 59, 0.14);
+}
+
+.q-btn.bg-positive:not(.lc-sync-chip--icon) {
+  background: var(--lc-ok-soft) !important;
+  color: var(--lc-ok) !important;
+  box-shadow: inset 0 0 0 1px var(--lc-ok-line);
+}
+
+.q-btn.bg-negative:not(.lc-sync-chip--icon),
+.q-btn.bg-deep-orange:not(.lc-sync-chip--icon) {
+  background: var(--lc-danger-soft) !important;
+  color: var(--lc-danger) !important;
+  box-shadow: inset 0 0 0 1px var(--lc-danger-line);
+}
+
+.q-btn.bg-warning:not(.lc-sync-chip--icon) {
+  background: var(--lc-warn-soft) !important;
+  color: var(--lc-warn) !important;
+  box-shadow: inset 0 0 0 1px var(--lc-warn-line);
+}
+
+// Заполненная кнопка у Quasar несёт свою тень на `::before` — «чипу» она не нужна:
+// рамку и свечение рисует правило выше.
+.q-btn.bg-secondary:before,
+.q-btn.bg-positive:before,
+.q-btn.bg-negative:before,
+.q-btn.bg-deep-orange:before,
+.q-btn.bg-warning:before {
+  box-shadow: none;
+}
+
+// Форма кнопки — «пилюля», как у чипов статусов и сегментированных переключателей:
+// кнопка, чип и тумблер остаются одним визуальным элементом (правка владельца
+// 15.09.2026). Круглые иконочные кнопки (`round`) остаются круглыми, а кнопки-стрелки
+// шагомера количества (`border-radius: 0`) переопределяют это ниже.
+.q-btn:not(.q-btn--round) {
+  border-radius: 999px;
+}
+
+// 2. Второстепенное действие — «чип»: мягкая заливка и тонкая рамка оттенка роли,
+//    подпись — насыщенным цветом. Рамку рисует `::before` (в Quasar это
+//    `border: 1px solid currentColor`), поэтому перекрашиваем только её цвет.
+.q-btn--outline.text-secondary {
+  background: var(--lc-accent-soft) !important;
+  color: var(--lc-accent) !important;
+}
+
+.q-btn--outline.text-secondary:before {
+  border-color: var(--lc-accent-border);
+}
+
+.q-btn--outline.text-positive {
+  background: var(--lc-ok-soft) !important;
+  color: var(--lc-ok) !important;
+}
+
+.q-btn--outline.text-positive:before {
+  border-color: var(--lc-ok-line);
+}
+
+.q-btn--outline.text-negative,
+.q-btn--outline.text-deep-orange {
+  background: var(--lc-danger-soft) !important;
+  color: var(--lc-danger) !important;
+}
+
+.q-btn--outline.text-negative:before,
+.q-btn--outline.text-deep-orange:before {
+  border-color: var(--lc-danger-line);
+}
+
+.q-btn--outline.text-warning {
+  background: var(--lc-warn-soft) !important;
+  color: var(--lc-warn) !important;
+}
+
+.q-btn--outline.text-warning:before {
+  border-color: var(--lc-warn-line);
+}
+
+// 3. Тихие кнопки (`flat`) — фон прозрачный, работают только подписью и значком:
+//    отклик на нажатие даёт Quasar (`q-focus-helper` заливает currentColor в 15 %,
+//    а его `border-radius` наследуется от кнопки) — на чёрном фоне это мягкое цветное
+//    «свечение», а не чёрная плёнка, поэтому отдельная правка не нужна.
+
+// --- Сегментированные переключатели (`q-btn-toggle`) ------------------------
+//
+// Правка владельца (15.09.2026): масштаб периода в «Аналитике» и фильтр движения на
+// складе получили тот же вид, что переключатель статуса в карточке заказа —
+// «таблетка» на `--lc-surface-3`, активный сегмент = мягкая жёлтая заливка с тонкой
+// рамкой и жёлтой подписью (вместо сплошной палитровой плашки).
+.lc-seg {
+  padding: 2px;
+  border-radius: 999px;
+  background: var(--lc-surface-3);
+  overflow: hidden;
+  // Quasar рисует группе кнопок собственную тень — «таблетке» она не нужна.
+  box-shadow: none;
+}
+
+.lc-seg .q-btn {
+  min-height: 28px;
+  padding: 2px 8px;
+  border-radius: 999px !important;
+  background: transparent !important;
+  color: var(--lc-text-dim) !important;
+  font-size: 12px;
+  transition: color 0.2s ease;
+}
+
+.lc-seg .q-btn[aria-pressed='true'] {
+  background: var(--lc-accent-soft) !important;
+  color: var(--lc-accent) !important;
+  box-shadow: inset 0 0 0 1px var(--lc-accent-border);
 }
 
 .q-btn--round {
@@ -92,6 +290,18 @@ body {
 
 .q-field--outlined .q-field__control {
   border-radius: var(--lc-radius-sm);
+}
+
+// Фокус в полях — жёлтый акцент, а не цвет текста: в приложении жёлтый означает
+// «сюда можно ткнуть», и рамка активного поля должна говорить то же (правка владельца
+// 15.09.2026, «привести цвета»). У `filled`-поля фокус — подчёркивание, у `outlined` —
+// рамка, поэтому задаём и цвет рамки, и цвет линии.
+.q-field--outlined.q-field--highlighted .q-field__control:after {
+  border-color: var(--lc-accent);
+}
+
+.q-field--filled.q-field--highlighted .q-field__control:after {
+  background: var(--lc-accent);
 }
 
 .q-card {
@@ -188,6 +398,12 @@ body {
 }
 
 // --- Статусы ---------------------------------------------------------------
+//
+// Три цвета светофора + оплата. Пара «насыщенный цвет + мягкая заливка +
+// тонкая рамка» задана токенами (`--lc-*-soft` / `--lc-*-line`) и используется
+// дважды: здесь (чип) и в переключателе статуса в карточке заказа
+// (`.lc-toggle--*`). Поэтому чип в списке и активный сегмент тумблера совпадают
+// (правка владельца 15.09.2026).
 
 .lc-status {
   display: inline-flex;
@@ -204,47 +420,83 @@ body {
 
 .lc-status--waiting {
   color: var(--lc-waiting);
-  background: rgba(255, 179, 0, 0.12);
-  border-color: rgba(255, 179, 0, 0.35);
+  background: var(--lc-waiting-soft);
+  border-color: var(--lc-waiting-line);
 }
 
 .lc-status--process {
   color: var(--lc-process);
-  background: rgba(229, 57, 53, 0.12);
-  border-color: rgba(229, 57, 53, 0.35);
+  background: var(--lc-process-soft);
+  border-color: var(--lc-process-line);
 }
 
 .lc-status--done {
   color: var(--lc-done);
-  background: rgba(67, 160, 71, 0.12);
-  border-color: rgba(67, 160, 71, 0.35);
+  background: var(--lc-done-soft);
+  border-color: var(--lc-done-line);
 }
 
 .lc-status--paid {
   color: var(--lc-paid);
-  background: rgba(67, 160, 71, 0.12);
-  border-color: rgba(67, 160, 71, 0.35);
+  background: var(--lc-paid-soft);
+  border-color: var(--lc-paid-line);
 }
 
 .lc-status--unknown {
   color: var(--lc-text-dim);
-  background: rgba(255, 255, 255, 0.06);
-  border-color: var(--lc-border-strong);
+  background: var(--lc-unknown-soft);
+  border-color: var(--lc-unknown-line);
 }
 
-// Строка заказа: статус показан полосой слева, а не «неоновой» тенью.
+// --- Список заказов: строка = отдельная карточка ----------------------------
+//
+// Правка владельца (15.09.2026): «карточки заказов сливаются, между ними нет
+// разделителя». Раньше все строки лежали в одной рамке (`.lc-card .q-list`) без границ
+// между собой и читались одним полотном — теперь у каждого заказа своя рамка, радиус и
+// отступ от соседей, а статус по-прежнему показан полосой слева.
+//
+// `display: flex` + `gap` вместо `q-separator` в разметке: разделитель «приклеен» к
+// списку, а не к каждому заказу, и не мешает строке быть самостоятельной карточкой.
+
+.lc-order-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+// Поля и высота строки: раньше их давало правило `.lc-card .q-item`, но списка в
+// общей карточке больше нет.
+.lc-order-list .q-item {
+  min-height: calc(var(--lc-tap) + 8px);
+  padding: 10px var(--lc-pad-card);
+}
+
 .lc-order-row {
   position: relative;
+  background: var(--lc-surface);
+  border: 1px solid var(--lc-border);
+  border-radius: var(--lc-radius);
+  // Полосу статуса срезает по радиусу карточки, иначе она торчит из угла.
+  overflow: hidden;
+  transition:
+    border-color 0.2s ease,
+    background-color 0.2s ease;
+}
+
+// Нажатие/наведение: карточка чуть «поднимается» рамкой — понятно, что она открывается.
+.lc-order-row:hover {
+  border-color: var(--lc-border-strong);
+  background: var(--lc-surface-2);
 }
 
 .lc-order-row::before {
   content: '';
   position: absolute;
   left: 0;
-  top: 10px;
-  bottom: 10px;
-  width: 3px;
-  border-radius: 0 3px 3px 0;
+  top: 8px;
+  bottom: 8px;
+  width: 4px;
+  border-radius: 0 999px 999px 0;
   background: var(--lc-row-color, var(--lc-border));
 }
 
@@ -284,14 +536,22 @@ body {
 
 // --- Плавающая кнопка ------------------------------------------------------
 
-.lc-fab {
+/* Плавающая кнопка — тот же «чип», что и остальные кнопки, но заметнее: кольцо акцента,
+   тень «висит над списком» и более сильное жёлтое свечение (правка владельца 15.09.2026:
+   «новый заказ» — тоже в стиле чипов). Селектор с `.q-btn` — потому что тень кнопки-«чипа»
+   (`.q-btn.bg-secondary…`) специфичнее одной `.lc-fab`; без `!important` порядок в файле
+   решает однозначно. */
+.q-btn.lc-fab {
   position: fixed;
   // Кнопка не должна липнуть к кромке: боковое поле страницы теперь 0,
   // поэтому у самой кнопки оставляем «воздух» в 12px от края.
   right: max(var(--lc-pad-x), 12px);
   bottom: calc(76px + env(safe-area-inset-bottom, 0px));
   z-index: 1400;
-  box-shadow: var(--lc-shadow-2);
+  box-shadow:
+    inset 0 0 0 1px var(--lc-accent-border),
+    var(--lc-shadow-2),
+    0 0 26px rgba(255, 235, 59, 0.28);
 }
 
 // Внутри `q-dialog` FAB не нужен фиксированным — там своя кнопка в действиях.
@@ -467,8 +727,10 @@ body {
 
 // «Всё синхронизировано» — насыщенный зелёный (`--lc-sync-ok`) вместо палитрового
 // `positive` (#43a047), который на маленьком значке читался как салатовый.
-// `!important` — потому что Quasar красит чип классом `.bg-positive` с `!important`.
-.lc-sync-chip--synced {
+// `!important` и три класса — потому что Quasar красит чип классом `.bg-positive`
+// с `!important`, а у роли «подтверждение» теперь есть своя заливка
+// (`.q-btn.bg-positive`, см. раздел кнопок): у значка синка зелёный глубже и важнее.
+.q-btn.lc-sync-chip.lc-sync-chip--synced {
   background: var(--lc-sync-ok) !important;
 }
 

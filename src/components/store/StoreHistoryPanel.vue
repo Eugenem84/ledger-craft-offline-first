@@ -98,17 +98,15 @@ const handleSaved = async () => {
       </q-btn>
     </div>
 
+    <!-- Фильтр ленты — тот же сегментированный переключатель, что в карточке заказа:
+         цвета даёт `.lc-seg` (`app.scss`), а не палитровые пропсы Quasar. -->
     <q-btn-toggle
       v-model="filter"
-      class="q-mb-sm full-width"
+      class="lc-seg full-width q-mb-sm"
       dense
       no-caps
       spread
       unelevated
-      color="grey-9"
-      text-color="grey-5"
-      toggle-color="secondary"
-      toggle-text-color="black"
       :options="filterOptions"
     />
 

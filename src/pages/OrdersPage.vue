@@ -136,9 +136,11 @@ watch(
       </template>
     </LcPageHeader>
 
-    <div class="lc-card">
+    <!-- Список заказов: каждый заказ — своя карточка с отступом от соседей (правка
+         владельца 15.09.2026: строки в общей рамке сливались в одно полотно).
+         Пустое состояние — обычная карточка, у списка её роль играет сам заказ. -->
+    <div v-if="!filteredOrders.length" class="lc-card">
       <LcEmptyState
-        v-if="!filteredOrders.length"
         icon="receipt_long"
         :title="loading ? 'Загружаем заказы…' : 'Заказов пока нет'"
         :hint="
@@ -147,48 +149,48 @@ watch(
             : 'Нажмите «+», чтобы завести первый заказ.'
         "
       />
+    </div>
 
-      <q-list v-else class="q-py-xs">
-        <q-item
-          v-for="order in filteredOrders"
-          :key="order.id"
-          clickable
-          v-ripple
-          :class="['lc-order-row', statusRowClass(order.status)]"
-          @click="goToOrderDetails(order)"
-        >
-          <q-item-section>
-            <div class="row items-center no-wrap">
-              <div class="col ellipsis">
-                <div class="row items-baseline no-wrap q-gutter-x-sm">
-                  <span class="lc-money text-body2">№ {{ order.server_id ?? '—' }}</span>
-                  <span class="text-caption lc-mute">{{ formatDate(order.created_at) }}</span>
-                </div>
-                <div class="text-body2 ellipsis lc-muted">
-                  {{ order.client_name || 'без клиента' }}
-                </div>
+    <q-list v-else class="lc-order-list q-py-xs">
+      <q-item
+        v-for="order in filteredOrders"
+        :key="order.id"
+        clickable
+        v-ripple
+        :class="['lc-order-row', statusRowClass(order.status)]"
+        @click="goToOrderDetails(order)"
+      >
+        <q-item-section>
+          <div class="row items-center no-wrap">
+            <div class="col ellipsis">
+              <div class="row items-baseline no-wrap q-gutter-x-sm">
+                <span class="lc-money text-body2">№ {{ order.server_id ?? '—' }}</span>
+                <span class="text-caption lc-mute">{{ formatDate(order.created_at) }}</span>
               </div>
-
-              <div class="col-auto column items-end q-gutter-y-xs q-mx-md">
-                <LcStatusChip :status="order.status" />
-                <span v-if="order.paid" class="lc-status lc-status--paid">
-                  <q-icon name="paid" size="14px" />
-                  оплачено
-                </span>
-              </div>
-
-              <div class="col-auto text-right">
-                <!-- Итог = сумма позиций (как в карточке и «Аналитике»): `positions_total`
-                     считает запрос списка, `total_amount` — только фолбэк для заказов
-                     без позиций (разбор 15.09.2026: снапшот `total_amount` расходился
-                     с карточкой после изменений строк в обход сохранения заказа). -->
-                <div class="lc-money">{{ order.positions_total ?? order.total_amount ?? 0 }} р</div>
+              <div class="text-body2 ellipsis lc-muted">
+                {{ order.client_name || 'без клиента' }}
               </div>
             </div>
-          </q-item-section>
-        </q-item>
-      </q-list>
-    </div>
+
+            <div class="col-auto column items-end q-gutter-y-xs q-mx-md">
+              <LcStatusChip :status="order.status" />
+              <span v-if="order.paid" class="lc-status lc-status--paid">
+                <q-icon name="paid" size="14px" />
+                оплачено
+              </span>
+            </div>
+
+            <div class="col-auto text-right">
+              <!-- Итог = сумма позиций (как в карточке и «Аналитике»): `positions_total`
+                   считает запрос списка, `total_amount` — только фолбэк для заказов
+                   без позиций (разбор 15.09.2026: снапшот `total_amount` расходился
+                   с карточкой после изменений строк в обход сохранения заказа). -->
+              <div class="lc-money">{{ order.positions_total ?? order.total_amount ?? 0 }} р</div>
+            </div>
+          </div>
+        </q-item-section>
+      </q-item>
+    </q-list>
 
     <LcFab icon="add" label="новый заказ" @click="goToNewOrder" />
   </q-page>
