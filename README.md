@@ -548,8 +548,8 @@ export JAVA_HOME=/opt/homebrew/opt/openjdk@21
 export PATH="$JAVA_HOME/bin:$PATH"
 
 # 1. Поднять версию: src-capacitor/android/gradle.properties
-#    APP_VERSION_CODE=8      # +1 к предыдущему
-#    APP_VERSION_NAME=1.7
+#    APP_VERSION_CODE=9      # +1 к предыдущему
+#    APP_VERSION_NAME=1.8
 
 # 2. План без сборки: контур, адрес, что уже опубликовано на контуре
 npm run release:android -- --channel dev --dry-run
