@@ -11,7 +11,9 @@
 #
 # Что делает:
 #   1) берёт `versionName`/`versionCode` из `src-capacitor/android/gradle.properties`
-#      (versionName входит в идентификатор бандла, versionCode — в «минимально нужный APK»);
+#      (versionName — префикс идентификатора бандла, versionCode — в «минимально нужный APK»),
+#      а номер веб-релиза считает от манифеста контура (`APP_BUNDLE_BUILD` — только пол,
+#      см. задачу 15.21: идентификатор `<версия APK>.<номер>.<дата-время>`);
 #   2) собирает web-часть в режиме Capacitor **с адресом нужного контура**
 #      (`--skip-pkg`: нативный проект не собираем — APK не нужен);
 #   3) упаковывает `src-capacitor/www` в zip и считает sha256 в двух видах:
@@ -58,7 +60,8 @@ usage() {
 Использование: scripts/release-web.sh [ключи]
 
   --channel dev|prod        контур: чей адрес API уедет в бандл (или RELEASE_CHANNEL, dev)
-  --version ID              идентификатор бандла (по умолчанию: versionName + дата сборки)
+  --version ID              идентификатор бандла (по умолчанию —
+                            versionName.номер веб-релиза.ддммгг-ччмм, напр. 1.14.7.260915-1440)
   --min-native-version N    минимальный versionCode APK, на котором бандл имеет смысл
                             (по умолчанию — текущий APP_VERSION_CODE из gradle.properties)
   --notes "текст"           что нового: пункты через запятую или с новой строки
@@ -175,12 +178,63 @@ fi
 
 step "Контур $CHANNEL: адрес API $EXPECTED_API_URL"
 
+# --- Что уже опубликовано на контуре (до сборки) -----------------------------
+# Нужно и для проверки «бандл не публиковали», и для счётчика веб-релизов (задача 15.21):
+# «последний выпущенный номер» знает контур, а `APP_BUNDLE_BUILD` в gradle.properties —
+# только пол на случай, когда манифест недоступен.
+CONTOUR_MANIFEST="$(curl -sS -m 20 "$EXPECTED_API_URL/app-version" 2>/dev/null || true)"
+CONTOUR_BUNDLE_ID=''
+
+if [ -n "$CONTOUR_MANIFEST" ]; then
+  # "bundle":{…,"version":"1.14.7.260915-1440",…} → идентификатор опубликованного бандла
+  CONTOUR_BUNDLE_JSON="$(printf '%s' "$CONTOUR_MANIFEST" | tr -d '\n' \
+    | sed -n 's/.*"bundle"[[:space:]]*:[[:space:]]*{\([^}]*\)}.*/\1/p')"
+  CONTOUR_BUNDLE_ID="$(printf '%s' "$CONTOUR_BUNDLE_JSON" | tr ',' '\n' \
+    | sed -n 's/^[[:space:]]*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)"
+elif [ "$CHANNEL" = 'prod' ] && [ "$LOCAL_ONLY" != '1' ]; then
+  fail "Не удалось прочитать $EXPECTED_API_URL/app-version — выкат на prod вслепую запрещён"
+else
+  echo '⚠️  Манифест контура недоступен — счётчик веб-релиза и проверка «бандл ещё не публиковался» пропущены'
+fi
+
 # --- Идентификатор бандла ----------------------------------------------------
 # Идентификатор — строка: устройство считает бандл «своим» при совпадении строк.
 # Поэтому в него входит время сборки: два OTA-релиза одного APK не должны
 # «схлопнуться» в один и тот же идентификатор.
+#
+# Формат: `<APP_VERSION_NAME>.<номер веб-релиза>.<ддммгг-ччмм>` — например
+# `1.14.7.260915-1440` (задача 15.21, просьба владельца 15.09.2026: «почему всегда 1.14?»).
+# Префикс — версия **APK-линии** (растёт только нативным релизом), а номер показывает,
+# какой это по счёту выкат веб-слоя. Следующий номер = максимум из `APP_BUNDLE_BUILD`
+# (gradle.properties) и номера бандла на контуре, плюс один: контур важнее, локальное
+# значение — пол для недоступного манифеста. Для клиента это по-прежнему просто строка
+# (`parseBundleVersion` её не разбирает), «какой бандл актуальный» решает сервер.
 if [ -z "$BUNDLE_VERSION" ]; then
-  BUNDLE_VERSION="$VERSION_NAME.$(date +%y%m%d-%H%M)"
+  LAST_BUILD="$(read_prop APP_BUNDLE_BUILD)"
+  case "$LAST_BUILD" in
+    ''|*[!0-9]*) LAST_BUILD=0 ;;
+  esac
+
+  # `1.14.7.260915-1440` → 7: номер — предпоследнее поле. Берём его только у бандла **из той же
+  # APK-линии** (`1.14.*`): после подъёма `APP_VERSION_NAME` (нативный релиз) счётчик начинается
+  # заново — бандл прошлой линии `1.15.1.…` не должен дать `1.14.8.…`.
+  CONTOUR_BUILD=0
+  case "$CONTOUR_BUNDLE_ID" in
+    "$VERSION_NAME".*)
+      CONTOUR_BUILD="$(printf '%s' "$CONTOUR_BUNDLE_ID" | awk -F. 'NF>=4 && $(NF-1) ~ /^[0-9]+$/ { print $(NF-1) }')"
+      CONTOUR_BUILD="${CONTOUR_BUILD:-0}"
+      ;;
+  esac
+
+  if [ "$CONTOUR_BUILD" -gt "$LAST_BUILD" ]; then
+    NEXT_BUILD=$((CONTOUR_BUILD + 1))
+  else
+    NEXT_BUILD=$((LAST_BUILD + 1))
+  fi
+
+  BUNDLE_VERSION="$VERSION_NAME.$NEXT_BUILD.$(date +%y%m%d-%H%M)"
+  echo "  веб-релиз № $NEXT_BUILD (на контуре: ${CONTOUR_BUNDLE_ID:-нет}, в gradle.properties: $LAST_BUILD)"
+  echo "  после выката поднимите APP_BUNDLE_BUILD=$NEXT_BUILD в src-capacitor/android/gradle.properties"
 fi
 
 if [ -z "$MIN_NATIVE_VERSION" ]; then
@@ -197,17 +251,8 @@ ZIP_PATH="$ROOT_DIR/$ZIP_NAME"
 
 step "Бандл: $BUNDLE_VERSION (APK не ставим; минимальный versionCode — $MIN_NATIVE_VERSION)"
 
-# --- Что уже опубликовано на контуре (до сборки) -----------------------------
-CONTOUR_MANIFEST="$(curl -sS -m 20 "$EXPECTED_API_URL/app-version" 2>/dev/null || true)"
-
-if [ -n "$CONTOUR_MANIFEST" ]; then
-  if printf '%s' "$CONTOUR_MANIFEST" | grep -q "$BUNDLE_VERSION"; then
-    fail "Бандл $BUNDLE_VERSION уже опубликован на контуре — задайте другой --version"
-  fi
-elif [ "$CHANNEL" = 'prod' ] && [ "$LOCAL_ONLY" != '1' ]; then
-  fail "Не удалось прочитать $EXPECTED_API_URL/app-version — выкат на prod вслепую запрещён"
-else
-  echo '⚠️  Манифест контура недоступен — проверка «бандл ещё не публиковался» пропущена'
+if [ -n "$CONTOUR_MANIFEST" ] && printf '%s' "$CONTOUR_MANIFEST" | grep -q "$BUNDLE_VERSION"; then
+  fail "Бандл $BUNDLE_VERSION уже опубликован на контуре — задайте другой --version"
 fi
 
 if [ "$DRY_RUN" = '1' ]; then
