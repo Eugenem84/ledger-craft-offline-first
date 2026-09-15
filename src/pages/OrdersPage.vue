@@ -178,7 +178,11 @@ watch(
               </div>
 
               <div class="col-auto text-right">
-                <div class="lc-money">{{ order.total_amount ?? 0 }} р</div>
+                <!-- Итог = сумма позиций (как в карточке и «Аналитике»): `positions_total`
+                     считает запрос списка, `total_amount` — только фолбэк для заказов
+                     без позиций (разбор 15.09.2026: снапшот `total_amount` расходился
+                     с карточкой после изменений строк в обход сохранения заказа). -->
+                <div class="lc-money">{{ order.positions_total ?? order.total_amount ?? 0 }} р</div>
               </div>
             </div>
           </q-item-section>

@@ -266,12 +266,12 @@ describe('5.3 ordersRepo: удаление заказа вместе со стр
 })
 
 describe('5.3 orderServiceRepo', () => {
-  async function addLine() {
+  async function addLine(quantity) {
     const categoryId = await categoriesRepo.save({ category_name: 'Электрика' })
     const serviceId = await servicesRepo.save({ service: 'Работа', price: 500, category_id: categoryId })
     const orderId = await ordersRepo.save({ total_amount: 100 })
 
-    await orderServiceRepo.add(orderId, serviceId, 500)
+    await orderServiceRepo.add(orderId, serviceId, 500, quantity)
     const line = await db.queryOne('SELECT * FROM order_service WHERE order_id = ?', [orderId])
 
     return { orderId, serviceId, line }
@@ -296,7 +296,28 @@ describe('5.3 orderServiceRepo', () => {
       order_id: orderId,
       service_id: serviceId,
       sale_price: 500,
+      quantity: 1,
     })
+  })
+
+  it('add с количеством: «подкачать колесо» ×4 (14.19)', async () => {
+    // На сервере связка дедуплицируется по `order_id + service_id` (своего PK нет),
+    // поэтому несколько одинаковых работ — это количество в одной строке, а не строки.
+    const { line } = await addLine(4)
+    const insertOp = (await queue()).find(operation => operation.table === 'order_service')
+
+    expect(line).toMatchObject({ quantity: 4, sale_price: 500 })
+    expect(insertOp.payload).toMatchObject({ quantity: 4 })
+
+    // Мусор/ноль в поле ввода не должны просочиться в БД и на сервер.
+    const categoryId = await categoriesRepo.save({ category_name: 'Ходовая' })
+    const serviceId = await servicesRepo.save({ service: 'Подкачать', price: 100, category_id: categoryId })
+    const orderId = await ordersRepo.save({ total_amount: 0 })
+
+    await orderServiceRepo.add(orderId, serviceId, 100, 0)
+
+    expect(await db.queryOne('SELECT quantity FROM order_service WHERE order_id = ?', [orderId]))
+      .toMatchObject({ quantity: 1 })
   })
 
   it('remove строки, уехавшей на сервер, ставит delete по натуральному ключу (3.5)', async () => {
@@ -500,5 +521,74 @@ describe('5.3 materialsRepo', () => {
       amount: 2,
       updated_at: seconds(ISO_1),
     })
+  })
+})
+
+describe('итог заказа в списке = сумма позиций (разбор 15.09.2026)', () => {
+  /**
+   * Дефект: список заказов печатал снапшот `orders.total_amount`, а карточка и
+   * «Аналитика» считают сумму из позиций. Как только строки менялись в обход
+   * сохранения заказа (приехали с сервера/второго устройства, «Починка очереди»)
+   * или заказ приходил с сервера с пустым `total_amount`, список противоречил
+   * карточке. Теперь запрос списка отдаёт `positions_total` — ту же цифру, что
+   * показывает карточка (`queries/analytics.js` считает так же).
+   */
+  it('позиции есть, а снапшот total_amount врёт — список показывает сумму позиций', async () => {
+    const specializationId = await specializationsRepo.save({ name: 'Велосервис' })
+    const categoryId = await categoriesRepo.save({
+      category_name: 'Ходовая',
+      specialization_id: specializationId,
+    })
+    const serviceId = await servicesRepo.save({
+      service: 'Подкачать колесо',
+      price: 100,
+      category_id: categoryId,
+    })
+    // Заказ пришёл/сохранился с нулевым снапшотом — так бывает у заказов с сервера.
+    const orderId = await ordersRepo.save({ specialization_id: specializationId, total_amount: 0 })
+
+    await orderServiceRepo.add(orderId, serviceId, 100, 4) // 4 × 100 = 400
+    await materialsRepo.add(orderId, { name: 'Изолента', price: 50, amount: 2 }) // 2 × 50 = 100
+
+    const stored = await db.queryOne('SELECT * FROM orders WHERE id = ?', [orderId])
+    expect(stored.total_amount).toBe(0)
+
+    const listed = await ordersRepo.getBySpecializationId(specializationId)
+    expect(listed).toHaveLength(1)
+    expect(listed[0]).toMatchObject({ id: orderId, positions_total: 500 })
+
+    // Тот же итог и в «все заказы» (когда специализация не выбрана) — запросы идут одним блоком.
+    const all = await ordersRepo.getAll()
+    expect(all[0].positions_total).toBe(500)
+  })
+
+  it('заказ без позиций: positions_total = 0 (в UI остаётся фолбэк на total_amount)', async () => {
+    const specializationId = await specializationsRepo.save({ name: 'Велосервис' })
+    const orderId = await ordersRepo.save({ specialization_id: specializationId, total_amount: 700 })
+
+    const [listed] = await ordersRepo.getBySpecializationId(specializationId)
+
+    expect(listed).toMatchObject({ id: orderId, positions_total: 0, total_amount: 700 })
+  })
+
+  it('`positions_total` — вычисляемое поле и НЕ уезжает в синк', async () => {
+    const specializationId = await specializationsRepo.save({ name: 'Велосервис' })
+    const clientId = await clientsRepo.save({ name: 'Иван' })
+    const orderId = await ordersRepo.save({
+      specialization_id: specializationId,
+      client_id: clientId,
+      total_amount: 300,
+    })
+    await db.execute('UPDATE orders SET server_id = ? WHERE id = ?', [777, orderId])
+
+    // Как `useOrdersStore.update`: объект из списка (с вычисляемыми полями) уходит в update.
+    const [listed] = await ordersRepo.getBySpecializationId(specializationId)
+    await ordersRepo.update({ ...listed, status: 'done' })
+
+    const updateOp = (await queue()).find(op => op.table === 'orders' && op.type === 'update')
+
+    expect(updateOp.payload).not.toHaveProperty('positions_total')
+    expect(updateOp.payload).not.toHaveProperty('client_name')
+    expect(updateOp.payload).toMatchObject({ id: 777, status: 'done' })
   })
 })

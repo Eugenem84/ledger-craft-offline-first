@@ -12,8 +12,8 @@ const props = defineProps({
 
 const emit = defineEmits(['update:modelValue', 'submit', 'invalid'])
 
-/** Черновик формы: «закупка» — себестоимость ручной позиции (задачи 9.5/9.6, решение D2). */
-const emptyForm = () => ({ name: '', price: 0, amount: 0, buyPrice: 0 })
+/** Черновик формы: название, цена за единицу и количество. */
+const emptyForm = () => ({ name: '', price: 0, amount: 0 })
 
 const form = ref(emptyForm())
 
@@ -29,22 +29,19 @@ const close = () => emit('update:modelValue', false)
 const submit = () => {
   const name = String(form.value.name || '').trim()
   const price = Number(form.value.price)
-  const amount = Number(form.value.amount)
-  const buyPrice = Number(form.value.buyPrice)
+  // Количество — целое: «2.5 колеса» не существует (задача 14.19). Отрицательное/ноль
+  // считаем ошибкой ввода (как раньше), а не «молча единицей».
+  const amount = Math.trunc(Number(form.value.amount))
 
   if (!name || !(price > 0) || !(amount > 0)) {
     emit('invalid')
     return
   }
 
-  // Закупка необязательна: `null` означает «не знаю», и маржа по строке не считается
-  // (это честнее, чем подставить 0 и показать «всё — прибыль»).
-  emit('submit', {
-    name,
-    price,
-    amount,
-    buy_price: buyPrice > 0 ? buyPrice : null,
-  })
+  // Себестоимость (`buy_price`) в карточке заказа больше не спрашиваем: маржа живёт
+  // в «Аналитике» (правка владельца 15.09.2026). На сервер уезжает `buy_price: null` —
+  // «закупка неизвестна», маржа по строке на сервере просто не считается.
+  emit('submit', { name, price, amount })
   close()
 }
 </script>
@@ -70,19 +67,14 @@ const submit = () => {
             v-model.number="form.amount"
             label="Количество"
             type="number"
-            outlined dense
+            min="1"
+            step="1"
+            inputmode="numeric"
+            outlined
+            dense
           />
         </div>
       </div>
-
-      <q-input
-        v-model.number="form.buyPrice"
-        label="Закупка за 1 шт., р"
-        type="number"
-        outlined
-        dense
-        hint="Необязательно: если оставить пусто/0, маржа по позиции не считается"
-      />
     </div>
   </LcDialogShell>
 </template>

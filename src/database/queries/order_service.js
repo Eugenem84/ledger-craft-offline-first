@@ -1,6 +1,20 @@
 export default {
+  // Работы заказа: к полям справочника работы (`s.*`) добавляем поля **строки** связки —
+  // количество, цену на момент добавления и локальный id строки (у `order_service` нет
+  // собственного PK, идентичность строки держит `id` = `uuid_id` на сервере).
+  //
+  // ⚠️ `price` — это цена строки: сначала `sale_price` (по ней считает аналитика
+  // `SUM(quantity * sale_price)`), и только если её нет — цена каталога. Алиас идёт после
+  // `s.*`, поэтому затирает каталожную цену (адаптеры собирают строку по имени колонки,
+  // «поздняя» колонка побеждает).
   getByOrderId: `
-    SELECT s.*
+    SELECT
+      s.*,
+      COALESCE(os.sale_price, s.price) AS price,
+      os.sale_price                    AS sale_price,
+      os.quantity                      AS quantity,
+      os.id                            AS line_id,
+      os.server_id                     AS line_server_id
     FROM services s
     JOIN order_service os ON s.id = os.service_id
     WHERE os.order_id = ?

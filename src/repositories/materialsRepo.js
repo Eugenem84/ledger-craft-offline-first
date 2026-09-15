@@ -12,6 +12,7 @@ import dbAdapter from 'src/database/db.js'
 import queries from 'src/database/queries/materials.js'
 import operationsRepo from 'src/repositories/operationsRepo'
 import { toEpochSeconds } from 'src/utils/timestamps.js'
+import { normalizeQuantity } from 'src/utils/quantity.js'
 import {
   materialLineInsertParams,
   materialLineInsertFromServerParams,
@@ -36,7 +37,9 @@ export async function add(orderId, line) {
   const id = uuidv4()
   const name = line.name ?? ''
   const price = line.price ?? 0
-  const amount = line.amount ?? 1
+  // Количество — всегда целое ≥ 1 (задача 14.19): «−3» или «2.5» из поля ввода
+  // до БД и сервера не доезжают.
+  const amount = normalizeQuantity(line.amount)
   const buyPrice = line.buy_price ?? null
 
   await dbAdapter.execute(

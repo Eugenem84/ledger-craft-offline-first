@@ -92,7 +92,8 @@ function openStoreProductDialog() {
   showStoreProductDialog.value = true
 }
 
-function addServiceToOrder(service) {
+/** Работа из каталога: добавляется одной штукой, количество правится у выбранной (14.19). */
+function addServiceToOrder({ service }) {
   ensureEditMode()
   draft.addService(service)
 }
@@ -295,15 +296,14 @@ const handleShare = async () => {
                 :services-total="servicesTotal"
                 :materials-total="materialsTotal"
                 :products-total="productsTotal"
-                :cost-total="draft.costTotal"
-                :margin="draft.margin"
-                :markup-percent="draft.markupPercent"
-                :has-unknown-cost="draft.hasUnknownCost"
                 :equipment-identifier="equipmentIdentifier"
                 :equipment-label="t('equipmentIdentifier')"
                 :show-equipment-identifier="isEnabled('equipmentIdentifier')"
                 @update:equipment-identifier="draft.equipmentIdentifier = $event"
                 @remove-service="draft.removeService($event)"
+                @update-service-line="
+                  ({ index, field, value }) => draft.updateServiceLine(index, field, value)
+                "
                 @remove-material="draft.removeMaterial($event)"
                 @remove-product="draft.removeProduct($event)"
               />
@@ -315,9 +315,13 @@ const handleShare = async () => {
                 :selected-category="selectedServiceCategory"
                 :services="servicesByCategory"
                 :chosen="services"
+                :edit-mode="editMode"
                 @update:selected-category="handleServiceCategoryChange"
                 @add="addServiceToOrder($event)"
                 @create="openServiceDialog"
+                @update-quantity="
+                  ({ service, value }) => draft.setServiceQuantity(service.id, value)
+                "
               />
             </q-tab-panel>
 
@@ -370,7 +374,7 @@ const handleShare = async () => {
     :selected-product="draft.selectedStoreProduct"
     @update:selected-category="handleStoreCategoryChange"
     @update:selected-product="draft.selectedStoreProduct = $event"
-    @submit="draft.addProductFromStore()"
+    @submit="payload => draft.addProductFromStore(payload)"
   />
 
   <DeleteConfirmPage ref="deleteConfirmPage" />

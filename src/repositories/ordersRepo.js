@@ -20,8 +20,9 @@ import {
 
 /**
  * Поля, которые приходят из JOIN-выборок репозитория (`getAll`/`getById`/
- * `getBySpecializationId` добавляют `client_name`/`client_phone`), но которых НЕТ
- * в таблице `orders` на сервере.
+ * `getBySpecializationId` добавляют `client_name`/`client_phone`, а теперь и
+ * `positions_total` — сумму по позициям), но которых НЕТ в таблице `orders`
+ * на сервере.
  *
  * ⚠️ Дефект живого прогона (11.6): стор отдаёт наверх записи вместе с этими
  * вычисляемыми полями, `useOrdersStore.update` мержит их в объект, и payload
@@ -30,7 +31,7 @@ import {
  * операция помечалась pending и оставалась в очереди навсегда — правка статуса
  * или оплаты не доезжала.
  */
-const DERIVED_ORDER_FIELDS = ['client_name', 'client_phone', 'model_name']
+const DERIVED_ORDER_FIELDS = ['client_name', 'client_phone', 'model_name', 'positions_total']
 
 /**
  * Время принадлежит серверу. Клиент хранит UNIX-секунды (число), а в PostgreSQL

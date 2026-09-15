@@ -1,26 +1,20 @@
 <script setup>
-// Итоги заказа (Фаза 8, задача 8.1): сумма по позициям, «всего к оплате» и маржа.
+// Итоги заказа (Фаза 8, задача 8.1): сумма по позициям и «всего к оплате».
 //
-// Маржа/наценка — задачи 9.5/9.6: маржа = выручка − себестоимость позиций (закупка
-// товаров со склада и ручных позиций; у работ себестоимости нет). Если в какой-то
-// позиции закупка не указана, `hasUnknownCost` — маржа «частичная», и мы это пишем.
+// Себестоимость / маржа / наценка из карточки заказа убраны (правка владельца
+// 15.09.2026): мастеру в ордере нужна сумма к оплате, а маржа с наценкой живут в
+// «Аналитике». Данные `buy_price` при этом продолжают синкаться и считаться —
+// просто в ордере не показываются.
 import { computed } from 'vue'
 
 const props = defineProps({
   servicesTotal: { type: Number, default: 0 },
   materialsTotal: { type: Number, default: 0 },
   productsTotal: { type: Number, default: 0 },
-  costTotal: { type: Number, default: 0 },
-  margin: { type: Number, default: 0 },
-  markupPercent: { type: Number, default: null },
-  hasUnknownCost: { type: Boolean, default: false },
 })
 
 const itemsTotal = computed(() => props.materialsTotal + props.productsTotal)
 const grandTotal = computed(() => itemsTotal.value + props.servicesTotal)
-const markupText = computed(() =>
-  props.markupPercent == null ? '—' : `${props.markupPercent > 0 ? '+' : ''}${props.markupPercent}%`
-)
 </script>
 
 <template>
@@ -41,27 +35,6 @@ const markupText = computed(() =>
       <span>всего к оплате</span>
       <span class="lc-money text-positive">{{ grandTotal }} р</span>
     </div>
-
-    <!-- Маржа заказа (9.5/9.6): сходится с суммой позиций — закупка × количество -->
-    <template v-if="costTotal > 0">
-      <div class="lc-totals-row">
-        <span class="lc-muted">закупка</span>
-        <span class="lc-money text-orange">{{ costTotal }} р</span>
-      </div>
-      <div class="lc-totals-row">
-        <span class="lc-muted">маржа</span>
-        <span class="lc-money" :class="margin >= 0 ? 'text-positive' : 'text-negative'">
-          {{ margin }} р
-        </span>
-      </div>
-      <div class="lc-totals-row">
-        <span class="lc-muted">наценка</span>
-        <span class="lc-money">{{ markupText }}</span>
-      </div>
-      <div v-if="hasUnknownCost" class="text-caption text-orange q-mt-xs">
-        часть позиций без закупки — маржа посчитана без их себестоимости
-      </div>
-    </template>
   </div>
 </template>
 

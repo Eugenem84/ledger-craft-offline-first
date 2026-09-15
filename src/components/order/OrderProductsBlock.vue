@@ -2,7 +2,12 @@
 // Список товаров со склада в заказе — режим просмотра (Фаза 8, задача 8.1).
 // Редактируемая версия — `OrderProductsEditor.vue` (вкладка «материалы»).
 //
-// «Закупка» и маржа по строке — задачи 9.5/9.6; `—` означает «закупка не указана».
+// Себестоимость и маржу из карточки заказа убрали (правка владельца 15.09.2026):
+// в ордере — состав и сумма, маржа живёт в «Аналитике». Данные `buy_price` при этом
+// продолжают синкаться, просто здесь не показываются.
+// Количество — целое ≥ 1 (задача 14.19): «−3 шт» или «2.5 колеса» в заказе быть не может.
+import { normalizeQuantity } from 'src/utils/quantity.js'
+
 const props = defineProps({
   products: { type: Array, default: () => [] },
   editMode: { type: Boolean, default: false },
@@ -12,8 +17,8 @@ const emit = defineEmits(['remove'])
 
 const num = value => Number(value || 0)
 
-const lineMargin = line =>
-  line?.buy_price == null ? null : (num(line.price) - num(line.buy_price)) * num(line.amount)
+/** Количество строки для чтения: целое ≥ 1. */
+const qty = line => normalizeQuantity(line?.amount)
 </script>
 
 <template>
@@ -27,9 +32,7 @@ const lineMargin = line =>
         <div class="lc-col-name">товар</div>
         <div class="lc-col-num">цена</div>
         <div class="lc-col-qty">кол-во</div>
-        <div class="lc-col-num">закупка</div>
         <div class="lc-col-num">сумма</div>
-        <div class="lc-col-num">маржа</div>
         <div v-if="props.editMode" class="lc-col-del"></div>
       </div>
 
@@ -40,15 +43,8 @@ const lineMargin = line =>
       >
         <div class="lc-col-name ellipsis">{{ product.name }}</div>
         <div class="lc-col-num lc-money">{{ product.price }} р</div>
-        <div class="lc-col-qty">× {{ product.amount }}</div>
-        <div class="lc-col-num lc-mute">{{ product.buy_price ?? '—' }}</div>
-        <div class="lc-col-num lc-money">{{ num(product.price) * num(product.amount) }} р</div>
-        <div
-          class="lc-col-num"
-          :class="lineMargin(product) == null ? 'lc-mute' : 'text-positive'"
-        >
-          {{ lineMargin(product) == null ? '—' : `${lineMargin(product)} р` }}
-        </div>
+        <div class="lc-col-qty">× {{ qty(product) }}</div>
+        <div class="lc-col-num lc-money">{{ num(product.price) * qty(product) }} р</div>
         <div v-if="props.editMode" class="lc-col-del">
           <q-btn
             flat

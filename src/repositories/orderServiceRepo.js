@@ -4,6 +4,7 @@ import dbAdapter from 'src/database/db.js'
 import queries from 'src/database/queries/order_service'
 import operationsRepo from 'src/repositories/operationsRepo'
 import { toEpochSeconds } from 'src/utils/timestamps.js'
+import { normalizeQuantity } from 'src/utils/quantity.js'
 import {
   orderServiceLineInsertParams,
   orderServiceLineInsertFromServerParams,
@@ -24,17 +25,21 @@ export async function getByOrderId(orderId) {
  *   чтобы офлайн-аналитика считала работы (без неё `sale_price` оставался `null` до
  *   первого синка и выручка по работам была нулевой). Если не передана — `null`,
  *   и сервер возьмёт цену из каталога `services` (задача 3.12).
+ * @param {number} [quantity] сколько раз работу оказали в заказе (задача 14.19).
+ *   Всегда целое ≥ 1: у связки на сервере нет PK, «несколько одинаковых работ» —
+ *   это количество в одной строке (дедупликация по `order_id + service_id`).
  */
-export async function add(orderId, serviceId, salePrice = null) {
+export async function add(orderId, serviceId, salePrice = null, quantity = 1) {
   // локальный ID связи используем только в payload для синка
   const id = uuidv4()
 
   const price = salePrice == null ? null : Number(salePrice)
+  const amount = normalizeQuantity(quantity)
 
   // создаём локальную запись связи в таблице order_service (порядок колонок — в маппере, 8.3)
   await dbAdapter.execute(
     queries.insert,
-    orderServiceLineInsertParams({ id, orderId, serviceId, salePrice: price })
+    orderServiceLineInsertParams({ id, orderId, serviceId, salePrice: price, quantity: amount })
   )
 
   // кладём операцию INSERT в очередь синхронизации
@@ -44,6 +49,9 @@ export async function add(orderId, serviceId, salePrice = null) {
     order_id: orderId,
     service_id: serviceId,
     sale_price: price,
+    // Сервер принимает `quantity` (спец-обработка `order_service`, задача 3.5):
+    // без него количество строки всегда было бы 1.
+    quantity: amount,
   }
   const opParams = [opId, 'insert', 'order_service', JSON.stringify(payload), Date.now()]
   await operationsRepo.enqueue(opParams)

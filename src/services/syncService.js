@@ -1261,6 +1261,12 @@ class SyncService {
         // операцию невозможно диагностировать: в консоли было только «DATABASE_ERROR».
         const details = errorResult.details ?? null;
         const reason = details?.message ? `: ${details.message}` : '';
+        // Причина пишется и в `operations.last_error` (её видно в «Режиме разработчика»),
+        // и в лог-буфер: на телефоне консоли нет, а `console.error` в буфер не попадает.
+        // Раньше у «сдавшихся» операций причина не сохранялась вовсе — мастер видел
+        // «failed insert · orders · попыток: 1» без ответа сервера (дефект разбора
+        // 15.09.2026: массовые отказы при синке невозможно было объяснить).
+        const failureText = `${errorResult.error}${reason}`;
 
         // Учитываем попытку (Фаза 12): неисправимую ошибку или исчерпанный лимит —
         // «сдаёмся» (status `failed`), иначе вернём в pending и повторим.
@@ -1268,10 +1274,10 @@ class SyncService {
         const permanent = this._isPermanentOperationError(errorResult.error);
         const giveUp = permanent || attempts >= MAX_OPERATION_ATTEMPTS;
 
-        console.error(
-          `[SyncService] Сервер отклонил операцию (${errorResult.error})${reason}. ` +
+        logger.error(
+          `[Sync] Сервер отклонил операцию (${failureText}). ` +
             (giveUp
-              ? `Операция помечена как «сдалась» — повторять не будем.`
+              ? 'Операция помечена как «сдалась» — повторять не будем.'
               : `Попытка ${attempts} из ${MAX_OPERATION_ATTEMPTS}.`),
           {
             operation: op,
@@ -1281,7 +1287,7 @@ class SyncService {
           }
         );
 
-        await operationsRepo.registerFailure(op.id, attempts, giveUp);
+        await operationsRepo.registerFailure(op.id, attempts, giveUp, failureText);
         continue;
       }
 

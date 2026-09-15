@@ -1,11 +1,15 @@
 <script setup>
 // Редактируемый список товаров со склада (вкладка «материалы», Фаза 8, задача 8.1).
-// Для товаров правки цены/количества/закупки — тоже черновик: при сохранении заказа строки
+// Для товаров правки цены/количества — тоже черновик: при сохранении заказа строки
 // перезаписываются (`useOrderDraftStore.updateOrder`).
 //
-// «Закупка» — себестоимость на момент продажи (задачи 9.5/9.6): подставляется из последней
-// закупки товара (склад отдаёт её как `buy_price`), но её можно поправить. Пусто = «не знаю»:
-// маржа по строке тогда не считается (показываем «—»), а не «вся выручка — прибыль».
+// Себестоимость и маржу из карточки заказа убрали (правка владельца 15.09.2026): строки
+// редактируют название, цену и количество, а маржа живёт в «Аналитике». Данные `buy_price`
+// при этом продолжают синкаться (`useOrderDraftStore`/репозитории не тронуты).
+// Количество — целое ≥ 1 (задача 14.19): «−3» и «2.5» не существуют, хранит и отправит
+// его стор/репозиторий (`utils/quantity.js`).
+import { normalizeQuantity } from 'src/utils/quantity.js'
+
 const props = defineProps({
   products: { type: Array, default: () => [] },
   total: { type: Number, default: 0 },
@@ -15,9 +19,8 @@ const emit = defineEmits(['remove', 'update-line'])
 
 const num = value => Number(value || 0)
 
-/** Маржа строки: (цена − закупка) × количество. `null` — закупка неизвестна. */
-const lineMargin = line =>
-  line?.buy_price == null ? null : (num(line.price) - num(line.buy_price)) * num(line.amount)
+/** Количество строки: целое ≥ 1 (пустое поле ввода считается единицей). */
+const qty = line => normalizeQuantity(line?.amount)
 </script>
 
 <template>
@@ -26,9 +29,7 @@ const lineMargin = line =>
       <div class="lc-col-name">товар</div>
       <div class="lc-col-num">цена</div>
       <div class="lc-col-qty">кол-во</div>
-      <div class="lc-col-num">закупка</div>
       <div class="lc-col-num">сумма</div>
-      <div class="lc-col-num">маржа</div>
       <div class="lc-col-del"></div>
     </div>
 
@@ -67,33 +68,17 @@ const lineMargin = line =>
           dense
           outlined
           type="number"
+          min="1"
+          step="1"
+          inputmode="numeric"
           input-class="text-center"
           :model-value="product.amount"
           @update:model-value="value => emit('update-line', { index, field: 'amount', value })"
         />
       </div>
 
-      <div class="lc-col-num">
-        <q-input
-          dense
-          outlined
-          type="number"
-          input-class="text-right"
-          :model-value="product.buy_price"
-          placeholder="—"
-          @update:model-value="value => emit('update-line', { index, field: 'buy_price', value })"
-        />
-      </div>
-
       <div class="lc-col-num lc-money">
-        {{ num(product.price) * num(product.amount) }}
-      </div>
-
-      <div
-        class="lc-col-num lc-money"
-        :class="lineMargin(product) == null ? 'lc-mute' : 'text-positive'"
-      >
-        {{ lineMargin(product) == null ? '—' : lineMargin(product) }}
+        {{ num(product.price) * qty(product) }}
       </div>
 
       <div class="lc-col-del">

@@ -19,10 +19,15 @@
  * и не подменяет цену каталога (см. `docs/API-INTEGRATION.md` §2.1 — спец-обработка
  * `order_service`).
  *
- * @param {{ id: string, orderId: string, serviceId: string, salePrice?: number|null }} input
+ * `quantity` — сколько раз работу оказали в этом заказе (задача 14.19: «подкачать
+ * колесо» ×4). На сервере это одно поле строки (у связки нет PK, дедупликация — по
+ * натуральному ключу `order_id + service_id`), поэтому «несколько одинаковых работ» —
+ * это не несколько строк, а количество в одной.
+ *
+ * @param {{ id: string, orderId: string, serviceId: string, salePrice?: number|null, quantity?: number }} input
  * @returns {Array<string|number|null>}
  */
-export function orderServiceLineInsertParams({ id, orderId, serviceId, salePrice }) {
+export function orderServiceLineInsertParams({ id, orderId, serviceId, salePrice, quantity }) {
   return [
     id, // id (локальный UUID)
     null, // server_id (у связки его нет)
@@ -31,7 +36,7 @@ export function orderServiceLineInsertParams({ id, orderId, serviceId, salePrice
     serviceId, // service_id (локальный ID услуги)
     null, // service_server_id
     salePrice ?? null, // sale_price (цена работы на момент добавления)
-    1, // quantity
+    quantity ?? 1, // quantity (сколько раз работу оказали)
   ]
 }
 

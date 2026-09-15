@@ -285,3 +285,187 @@ describe('8.1 useOrderDraftStore', () => {
     expect(draft.markupPercent).toBeNull()
   })
 })
+
+describe('14.19 количество работ и товаров в заказе', () => {
+  it('работа ×4: итог, строка заказа и payload синка', async () => {
+    const { serviceId, clientId } = await seedCatalog()
+
+    const draft = useOrderDraftStore()
+    await draft.init({ create: true })
+    draft.client = { id: clientId, name: 'Иван', phone: '123' }
+    // «Подкачать колесо» ×4 (четыре колеса) — количество задаёт мастер, а не N строк.
+    draft.addService({ id: serviceId, service: 'Замена масла', price: 500 }, 4)
+
+    expect(draft.servicesTotal).toBe(2000)
+    expect(draft.totalAmount).toBe(2000)
+
+    const orderId = await draft.createOrder()
+
+    expect(
+      await db.queryOne('SELECT * FROM order_service WHERE order_id = ?', [orderId])
+    ).toMatchObject({ service_id: serviceId, sale_price: 500, quantity: 4 })
+
+    // Количество уезжает на сервер: без него он проставил бы 1 (спец-обработка связки).
+    const op = (await db.query('SELECT * FROM operations')).find(
+      row => row.table === 'order_service'
+    )
+    expect(JSON.parse(op.payload)).toMatchObject({ quantity: 4, sale_price: 500 })
+  })
+
+  it('повторное добавление той же работы увеличивает количество, а не плодит строки', async () => {
+    const { serviceId, clientId } = await seedCatalog()
+
+    const draft = useOrderDraftStore()
+    await draft.init({ create: true })
+    draft.client = { id: clientId, name: 'Иван', phone: '123' }
+    draft.addService({ id: serviceId, service: 'Замена масла', price: 500 })
+    draft.addService({ id: serviceId, service: 'Замена масла', price: 500 }, 2)
+
+    // На сервере связка дедуплицируется по `order_id + service_id`: вторая строка
+    // просто «потерялась» бы при синке, поэтому количество складываем в одну строку.
+    expect(draft.services).toHaveLength(1)
+    expect(draft.services[0].quantity).toBe(3)
+    expect(draft.servicesTotal).toBe(1500)
+  })
+
+  it('количество возвращается при открытии заказа и правится в списке работ', async () => {
+    const { serviceId, clientId } = await seedCatalog()
+
+    const draft = useOrderDraftStore()
+    await draft.init({ create: true })
+    draft.client = { id: clientId, name: 'Иван', phone: '123' }
+    draft.addService({ id: serviceId, service: 'Замена масла', price: 500 }, 4)
+    const orderId = await draft.createOrder()
+
+    const ordersStore = useOrdersStore()
+    await ordersStore.load()
+    await ordersStore.select(orderId)
+    await draft.init({ create: false })
+
+    // Строка заказа приносит и количество, и цену строки (`sale_price`).
+    expect(draft.services[0]).toMatchObject({ id: serviceId, quantity: 4, price: 500 })
+    expect(draft.servicesTotal).toBe(2000)
+
+    // Мастер поправил количество прямо в списке — как у материалов и товаров.
+    draft.updateServiceLine(0, 'quantity', 2)
+    expect(draft.servicesTotal).toBe(1000)
+
+    await draft.save()
+
+    expect(
+      await db.queryOne('SELECT quantity FROM order_service WHERE order_id = ?', [orderId])
+    ).toMatchObject({ quantity: 2 })
+  })
+
+  it('товар со склада добавляется сразу в нужном количестве', async () => {
+    const { clientId, productId } = await seedCatalog()
+
+    const draft = useOrderDraftStore()
+    await draft.init({ create: true })
+    draft.client = { id: clientId, name: 'Иван', phone: '123' }
+    draft.selectedStoreProduct = {
+      id: productId,
+      name: 'Фильтр',
+      base_sale_price: 300,
+      buy_price: 200,
+    }
+    // Так диалог «товар со склада» отдаёт количество (payload события `submit`).
+    draft.addProductFromStore({ amount: 3 })
+
+    expect(draft.products).toHaveLength(1)
+    expect(draft.productsTotal).toBe(900)
+
+    const orderId = await draft.createOrder()
+
+    expect(
+      await db.queryOne('SELECT * FROM order_product WHERE order_id = ?', [orderId])
+    ).toMatchObject({ product_id: productId, quantity: 3, sale_price: 300 })
+
+    const op = (await db.query('SELECT * FROM operations')).find(
+      row => row.table === 'order_product'
+    )
+    expect(JSON.parse(op.payload)).toMatchObject({ quantity: 3, sale_price: 300, buy_price: 200 })
+
+    // Пустое/нулевое поле в диалоге — это «одна штука», а не нулевая позиция.
+    draft.selectedStoreProduct = { id: productId, name: 'Фильтр', base_sale_price: 300 }
+    draft.addProductFromStore({ amount: 0 })
+
+    expect(draft.products[1].amount).toBe(1)
+    expect(draft.productsTotal).toBe(1200)
+  })
+
+  it('минус и дробь в поле количества не доезжают ни до черновика, ни до БД', async () => {
+    const { serviceId, productId, clientId } = await seedCatalog()
+
+    const draft = useOrderDraftStore()
+    await draft.init({ create: true })
+    draft.client = { id: clientId, name: 'Иван', phone: '123' }
+    draft.addService({ id: serviceId, service: 'Замена масла', price: 500 })
+
+    // Мастер набрал «−3» в поле количества работы: «выполнено −3 раза» не бывает.
+    draft.updateServiceLine(0, 'quantity', '-3')
+    expect(draft.services[0].quantity).toBe(1)
+    expect(draft.servicesTotal).toBe(500)
+
+    // «2.5» у товара со склада — дробных штук тоже нет.
+    draft.selectedStoreProduct = { id: productId, name: 'Фильтр', base_sale_price: 300 }
+    draft.addProductFromStore({ amount: '2.5' })
+    expect(draft.products[0].amount).toBe(2)
+    expect(draft.productsTotal).toBe(600)
+
+    const orderId = await draft.createOrder()
+
+    expect(
+      await db.queryOne('SELECT quantity FROM order_service WHERE order_id = ?', [orderId])
+    ).toMatchObject({ quantity: 1 })
+    expect(
+      await db.queryOne('SELECT quantity FROM order_product WHERE order_id = ?', [orderId])
+    ).toMatchObject({ quantity: 2 })
+
+    // Ручная позиция: amount — тоже количество (минус обрезается до 1).
+    draft.addMaterial({ name: 'Изолента', price: 100, amount: '-2' })
+    expect(draft.materials[0].amount).toBe(1)
+    draft.updateMaterialLine(0, 'amount', '3.7')
+    expect(draft.materials[0].amount).toBe(3)
+    expect(draft.materialsTotal).toBe(300)
+  })
+
+  it('пустое поле количества можно стереть, но в заказ уходит 1', async () => {
+    const { serviceId, clientId } = await seedCatalog()
+
+    const draft = useOrderDraftStore()
+    await draft.init({ create: true })
+    draft.client = { id: clientId, name: 'Иван', phone: '123' }
+    draft.addService({ id: serviceId, service: 'Замена масла', price: 500 }, 4)
+
+    // Поле очищено (мастер стирает цифру, чтобы набрать новую) — итог считает «×1»,
+    // а не «×0» и не отрицательное значение.
+    draft.updateServiceLine(0, 'quantity', '')
+    expect(draft.services[0].quantity).toBe('')
+    expect(draft.servicesTotal).toBe(500)
+
+    const orderId = await draft.createOrder()
+
+    expect(
+      await db.queryOne('SELECT quantity FROM order_service WHERE order_id = ?', [orderId])
+    ).toMatchObject({ quantity: 1 })
+  })
+
+  it('количество выбранной работы меняется по id из каталога (setServiceQuantity)', async () => {
+    const { serviceId, clientId } = await seedCatalog()
+
+    const draft = useOrderDraftStore()
+    await draft.init({ create: true })
+    draft.client = { id: clientId, name: 'Иван', phone: '123' }
+    draft.addService({ id: serviceId, service: 'Замена масла', price: 500 })
+
+    draft.setServiceQuantity(serviceId, 4)
+
+    expect(draft.services[0].quantity).toBe(4)
+    expect(draft.servicesTotal).toBe(2000)
+
+    // Работы больше нет в черновике — правка по id ничего не ломает.
+    draft.setServiceQuantity('нет-такой-работы', 2)
+    expect(draft.services).toHaveLength(1)
+  })
+})

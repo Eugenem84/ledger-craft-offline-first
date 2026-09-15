@@ -21,10 +21,6 @@ const props = defineProps({
   servicesTotal: { type: Number, default: 0 },
   materialsTotal: { type: Number, default: 0 },
   productsTotal: { type: Number, default: 0 },
-  costTotal: { type: Number, default: 0 },
-  margin: { type: Number, default: 0 },
-  markupPercent: { type: Number, default: null },
-  hasUnknownCost: { type: Boolean, default: false },
 })
 
 const emit = defineEmits([
@@ -33,6 +29,7 @@ const emit = defineEmits([
   'remove-service',
   'remove-material',
   'remove-product',
+  'update-service-line',
 ])
 </script>
 
@@ -57,6 +54,7 @@ const emit = defineEmits([
       :services="props.services"
       :edit-mode="props.editMode"
       @remove="index => emit('remove-service', index)"
+      @update-line="payload => emit('update-service-line', payload)"
     />
 
     <div
@@ -85,10 +83,6 @@ const emit = defineEmits([
       :services-total="props.servicesTotal"
       :materials-total="props.materialsTotal"
       :products-total="props.productsTotal"
-      :cost-total="props.costTotal"
-      :margin="props.margin"
-      :markup-percent="props.markupPercent"
-      :has-unknown-cost="props.hasUnknownCost"
     />
 
     <div class="lc-pad-x q-pb-md q-gutter-y-md">

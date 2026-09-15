@@ -14,6 +14,7 @@ import queries from 'src/database/queries/order_product.js'
 import operationsRepo from 'src/repositories/operationsRepo'
 import * as salesProductPricesRepo from 'src/repositories/salesProductPricesRepo.js'
 import { toEpochSeconds } from 'src/utils/timestamps.js'
+import { normalizeQuantity } from 'src/utils/quantity.js'
 import {
   orderProductLineInsertParams,
   orderProductLineInsertFromServerParams,
@@ -38,7 +39,9 @@ export async function getByOrderId(orderId) {
  */
 export async function add(orderId, productId, amount, price, buyPrice = null) {
   const id = uuidv4()
-  const quantity = amount ?? 1
+  // Количество — всегда целое ≥ 1 (задача 14.19): «−3»/«2.5» из поля ввода
+  // до БД и сервера не доезжают.
+  const quantity = normalizeQuantity(amount)
   const salePrice = price ?? 0
   const cost = buyPrice ?? null
 

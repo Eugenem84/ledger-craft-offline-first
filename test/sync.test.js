@@ -15,6 +15,7 @@ import api from 'src/services/api'
 import syncService from 'src/services/syncService.js'
 import operationsRepo from 'src/repositories/operationsRepo.js'
 import storage from 'src/utils/storage.js'
+import { getErrors } from 'src/utils/errorLog.js'
 import { setupTestDb } from './helpers/testDb.js'
 import { createFakeServer } from './helpers/fakeServer.js'
 
@@ -423,6 +424,27 @@ describe('5.4 сбои сети и сервера', () => {
     expect(await operationsRepo.countPending()).toBe(1)
   })
 
+  it('«сдавшаяся» операция сохраняет причину — её видно в панели и в отчёте (15.09.2026)', async () => {
+    await clientsRepo.save({ name: 'Чужой родитель' })
+
+    // Неисправимая ошибка сервера (родитель чужой/отсутствует): операция «сдаётся»
+    // с первой попытки. Раньше причина нигде не сохранялась — в «Режиме разработчика»
+    // было видно только «failed insert · clients · попыток: 1» и payload, а сам ответ
+    // сервера уходил в `console.error`, которого на телефоне нет.
+    server.configure({ errorFor: () => 'FORBIDDEN_NOT_OWNER' })
+
+    await syncService.sync()
+
+    const op = await db.queryOne(`SELECT * FROM operations WHERE "table" = 'clients'`)
+    expect(op).toMatchObject({ status: 'failed', attempts: 1 })
+    expect(op.last_error).toContain('FORBIDDEN_NOT_OWNER')
+
+    // Та же причина попадает и в постоянный буфер ошибок: его хвост уезжает
+    // в отчёт «Сообщить об ошибке» (на устройстве нет консоли).
+    const logged = getErrors(5).map(entry => entry.message).join('\n')
+    expect(logged).toContain('FORBIDDEN_NOT_OWNER')
+  })
+
   it('200 OK без ответа по операции — она возвращается в pending (3.5)', async () => {
     await clientsRepo.save({ name: 'Иван' })
     server.configure({ noResultFor: () => true })
@@ -456,3 +478,28 @@ describe('5.4 сбои сети и сервера', () => {
   })
 })
 
+
+describe('14.19 количество работ доезжает на сервер', () => {
+  it('работа ×4: в payload синка quantity = 4 (а не 1 по умолчанию)', async () => {
+    const categoryId = await categoriesRepo.save({ category_name: 'Велосервис' })
+    const serviceId = await servicesRepo.save({
+      service: 'Подкачать колесо',
+      price: 100,
+      category_id: categoryId,
+    })
+    const clientId = await clientsRepo.save({ name: 'Иван' })
+    const orderId = await ordersRepo.save({ client_id: clientId, total_amount: 400 })
+
+    // «Подкачать колесо» ×4 — мастер указал количество в поле, а не добавлял 4 строки.
+    await orderServiceRepo.add(orderId, serviceId, 100, 4)
+
+    await syncService.sync()
+
+    const sent = server.received.find(entry => entry.table === 'order_service')
+    expect(sent.payload).toMatchObject({ quantity: 4, sale_price: 100 })
+
+    // Сервер записал именно количество (без поля он проставил бы 1).
+    expect(server.list('order_service')[0]).toMatchObject({ quantity: 4, sale_price: 100 })
+    expect(await operationsRepo.countPending()).toBe(0)
+  })
+})

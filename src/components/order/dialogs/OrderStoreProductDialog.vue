@@ -3,8 +3,14 @@
 // Категории/товары приходят из стора, выбранные значения уходят наверх событиями.
 // Подписи — из лексикона профиля (Фаза 10, задача 10.1): велосипедисту «запчасть».
 // Оболочка — общая `LcDialogShell`.
+//
+// Задача 14.19: в диалоге есть «Количество» — мастер сразу добавляет несколько
+// одинаковых товаров (одной строкой заказа с количеством), а не открывает диалог N раз.
+// Поле доступно только после выбора товара; количество — целое ≥ 1.
+import { ref, watch } from 'vue'
 import { useLexicon } from 'src/domain/lexicon.js'
 import LcDialogShell from 'src/components/ui/LcDialogShell.vue'
+import { normalizeQuantity, normalizeQuantityInput } from 'src/utils/quantity.js'
 
 const { t } = useLexicon()
 
@@ -22,6 +28,29 @@ const emit = defineEmits([
   'update:selectedProduct',
   'submit',
 ])
+
+/** Количество добавляемых штук: целое ≥ 1 (`''` — поле очищено, при отправке станет 1). */
+const amount = ref(1)
+
+watch(
+  () => props.modelValue,
+  isOpen => {
+    if (isOpen) amount.value = 1
+  }
+)
+
+const setAmount = value => {
+  amount.value = normalizeQuantityInput(value)
+}
+
+const submit = () => {
+  emit('submit', { amount: normalizeQuantity(amount.value) })
+
+  // Окно закрываем, как остальные диалоги заказа («добавить материал/работу»):
+  // позиция уже в черновике, повторное открытие — новое действие.
+  emit('update:modelValue', false)
+  amount.value = 1
+}
 </script>
 
 <template>
@@ -29,8 +58,9 @@ const emit = defineEmits([
     :model-value="props.modelValue"
     :title="`${t('part')} со склада`"
     confirm-label="Добавить"
+    :confirm-disable="!props.selectedProduct"
     @update:model-value="value => emit('update:modelValue', value)"
-    @confirm="emit('submit')"
+    @confirm="submit"
   >
     <div class="q-gutter-y-md">
       <q-select
@@ -57,6 +87,25 @@ const emit = defineEmits([
         color="secondary"
         :disable="!props.selectedCategory"
         @update:model-value="value => emit('update:selectedProduct', value)"
+      />
+
+      <q-input
+        :model-value="amount"
+        label="Количество"
+        type="number"
+        min="1"
+        step="1"
+        inputmode="numeric"
+        outlined
+        dense
+        color="secondary"
+        :disable="!props.selectedProduct"
+        :hint="
+          props.selectedProduct
+            ? 'Сколько одинаковых — столько и добавим одной строкой'
+            : `Сначала выберите ${t('part')}`
+        "
+        @update:model-value="setAmount"
       />
     </div>
   </LcDialogShell>

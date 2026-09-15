@@ -30,6 +30,7 @@ import * as modelsRepo from 'src/repositories/modelsRepo.js'
 import { apiClient } from 'src/services/api.js'
 import { logger } from 'src/utils/logger'
 import { ORDER_NOT_SYNCED } from 'src/utils/shareLinkError.js'
+import { normalizeQuantity, normalizeQuantityInput } from 'src/utils/quantity.js'
 import { useOrdersStore } from 'src/stores/useOrdersStore.js'
 import { useModelsStore } from 'src/stores/useModelsStore.js'
 import { useCategoriesStore } from 'src/stores/useCategoriesStore.js'
@@ -41,6 +42,12 @@ const emptyClient = () => ({ id: null, name: 'выберите клиента', 
 const emptyModel = () => ({ id: null, name: null })
 /** Черновик ещё не созданного заказа. */
 const emptyOrder = () => ({ status: 'waiting', paid: false, clientId: null, modelId: null, comments: '' })
+/**
+ * Количество строки черновика: у работ это `quantity`, у товаров и ручных позиций —
+ * `amount`. В поле ввода может лежать пусто/`0`/`−3`/`2.5`, а в заказ, в БД и на сервер
+ * уходит только целое ≥ 1 (задача 14.19) — нормализация одна на весь стор.
+ */
+const lineQuantity = line => normalizeQuantity(line?.quantity ?? line?.amount)
 
 export const useOrderDraftStore = defineStore('orderDraft', {
   state: () => ({
@@ -84,15 +91,18 @@ export const useOrderDraftStore = defineStore('orderDraft', {
     /** Номер для шапки: серверный id, а у ещё не синхронизированного — локальный. */
     orderNumber: state => state.order?.server_id || state.order?.id || null,
     servicesTotal: state =>
-      state.services.reduce((sum, service) => sum + Number(service.price || 0), 0),
+      state.services.reduce(
+        (sum, service) => sum + Number(service.price || 0) * lineQuantity(service),
+        0
+      ),
     materialsTotal: state =>
       state.materials.reduce(
-        (sum, material) => sum + Number(material.price || 0) * Number(material.amount || 0),
+        (sum, material) => sum + Number(material.price || 0) * lineQuantity(material),
         0
       ),
     productsTotal: state =>
       state.products.reduce(
-        (sum, product) => sum + Number(product.price || 0) * Number(product.amount || 0),
+        (sum, product) => sum + Number(product.price || 0) * lineQuantity(product),
         0
       ),
     totalAmount() {
@@ -111,12 +121,12 @@ export const useOrderDraftStore = defineStore('orderDraft', {
      */
     materialsCost: state =>
       state.materials.reduce(
-        (sum, material) => sum + Number(material.buy_price || 0) * Number(material.amount || 0),
+        (sum, material) => sum + Number(material.buy_price || 0) * lineQuantity(material),
         0
       ),
     productsCost: state =>
       state.products.reduce(
-        (sum, product) => sum + Number(product.buy_price || 0) * Number(product.amount || 0),
+        (sum, product) => sum + Number(product.buy_price || 0) * lineQuantity(product),
         0
       ),
     costTotal() {
@@ -246,8 +256,25 @@ export const useOrderDraftStore = defineStore('orderDraft', {
 
     // --- Позиции: локальный черновик ---
 
-    addService(service) {
-      this.services.push({ ...service })
+    /**
+     * Добавляет работу в черновик.
+     *
+     * @param {object} service работа из каталога (`id`, `service`, `price`)
+     * @param {number} [quantity] сколько раз её оказали (задача 14.19). Повторное
+     *   добавление той же работы **увеличивает количество**, а не плодит строки:
+     *   на сервере связка дедуплицируется по `order_id + service_id`, поэтому вторая
+     *   локальная строка просто «потерялась» бы при синке.
+     */
+    addService(service, quantity = 1) {
+      const amount = normalizeQuantity(quantity)
+      const existing = this.services.find(line => line.id === service.id)
+
+      if (existing) {
+        existing.quantity = normalizeQuantity(Number(existing.quantity || 1) + amount)
+        return
+      }
+
+      this.services.push({ ...service, quantity: amount })
     },
 
     removeService(index) {
@@ -255,11 +282,38 @@ export const useOrderDraftStore = defineStore('orderDraft', {
     },
 
     /**
+     * Правка строки работы (цена/количество) — тем же способом, что у материалов
+     * и товаров: значение живёт в черновике и уезжает в БД только по «Сохранить».
+     */
+    updateServiceLine(index, field, value) {
+      const line = this.services[index]
+      if (line) line[field] = this._normalizeLineField(field, value)
+    },
+
+    /**
+     * Меняет количество уже выбранной в заказе работы (поле «кол-во» в каталоге работ
+     * доступно только у выбранных — задача 14.19).
+     *
+     * @param {string} serviceId локальный id работы (услуги)
+     * @param {unknown} value значение из поля ввода
+     */
+    setServiceQuantity(serviceId, value) {
+      const index = this.services.findIndex(line => line.id === serviceId)
+      if (index !== -1) this.updateServiceLine(index, 'quantity', value)
+    },
+
+    /**
      * Добавляет ручную позицию в черновик.
      * @param {{name: string, price: number, amount: number, buy_price?: number|null}} line
      */
     addMaterial({ name, price, amount, buy_price }) {
-      this.materials.push({ id: uuidv4(), name, price, amount, buy_price: buy_price ?? null })
+      this.materials.push({
+        id: uuidv4(),
+        name,
+        price,
+        amount: normalizeQuantity(amount),
+        buy_price: buy_price ?? null,
+      })
     },
 
     removeMaterial(index) {
@@ -271,16 +325,24 @@ export const useOrderDraftStore = defineStore('orderDraft', {
       if (line) line[field] = this._normalizeLineField(field, value)
     },
 
-    addProductFromStore() {
+    /**
+     * Добавляет товар со склада в черновик.
+     *
+     * @param {{amount?: number}} [payload] `amount` — сколько штук добавляем сразу
+     *   (задача 14.19: «нужно несколько одинаковых товаров»). Мусор/ноль/пусто → 1.
+     */
+    addProductFromStore({ amount = 1 } = {}) {
       const product = this.selectedStoreProduct
       if (!product) return
+
       // Себестоимость берём из последней закупки товара (склад отдаёт её как `buy_price`,
       // задача 9.3) — это и есть «закупка на момент продажи» (задачи 9.5/9.6).
+      // Количество — целое ≥ 1 (мусор/ноль/минус/дробное → 1, задача 14.19).
       this.products.push({
         ...product,
         product_id: product.id,
         price: product.base_sale_price,
-        amount: 1,
+        amount: normalizeQuantity(amount),
         buy_price: product.buy_price ?? null,
       })
       this.selectedStoreProduct = null
@@ -296,13 +358,21 @@ export const useOrderDraftStore = defineStore('orderDraft', {
     },
 
     /**
-     * Приводит правку строки к домену: пустое поле «закупка» — это «не знаю» (`null`),
-     * а не 0. Иначе очищенное поле выглядело бы как «себестоимость 0» и маржа заказа
-     * показывалась бы точной (задачи 9.5/9.6).
+     * Приводит правку строки к домену:
+     *   • пустое поле «закупка» — это «не знаю» (`null`), а не 0: иначе очищенное поле
+     *     выглядело бы как «себестоимость 0» и маржа заказа показывалась бы точной
+     *     (задачи 9.5/9.6);
+     *   • количество (работы — `quantity`, товары и материалы — `amount`) — целое ≥ 1:
+     *     «−3 раза» и «2.5 колеса» не существуют (задача 14.19). Пустое поле остаётся
+     *     пустым, чтобы можно было стереть цифру и набрать новую.
      */
     _normalizeLineField(field, value) {
       if (field === 'buy_price' && (value === '' || value == null)) {
         return null
+      }
+
+      if (field === 'quantity' || field === 'amount') {
+        return normalizeQuantityInput(value)
       }
 
       return value
@@ -380,7 +450,8 @@ export const useOrderDraftStore = defineStore('orderDraft', {
         // Цену работы фиксируем в самой строке заказа (а не «оставляем на сервер»):
         // офлайн-аналитика считает выручку как `SUM(quantity * sale_price)` и без
         // этого показывала работы нулём до первого синка.
-        await orderServiceRepo.add(orderId, service.id, service.price)
+        // Количество — из строки черновика (задача 14.19).
+        await orderServiceRepo.add(orderId, service.id, service.price, lineQuantity(service))
       }
       for (const material of this.materials) {
         // Ручная позиция заказа: на сервере это строка `materials` (name/price/amount/buy_price).
@@ -418,7 +489,12 @@ export const useOrderDraftStore = defineStore('orderDraft', {
 
       await orderServiceRepo.removeByOrderId(this.order.id)
       for (const service of this.services) {
-        await orderServiceRepo.add(this.order.id, service.id, service.price)
+        await orderServiceRepo.add(
+          this.order.id,
+          service.id,
+          service.price,
+          lineQuantity(service)
+        )
       }
 
       await materialsRepo.removeByOrderId(this.order.id)
