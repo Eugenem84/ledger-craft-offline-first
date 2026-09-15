@@ -1,9 +1,37 @@
 // Configuration for your app
 // https://v2.quasar.dev/quasar-cli-vite/quasar-config-file
 
+import { readFileSync } from 'node:fs'
 import { defineConfig } from '#q-app/wrappers'
 
+/**
+ * Версия Android-сборки из `src-capacitor/android/gradle.properties` — тот же
+ * `APP_VERSION_CODE`/`APP_VERSION_NAME`, который читают Gradle (`app/build.gradle`)
+ * и скрипты релиза. Вшиваем её в бандл (`build.env` → `process.env.*`), чтобы версию
+ * видел и веб-слой: нативного плагина в браузере нет, и без этого фолбэка в шапке
+ * было нечего показать (`src/utils/appVersion.js` → `useUpdateStore.currentVersionShort`).
+ *
+ * Файла может не быть (например, сборка одной веб-части) — тогда пусто, и шапка
+ * просто не рисует версию.
+ */
+function readAndroidVersion() {
+  const read = name => {
+    try {
+      const match = readFileSync('src-capacitor/android/gradle.properties', 'utf8')
+        .match(new RegExp(`^\\s*${name}\\s*=\\s*(\\S+)\\s*$`, 'm'))
+
+      return match ? match[1] : ''
+    } catch {
+      return ''
+    }
+  }
+
+  return { name: read('APP_VERSION_NAME'), code: read('APP_VERSION_CODE') }
+}
+
 export default defineConfig((/* ctx */) => {
+  const androidVersion = readAndroidVersion()
+
   return {
     // https://v2.quasar.dev/quasar-cli-vite/prefetch-feature
     // preFetch: true,
@@ -56,7 +84,12 @@ export default defineConfig((/* ctx */) => {
 
       // publicPath: '/',
       // analyze: true,
-      // env: {},
+      // Версия приложения в бандле: `process.env.APP_VERSION_*` доступны в коде
+      // (`src/config.js`). Значения — из `gradle.properties`, см. `readAndroidVersion`.
+      env: {
+        APP_VERSION_NAME: androidVersion.name,
+        APP_VERSION_CODE: androidVersion.code,
+      },
       // rawDefine: {}
       // ignorePublicFolder: true,
       // minify: false,

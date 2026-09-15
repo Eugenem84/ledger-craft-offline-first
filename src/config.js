@@ -35,3 +35,13 @@ export const USE_MOCK =
   import.meta.env.DEV === true &&
   isFlagOn(import.meta.env.VITE_USE_MOCK ?? process.env.VITE_USE_MOCK)
 
+// Версия приложения, вшитая в сборку (правка владельца 15.09.2026).
+//
+// Источник — `src-capacitor/android/gradle.properties` (`APP_VERSION_NAME`/`_CODE`),
+// их подставляет `readAndroidVersion` в `quasar.config.js`: это тот же номер, что
+// показывает Android в настройках и что читают скрипты релиза. Нужен как фолбэк:
+// нативную версию в браузере спросить не у кого, поэтому без неё в шапке было нечего
+// показать. Правила подписи — в чистой `src/utils/appVersion.js`.
+export const BUILD_APP_VERSION_NAME = process.env.APP_VERSION_NAME || ''
+export const BUILD_APP_VERSION_CODE = process.env.APP_VERSION_CODE || ''
+

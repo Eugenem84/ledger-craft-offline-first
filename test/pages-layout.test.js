@@ -87,5 +87,31 @@ describe('14.11 чип синка — только в шапке каркаса'
 
     expect(layout).toContain('SyncStatusBar')
   })
+
+  // Правка владельца 15.09.2026: «индикатор бесит» → чип без подписи, только значок;
+  // рядом — очень мелкая серая версия приложения (`useUpdateStore`).
+  it('чип синка — только значок (подписи нет), а версия приложения — рядом', () => {
+    const bar = readFileSync(path.join(root, 'src/components/SyncStatusBar.vue'), 'utf8')
+    const layout = readFileSync(path.join(root, 'src/layouts/MainLayout.vue'), 'utf8')
+
+    // Текста у чипа нет; состояние дублируется в тултипе и в `aria-label`.
+    expect(bar).not.toContain(':label="view.label"')
+    expect(bar).toContain(':aria-label="`синхронизация: ${view.label}`"')
+    expect(bar).toContain('lc-sync-chip--icon')
+
+    // Версия — из стора обновлений, отдельным мелким классом рядом с чипом.
+    expect(layout).toContain('currentVersionShort')
+    expect(layout).toContain('lc-app-version')
+    expect(layout).toContain('v-if="appVersion"')
+
+    // Состояние несёт и модификатор по `kind`: у «синхронизировано» свой, насыщенный
+    // зелёный (жалоба владельца 15.09.2026: палитровый `positive` был «салатовым»).
+    const css = readFileSync(path.join(root, 'src/css/app.scss'), 'utf8')
+
+    expect(bar).toContain('lc-sync-chip--${view.kind}')
+    expect(css).toContain('.lc-sync-chip--synced')
+    expect(css).toContain('background: var(--lc-sync-ok) !important')
+    expect(css).toContain('--lc-sync-ok: #2e7d32')
+  })
 })
 

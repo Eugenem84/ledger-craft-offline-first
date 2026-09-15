@@ -55,6 +55,13 @@ vi.mock('src/services/updateService.js', () => ({
   },
 }))
 
+// Версия, вшитая в сборку (`quasar.config.js` → `process.env.APP_VERSION_*`): в тестах
+// её нет, поэтому подставляем — так проверяется фолбэк для веб-сборки.
+vi.mock('src/config.js', () => ({
+  BUILD_APP_VERSION_NAME: '1.14',
+  BUILD_APP_VERSION_CODE: '15',
+}))
+
 function freshStore() {
   setActivePinia(createPinia())
 
@@ -104,6 +111,31 @@ describe('15.13 стор обновлений: состояние не подм�
     const store = freshStore()
 
     expect(store.appliedBundleVersion).toBe('1.11.260915-1219')
+  })
+
+  // Правка владельца 15.09.2026: рядом с индикатором синка в шапке — мелкая серая
+  // версия приложения. Источники и правила подписи — `src/utils/appVersion.js`
+  // (проверяются в `test/app-version.test.js`), здесь — что стор их отдаёт.
+  it('короткая подпись версии для шапки: нативная важнее вшитой в сборку', () => {
+    // Нативная версия устройства — основной источник (мок отдаёт 1.11 / code 12).
+    expect(freshStore().currentVersionShort).toBe('v1.11')
+
+    // `versionName` нативная часть не отдала — подпись по её `versionCode`.
+    updateService.getStatus.mockReturnValue({
+      ...statusFactory(),
+      current: { versionCode: 12, versionName: null },
+    })
+
+    expect(freshStore().currentVersionShort).toBe('сборка 12')
+
+    // Нативной версии нет совсем (веб-сборка) — показываем вшитую в бандл из
+    // `gradle.properties` (в тесте подставлена моком `src/config.js`).
+    updateService.getStatus.mockReturnValue({
+      ...statusFactory(),
+      current: { versionCode: null, versionName: null },
+    })
+
+    expect(freshStore().currentVersionShort).toBe('v1.14')
   })
 
   it('состояние без бандла не показывает OTA-сценарий', () => {

@@ -22,12 +22,22 @@ import { resolveAccent } from 'src/domain/theme.js'
 import { getPreset } from 'src/domain/presets/index.js'
 import { refreshTemplates } from 'src/services/presetService.js'
 import SyncStatusBar from 'src/components/SyncStatusBar.vue'
+import { useUpdateStore } from 'src/stores/useUpdateStore.js'
 
 const store = useSpecializationsStore()
 const router = useRouter()
 const route = useRoute()
 const { isEnabled } = useFeatures()
 const { t } = useLexicon()
+const updateStore = useUpdateStore()
+
+/**
+ * Версия приложения в шапке (правка владельца 15.09.2026): мелко и серым, чтобы
+ * «на глаз» понимать, какая сборка стоит на телефоне. Пока версия неизвестна
+ * (веб-сборка без нативной части, первый запуск) — пусто: сам текст версии собирает
+ * `useUpdateStore.currentVersionShort`, шапка только показывает.
+ */
+const appVersion = computed(() => updateStore.currentVersionShort)
 
 /** Активная вкладка = текущий путь (подсветку ведёт `q-route-tab`). */
 const tab = ref(route.path)
@@ -144,11 +154,14 @@ watch(
 
         <q-space />
 
-        <!-- Индикатор синка (6.2): компактный чип в шапке, тап — ручная синхронизация.
-             Бренд на узких экранах скрыт (`.lc-hide-sm`), чтобы чип не сжимался. -->
+        <!-- Индикатор синка (6.2) — только значок (правка владельца 15.09.2026), тап —
+             ручная синхронизация. Рядом мелкая серая версия приложения, чтобы «на глаз»
+             видеть, какая сборка стоит. Бренд на узких экранах скрыт (`.lc-hide-sm`). -->
         <SyncStatusBar class="q-mr-sm" />
 
-        <div class="lc-eyebrow lc-hide-sm">Ledger Craft</div>
+        <span v-if="appVersion" class="lc-app-version">{{ appVersion }}</span>
+
+        <div class="lc-eyebrow lc-hide-sm q-ml-sm">Ledger Craft</div>
       </q-toolbar>
     </q-header>
 
@@ -188,6 +201,15 @@ watch(
 
 .lc-profile {
   font-weight: 700;
+}
+
+/* Версия приложения в шапке: очень мелко и серым — справочная строка, не акцент. */
+.lc-app-version {
+  font-size: 10px;
+  line-height: 1;
+  letter-spacing: 0.02em;
+  color: var(--lc-text-mute);
+  font-variant-numeric: tabular-nums;
 }
 </style>
 

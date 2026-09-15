@@ -22,6 +22,7 @@ import { setupTestDb } from './helpers/testDb.js'
 import { useSpecializationsStore } from 'src/stores/useSpecializationsStore.js'
 import { getPreset } from 'src/domain/presets/index.js'
 import * as specializationsRepo from 'src/repositories/specializationsRepo.js'
+import { ORDER_STATUSES } from 'src/utils/analytics.js'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const read = relative => readFileSync(path.join(root, relative), 'utf8')
@@ -122,6 +123,47 @@ describe('12.3 Карточка заказа: статус и оплата — �
     expect(header.match(/class="lc-toggle"/g)).toHaveLength(1)
     expect(header).toContain('min-height: 28px')
     expect(header).toContain('font-size: 12px')
+  })
+
+  it('активный сегмент «переезжает» и красится по статусу (правка владельца 15.09.2026)', () => {
+    // Светофорная логика: цвет индикатора — те же токены, что у чипов статуса.
+    expect(header).toContain('--lc-toggle-color: var(--lc-waiting)')
+    expect(header).toContain('--lc-toggle-color: var(--lc-process)')
+    expect(header).toContain('--lc-toggle-color: var(--lc-done)')
+
+    // Индикатор — псевдоэлемент группы: лежит ПОД подписями (сегменты прозрачные)
+    // и смещается через `transform` с переходом, а не вспыхивает мгновенно.
+    expect(header).toContain('.lc-toggle::before')
+    expect(header).toContain('transform: translateX(calc(var(--lc-toggle-shift, 0) * (100% + 4px)))')
+    expect(header).toContain('transform 0.28s cubic-bezier')
+
+    // Сегмент должен быть прозрачным: Quasar красит его палитрой с `!important`.
+    expect(header).toContain('background: transparent !important')
+    expect(header).not.toContain('toggle-color="secondary"')
+    expect(header).not.toContain('toggle-color="positive"')
+
+    // Единственный сегмент «оплачено» без значения прячет индикатор (появление плавное).
+    expect(header).toContain('.lc-toggle--paid:not(.lc-toggle--on)::before')
+
+    // Класс статуса считает скрипт: незнакомый статус не даёт `lc-toggle--undefined`.
+    expect(header).toContain(':class="statusModifier"')
+    expect(header).toContain("lc-toggle--${known ? props.status : 'unknown'}")
+  })
+
+  it('порядок сегментов в переключателе совпадает со словарём ORDER_STATUSES', () => {
+    // Сдвиг индикатора (`--lc-toggle-shift`) = индекс статуса в `ORDER_STATUSES`,
+    // поэтому перестановка словаря не «уронит» заливку на чужой сегмент молча.
+    const shiftOf = status => {
+      const block = header.match(new RegExp(`\\.lc-toggle--${status}\\s*\\{[^}]*\\}`))
+      expect(block, `нет правил .lc-toggle--${status}`).toBeTruthy()
+
+      const shift = block[0].match(/--lc-toggle-shift:\s*(\d+)/)
+      expect(shift, `нет --lc-toggle-shift у ${status}`).toBeTruthy()
+
+      return Number(shift[1])
+    }
+
+    expect(ORDER_STATUSES.map(item => shiftOf(item.value))).toEqual([0, 1, 2])
   })
 })
 

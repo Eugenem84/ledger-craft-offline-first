@@ -9,6 +9,11 @@
 // на маршрутах вне каркаса больше нет: на карточке заказа чип висел в 72px от нижнего края
 // (там нет таббара) и перекрывал список позиций — отчёт мастера 14.11, живой прогон 13.09.2026.
 //
+// Правка владельца (15.09.2026): чип стал **только значком** — без подписи и без `label`
+// («индикатор бесит»). Слово состояния осталось в тултипе и в `aria-label` (доступность),
+// а рядом в шапке появилась мелкая серая версия приложения (`MainLayout`,
+// `useUpdateStore.currentVersionShort`).
+//
 // Состояние берётся из `syncService.getStatus()`/`subscribe()`, а подпись и цвет —
 // из чистой функции `syncStatusView.js` (в офлайне она отдаёт «нет сети»).
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
@@ -99,17 +104,21 @@ async function syncNow() {
 
 <template>
   <div class="sync-status">
+    <!-- Только значок: цвет и иконка несут состояние, подробности — в тултипе,
+         а текст состояния дублируется в `aria-label` (доступность). Модификатор по
+         `kind` даёт индикатору свой, более глубокий зелёный для «синхронизировано». -->
     <q-btn
       dense
-      no-caps
+      round
       unelevated
       size="sm"
-      class="lc-sync-chip lc-sync-chip--xs text-caption"
+      class="lc-sync-chip lc-sync-chip--icon"
+      :class="`lc-sync-chip--${view.kind}`"
       :color="view.color"
       :text-color="textColor"
       :icon="view.icon"
-      :label="view.label"
       :loading="loading"
+      :aria-label="`синхронизация: ${view.label}`"
       @click="syncNow"
     >
       <q-tooltip class="text-caption" max-width="280px">

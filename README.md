@@ -530,6 +530,9 @@ adb uninstall com.ledgercraft.app.debug               # снести тольк�
 - **`versionCode` — единственный критерий «новее»** (число), `versionName` — подпись для
   человека. Растёт `versionCode` в `src-capacitor/android/gradle.properties`
   (`APP_VERSION_CODE`); Android откажется ставить APK с меньшим или равным значением.
+  Оттуда же версия вшивается в бандл (`build.env` в `quasar.config.js` → `src/config.js`),
+  поэтому её видит и веб-слой, где нативной части нет: `v1.14` показывается в шапке рядом
+  с индикатором синка (`src/utils/appVersion.js`).
 - **Подпись** — `keystore.properties` (в `.gitignore`), шаблон рядом:
   `src-capacitor/android/keystore.properties.example`. Ключ создаётся один раз и хранится
   в двух местах: **потеря ключа = невозможно обновить установленные приложения**.

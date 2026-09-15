@@ -7,6 +7,8 @@
 // превращает действия пользователя («обновить», «позже») в вызовы сервиса.
 import { defineStore } from 'pinia'
 import updateService from 'src/services/updateService.js'
+import { BUILD_APP_VERSION_CODE, BUILD_APP_VERSION_NAME } from 'src/config.js'
+import { appVersionLabel } from 'src/utils/appVersion.js'
 import {
   appUpdateStatusText,
   appUpdateView,
@@ -38,6 +40,17 @@ export const useUpdateStore = defineStore('update', {
     currentLabel: state =>
       state.status.current.versionName ||
       (state.status.current.versionCode ? `сборка ${state.status.current.versionCode}` : 'неизвестна'),
+    /**
+     * Короткая подпись версии для шапки (`MainLayout`) — «v1.14». Источник — нативная
+     * версия устройства, а для веб-сборки (нативной части там нет) — версия, вшитая
+     * в бандл из `gradle.properties`. Если версия неизвестна совсем — пусто:
+     * слово «неизвестна» в шапке только мешало бы.
+     */
+    currentVersionShort: state =>
+      appVersionLabel(state.status.current, {
+        name: BUILD_APP_VERSION_NAME,
+        code: BUILD_APP_VERSION_CODE,
+      }),
     downloading: state => state.status.downloading,
     downloadProgress: state => state.status.downloadProgress,
     /** Есть что обновлять и есть ссылка на файл — кнопка «Обновить» осмысленна. */

@@ -14,11 +14,16 @@
 // Правка живого прогона: переключатели стали ниже (`dense` + уменьшенный кегль), а
 // «оплачено» — такой же переключатель (одна опция + `clearable`), а не отдельная
 // кнопка со своим размером: раньше статус и оплата читались как два разных органа.
+//
+// Правка владельца (15.09.2026): активный сегмент «переезжает» к выбранному, а его
+// цвет — светофорный, как у чипов статуса: «ожидает» оранжевый, «в работе» красный,
+// «готово» зелёный. Цвет/позицию индикатора задают классы `.lc-toggle--waiting/…`
+// в scoped-стилях, поэтому в разметке нет инлайн-цветов (см. `docs/UI.md`).
 import { computed } from 'vue'
 import { ORDER_STATUSES } from 'src/utils/analytics.js'
 
-// Пропсы только читаются из шаблона — присваивание не нужно.
-defineProps({
+// Пропсы читаются и в шаблоне, и в скрипте (`statusModifier` ниже — по `status`).
+const props = defineProps({
   editMode: { type: Boolean, default: false },
   isNewOrder: { type: Boolean, default: false },
   orderNumber: { type: [String, Number], default: null },
@@ -43,6 +48,17 @@ const emit = defineEmits([
 
 /** Подписи статусов — общий словарь (`src/utils/analytics.js`). */
 const statusOptions = computed(() => ORDER_STATUSES.map(item => ({ label: item.label, value: item.value })))
+
+/**
+ * Класс-модификатор статуса для «переезжающего» индикатора. Сам цвет и позиция
+ * заливки заданы в стилях (`.lc-toggle--waiting/process/done`), здесь выбирается
+ * нужный класс. Незнакомый/пустой статус — нейтральный серый индикатор в первой
+ * позиции, без классов вида `lc-toggle--undefined`.
+ */
+const statusModifier = computed(() => {
+  const known = ORDER_STATUSES.some(item => item.value === props.status)
+  return `lc-toggle--${known ? props.status : 'unknown'}`
+})
 
 /**
  * «Оплачено» — переключатель из одной опции: клик выставляет `true`, повторный клик
@@ -126,19 +142,21 @@ const paidOptions = [{ label: 'оплачено', value: true }]
          (правка живого прогона). Раньше статус был крупным тумблером на всю ширину,
          а «оплачено» — отдельной кнопкой со своим размером. Теперь оба органа одного
          вида: сегменты ниже (`dense` + уменьшенный кегль в стилях), интерактив один.
-         Активный сегмент оплаты зелёный (`positive`) — как чип «оплачено» в списке заказов. -->
+
+         Правка владельца (15.09.2026): активный сегмент не «вспыхивает» заливкой,
+         а плавно переезжает к выбранному — под подписями лежит цветной индикатор
+         (`.lc-toggle::before`). Цвет индикатора светофорный, как у чипов статуса:
+         «ожидает» оранжевый, «в работе» красный, «готово» зелёный; сегмент оплаты
+         зелёный — как чип «оплачено» в списке заказов. -->
     <div class="row items-center no-wrap q-gutter-x-sm q-mt-sm">
       <q-btn-toggle
         :model-value="status"
         class="col lc-toggle"
+        :class="statusModifier"
         spread
         dense
         no-caps
         unelevated
-        color="grey-9"
-        text-color="grey-5"
-        toggle-color="secondary"
-        toggle-text-color="black"
         :options="statusOptions"
         @update:model-value="value => emit('update:status', value)"
       />
@@ -146,14 +164,11 @@ const paidOptions = [{ label: 'оплачено', value: true }]
       <q-btn-toggle
         :model-value="paid"
         class="lc-toggle"
+        :class="[paid ? 'lc-toggle--on' : null, 'lc-toggle--paid']"
         dense
         no-caps
         unelevated
         clearable
-        color="grey-9"
-        text-color="grey-5"
-        toggle-color="positive"
-        toggle-text-color="white"
         :options="paidOptions"
         @update:model-value="value => emit('update:paid', value === true)"
       />
@@ -173,14 +188,101 @@ const paidOptions = [{ label: 'оплачено', value: true }]
    `dense` задаёт внутренние отступы, здесь ужимаем высоту и кегль, чтобы шапка
    заказа занимала меньше места (правка живого прогона). */
 .lc-toggle {
+  position: relative;
   border-radius: var(--lc-radius-sm);
   overflow: hidden;
+  background: var(--lc-surface-3);
+}
+
+/* «Переезжающий» индикатор (правка владельца 15.09.2026). `::before` — первый
+   ребёнок группы, поэтому лежит ПОД подписями: сегменты прозрачные, текст читается
+   поверх цветной заливки. Ширина — один сегмент (`--lc-toggle-count`), положение —
+   номер активного (`--lc-toggle-shift`); и `transform`, и `background-color`
+   анимированы, так что смена статуса — переезд с одновременной сменой цвета. */
+.lc-toggle::before {
+  content: '';
+  position: absolute;
+  top: 2px;
+  bottom: 2px;
+  left: 2px;
+  z-index: 0;
+  /* Ширина = сегмент минус отступы по 2px. Тогда шаг переезда — это ширина
+     индикатора ПЛЮС те же 4px (`100% + 4px`), и «пилюля» встаёт ровно в сегмент
+     на любой позиции, а не только в крайние. */
+  width: calc(100% / var(--lc-toggle-count, 1) - 4px);
+  border-radius: var(--lc-radius-sm);
+  background-color: var(--lc-toggle-color, var(--lc-border-strong));
+  transform: translateX(calc(var(--lc-toggle-shift, 0) * (100% + 4px)));
+  transition:
+    transform 0.28s cubic-bezier(0.4, 0, 0.2, 1),
+    background-color 0.28s ease,
+    opacity 0.28s ease;
+  pointer-events: none;
+}
+
+/* Светофорная логика — те же токены, что у чипов статуса (`.lc-status--*`).
+   `--lc-toggle-ink` — цвет текста на заливке: на оранжевом тёмный, на красном и
+   зелёном белый (белый на оранжевом не читался бы). */
+.lc-toggle--waiting {
+  --lc-toggle-count: 3;
+  --lc-toggle-shift: 0;
+  --lc-toggle-color: var(--lc-waiting);
+  --lc-toggle-ink: #241a00;
+}
+
+.lc-toggle--process {
+  --lc-toggle-count: 3;
+  --lc-toggle-shift: 1;
+  --lc-toggle-color: var(--lc-process);
+  --lc-toggle-ink: #ffffff;
+}
+
+.lc-toggle--done {
+  --lc-toggle-count: 3;
+  --lc-toggle-shift: 2;
+  --lc-toggle-color: var(--lc-done);
+  --lc-toggle-ink: #ffffff;
+}
+
+/* Незнакомый/пустой статус — нейтральный серый индикатор в первой позиции. */
+.lc-toggle--unknown {
+  --lc-toggle-count: 3;
+  --lc-toggle-shift: 0;
+  --lc-toggle-color: var(--lc-border-strong);
+  --lc-toggle-ink: var(--lc-text);
+}
+
+/* «Оплачено» — один сегмент: зелёная заливка, как чип оплаты. Пока значение не
+   выставлено, индикатор скрыт и появляется плавно (через `opacity`). */
+.lc-toggle--paid {
+  --lc-toggle-count: 1;
+  --lc-toggle-color: var(--lc-paid);
+  --lc-toggle-ink: #ffffff;
+}
+
+.lc-toggle--paid:not(.lc-toggle--on)::before {
+  opacity: 0;
 }
 
 .lc-toggle :deep(.q-btn) {
+  position: relative;
+  z-index: 1;
   min-height: 28px;
   padding: 2px 6px;
   font-size: 12px;
+  /* `!important` — потому что Quasar красит сегмент классами палитры
+     (`.bg-primary`/`.text-white`, у `toggle-color` дефолт — `primary`), а они
+     объявлены с `!important`. Сегмент обязан быть прозрачным: заливку рисует
+     индикатор ниже, а не сама кнопка. */
+  background: transparent !important;
+  color: var(--lc-text-dim) !important;
+  transition: color 0.28s ease;
+}
+
+/* Активный сегмент: подписи подстраиваются под цвет индикатора. Quasar проставляет
+   `aria-pressed` на кнопку сегмента — по нему и цепляемся, без своих классов. */
+.lc-toggle :deep(.q-btn[aria-pressed='true']) {
+  color: var(--lc-toggle-ink, var(--lc-text)) !important;
 }
 
 .lc-toggle :deep(.q-btn__content) {
