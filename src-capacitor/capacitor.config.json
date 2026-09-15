@@ -4,5 +4,13 @@
   "webDir": "www",
   "android": {
     "adjustMarginsForEdgeToEdge": "auto"
+  },
+  "plugins": {
+    "LiveUpdate": {
+      "autoUpdateStrategy": "none",
+      "readyTimeout": 10000,
+      "autoBlockRolledBackBundles": true,
+      "autoDeleteBundles": true
+    }
   }
 }

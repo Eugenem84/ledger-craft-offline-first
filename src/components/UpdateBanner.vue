@@ -22,22 +22,64 @@ onMounted(() => update.bind())
 
 onBeforeUnmount(() => update.unbind())
 
-const label = computed(() =>
-  update.downloading ? `загрузка ${update.downloadProgress}%` : view.value.label
+const label = computed(() => {
+  if (update.downloading) return `загрузка ${update.downloadProgress}%`
+  if (update.downloadingBundle) return `загрузка ${update.bundleProgress}%`
+
+  return view.value.label
+})
+
+/** На светлом фоне (secondary/warning/positive) читается чёрный текст — как у индикатора синка. */
+const textColor = computed(() =>
+  ['secondary', 'warning', 'positive'].includes(view.value.color) ? 'black' : 'white'
 )
 
-/** На светлом фоне (secondary/warning) читается чёрный текст — как у индикатора синка. */
-const textColor = computed(() => (['secondary', 'warning'].includes(view.value.color) ? 'black' : 'white'))
+/**
+ * Разовое сообщение «уже обновилось»: установка APK (Фаза 13) или OTA-бандл (Фаза 15).
+ * Оба состояния снимаются одним тапом.
+ */
+const notice = computed(() => {
+  if (update.installedVersion) {
+    return {
+      label: `обновлено: сборка ${update.installedVersion}`,
+      tooltip: 'Приложение обновилось. Нажмите, чтобы скрыть сообщение.',
+    }
+  }
 
-const showInstalledNotice = computed(() => Boolean(update.installedVersion))
-const installedLabel = computed(() => `обновлено: сборка ${update.installedVersion}`)
+  if (update.appliedBundleVersion) {
+    return {
+      label: `обновление ${update.appliedBundleVersion} применено`,
+      tooltip: 'Обновление без установки применено. Нажмите, чтобы скрыть сообщение.',
+    }
+  }
+
+  return null
+})
+
+const clearNotice = () => {
+  update.clearInstalledNotice()
+  update.clearAppliedBundleNotice()
+}
+
+/** Подсказка к чипу: у OTA другой смысл действия, чем у установки APK. */
+const hint = computed(() => {
+  if (view.value.kind === 'ota_ready') {
+    return 'Обновление скачано — перезапустите приложение, чтобы применить'
+  }
+
+  if (view.value.kind === 'ota') {
+    return 'Нажмите, чтобы скачать обновление без установки'
+  }
+
+  return 'Нажмите, чтобы скачать и установить обновление'
+})
 </script>
 
 <template>
   <div class="update-status">
-    <!-- «Обновление установлено» — одноразовое сообщение после перезапуска. -->
+    <!-- «Обновление установлено/применено» — одноразовое сообщение после перезапуска. -->
     <q-btn
-      v-if="showInstalledNotice"
+      v-if="notice"
       dense
       no-caps
       unelevated
@@ -46,16 +88,16 @@ const installedLabel = computed(() => `обновлено: сборка ${update
       color="positive"
       text-color="black"
       icon="check_circle"
-      :label="installedLabel"
-      @click="update.clearInstalledNotice()"
+      :label="notice.label"
+      @click="clearNotice"
     >
       <q-tooltip class="text-caption" max-width="260px">
-        Приложение обновилось. Нажмите, чтобы скрыть сообщение.
+        {{ notice.tooltip }}
       </q-tooltip>
     </q-btn>
 
     <q-btn
-      v-else-if="view.visible || update.downloading"
+      v-else-if="view.visible || update.downloading || update.downloadingBundle"
       dense
       no-caps
       unelevated
@@ -65,11 +107,11 @@ const installedLabel = computed(() => `обновлено: сборка ${update
       :text-color="textColor"
       :icon="view.icon"
       :label="label"
-      :loading="update.downloading"
+      :loading="update.downloading || update.downloadingBundle"
       @click="dialogOpen = true"
     >
       <q-tooltip class="text-caption" max-width="280px">
-        Нажмите, чтобы скачать и установить обновление
+        {{ hint }}
       </q-tooltip>
     </q-btn>
   </div>

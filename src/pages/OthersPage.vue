@@ -68,11 +68,25 @@ const checkUpdates = async () => {
   await update.checkNow()
 
   $q.notify({
-    type: update.status.available ? 'info' : 'positive',
+    type: update.status.available || update.status.bundleAvailable ? 'info' : 'positive',
     message: update.statusText,
     position: 'top',
     timeout: 2500,
   })
+}
+
+/**
+ * OTA веб-слоя (Фаза 15): обновление без установки.
+ * Бандл уже скачан — сразу перезапускаемся; иначе открываем диалог (размер, «что нового»).
+ */
+const startOtaUpdate = async () => {
+  if (update.bundleReady) {
+    await update.restartNow()
+
+    return
+  }
+
+  updateDialogOpen.value = true
 }
 
 // --- Управление рабочими профилями (Фаза 10, задача 10.8; Фаза 12, 12.1/12.2) ---
@@ -433,6 +447,9 @@ const confirmRestore = () => {
         <div class="row items-center no-wrap">
           <div class="col">
             <div class="lc-muted">Версия {{ update.currentLabel }}</div>
+            <div v-if="update.currentBundleId" class="text-caption lc-mute">
+              обновление веб-слоя: {{ update.currentBundleId }}
+            </div>
             <div class="text-caption lc-mute">{{ update.statusText }}</div>
           </div>
           <q-btn
@@ -464,8 +481,29 @@ const confirmRestore = () => {
           @click="updateDialogOpen = true"
         />
 
+        <!-- OTA веб-слоя (Фаза 15): без установки — скачали бандл и применили при запуске. -->
+        <q-btn
+          v-if="update.canApplyBundle || update.bundleReady"
+          class="full-width"
+          no-caps
+          :outline="!update.bundleReady"
+          :unelevated="update.bundleReady"
+          :color="update.bundleReady ? 'positive' : 'secondary'"
+          :text-color="update.bundleReady ? 'black' : undefined"
+          :icon="update.bundleReady ? 'restart_alt' : 'cloud_download'"
+          :label="
+            update.bundleReady
+              ? 'Перезапустить и применить'
+              : `Обновить без установки (${update.bundleVersion})`
+          "
+          :loading="update.applyingBundle"
+          @click="startOtaUpdate"
+        />
+
         <div class="text-caption lc-mute">
-          Файл обновления скачивается с сервера мастерской; данные и настройки сохраняются.
+          Обновления без установки приходят с сервера мастерской: правки интерфейса и логики
+          применяются сами, данные и настройки сохраняются. Установка APK нужна только когда
+          меняется нативная часть приложения.
         </div>
       </div>
     </LcSectionCard>

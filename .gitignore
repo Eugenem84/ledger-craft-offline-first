@@ -53,6 +53,9 @@ yarn-error.log*
 # Локальные релизы Android-сборки (APK и манифест релизов)
 /src-capacitor/android/app/build/outputs/
 
+# OTA-бандлы веб-слоя (Фаза 15): собранный zip релиз-скрипта — артефакт, не исходник
+/ledger-craft-bundle-*.zip
+
 # Отчёты об ошибках (Фаза 14, docs/FEEDBACK.md): сырые отчёты и дайджест содержат
 # логи и аккаунт мастера, поэтому в публичный репозиторий они не попадают.
 # В git живут только `feedback/README.md` и `feedback/DECISIONS.md` (разборы без ПД).

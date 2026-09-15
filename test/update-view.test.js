@@ -10,8 +10,10 @@ import {
   appUpdateView,
   compareVersionNames,
   formatBytes,
+  isBundleUpdateAvailable,
   isUpdateAvailable,
   isUpdateMandatory,
+  parseBundleVersion,
   parseVersionCode,
 } from 'src/utils/appUpdateView.js'
 
@@ -110,5 +112,105 @@ describe('13.6 баннер обновления и текст статуса', 
     expect(formatBytes(0)).toBe('')
     expect(formatBytes(512 * 1024)).toBe('512 КБ')
     expect(formatBytes(12.3 * 1024 * 1024)).toBe('12,3 МБ')
+  })
+})
+
+describe('15.x OTA веб-слоя: бандл вместо установки', () => {
+  const bundle = extra => ({
+    version: '7',
+    url: 'https://example.test/api/download-bundle?version=7',
+    checksum: 'q2FzZWNoZWNrc3Vt',
+    sizeBytes: 2048,
+    minNativeVersionCode: 9,
+    notes: 'Правки интерфейса',
+    ...extra,
+  })
+
+  it('версия бандла — непустая строка, иначе «неизвестно»', () => {
+    expect(parseBundleVersion('7')).toBe('7')
+    expect(parseBundleVersion(' 7 ')).toBe('7')
+    expect(parseBundleVersion('')).toBeNull()
+    expect(parseBundleVersion(null)).toBeNull()
+  })
+
+  it('обновление есть, пока работаем не на этом бандле', () => {
+    const args = { bundle: bundle(), currentVersionCode: 9 }
+
+    expect(isBundleUpdateAvailable({ ...args, currentBundleId: null })).toBe(true)
+    expect(isBundleUpdateAvailable({ ...args, currentBundleId: '6' })).toBe(true)
+    expect(isBundleUpdateAvailable({ ...args, currentBundleId: '7' })).toBe(false)
+  })
+
+  it('без ссылки или без версии бандл не предлагаем', () => {
+    expect(isBundleUpdateAvailable({ bundle: bundle({ url: null }), currentVersionCode: 9 })).toBe(false)
+    expect(isBundleUpdateAvailable({ bundle: null, currentVersionCode: 9 })).toBe(false)
+  })
+
+  it('бандл под более новый APK молчит: сначала установка APK', () => {
+    expect(
+      isBundleUpdateAvailable({
+        currentBundleId: null,
+        bundle: bundle({ minNativeVersionCode: 10 }),
+        currentVersionCode: 9,
+      })
+    ).toBe(false)
+  })
+
+  it('бандл, собранный под старый APK, не предлагаем — иначе откатим веб-слой (15.16)', () => {
+    const args = { currentBundleId: null, currentVersionCode: 14 }
+
+    // Бандл собран для 13, а установлен 14: встроенный веб-слой APK не старее.
+    expect(isBundleUpdateAvailable({ ...args, bundle: bundle({ minNativeVersionCode: 13 }) })).toBe(false)
+    // Тот же код — нормально: бандл собран для этой сборки.
+    expect(isBundleUpdateAvailable({ ...args, bundle: bundle({ minNativeVersionCode: 14 }) })).toBe(true)
+    // Ноль/пусто = «ограничения нет» (так публиковали до появления конвенции).
+    expect(isBundleUpdateAvailable({ ...args, bundle: bundle({ minNativeVersionCode: 0 }) })).toBe(true)
+    expect(isBundleUpdateAvailable({ ...args, bundle: bundle({ minNativeVersionCode: null }) })).toBe(true)
+  })
+
+  it('чип «обновление без установки» виден и откладывается', () => {
+    const view = appUpdateView({
+      release: release({ bundle: bundle() }),
+      available: false,
+      bundleAvailable: true,
+    })
+
+    expect(view).toMatchObject({ visible: true, kind: 'ota', color: 'secondary', canDismiss: true })
+
+    expect(
+      appUpdateView({
+        release: release({ bundle: bundle() }),
+        available: false,
+        bundleAvailable: true,
+        bundleDismissed: true,
+      }).visible
+    ).toBe(false)
+  })
+
+  it('скачанный бандл: чип зовёт перезапуститься и не откладывается', () => {
+    const view = appUpdateView({
+      release: release({ bundle: bundle() }),
+      available: false,
+      bundleReady: true,
+    })
+
+    expect(view).toMatchObject({ visible: true, kind: 'ota_ready', canDismiss: false })
+  })
+
+  it('нативное обновление важнее OTA (новый APK приносит и новый веб-слой)', () => {
+    const view = appUpdateView({
+      release: release({ bundle: bundle(), mandatory: true }),
+      available: true,
+      mandatory: true,
+      bundleAvailable: true,
+      bundleReady: false,
+    })
+
+    expect(view.kind).toBe('mandatory')
+  })
+
+  it('текст статуса объясняет OTA простыми словами', () => {
+    expect(appUpdateStatusText({ bundleAvailable: true })).toContain('без установки')
+    expect(appUpdateStatusText({ bundleReady: true })).toContain('после перезапуска')
   })
 })

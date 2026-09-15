@@ -21,6 +21,17 @@ export function parseVersionCode(value) {
   return Number.isFinite(code) && code > 0 ? code : null
 }
 
+/**
+ * Идентификатор OTA-бандла (Фаза 15). Это **не** версия для сравнения: плагин
+ * различает бандлы по строке (`bundleId`), а «какой новее» решает сервер — он отдаёт
+ * в манифесте тот бандл, который считает актуальным.
+ */
+export function parseBundleVersion(value) {
+  const version = String(value ?? '').trim()
+
+  return version === '' ? null : version
+}
+
 /** Построчное сравнение «1.10 > 1.9» — фолбэк, когда `versionCode` неизвестен. */
 export function compareVersionNames(a, b) {
   const left = String(a ?? '')
@@ -74,6 +85,46 @@ export function isUpdateMandatory({ currentVersionCode, release }) {
   return currentCode < minCode
 }
 
+/**
+ * Есть ли OTA-обновление веб-слоя (Фаза 15).
+ *
+ * Правила:
+ *   • бандл не наш (мы уже на нём) → обновлять нечего;
+ *   • бандл требует более нового APK (`minNativeVersionCode`) → молчим: всё равно
+ *     не поедет, пока мастер не поставит APK (это решает нативное обновление);
+ *   • своей версии не знаем (браузер) → тоже молчим: OTA доступно только в приложении.
+ */
+export function isBundleUpdateAvailable({ currentBundleId, bundle, currentVersionCode }) {
+  if (!bundle || !bundle.url) return false
+
+  const version = parseBundleVersion(bundle.version)
+
+  if (version === null) return false
+
+  const current = parseBundleVersion(currentBundleId)
+
+  if (current !== null && current === version) return false
+
+  const minNative = parseVersionCode(bundle.minNativeVersionCode)
+  const native = parseVersionCode(currentVersionCode)
+
+  // Бандл требует более нового APK, чем установлен: сначала установка (задача 15.6).
+  if (minNative !== null && native !== null && native < minNative) return false
+
+  /*
+   * Обратный случай (задача 15.16): бандл собран для **более старого** APK.
+   * Конвенция: `minNativeVersionCode` — это код сборки, для которой бандл собран (скрипт релиза
+   * подставляет текущий `APP_VERSION_CODE`). Значит встроенный веб-слой установленного APK
+   * не старее, и «обновление без установки» откатило бы мастеру интерфейс — тот самый случай
+   * «поставил новый APK, а приложение предложило старый бандл с контура».
+   * Ноль/пустое значение = «ограничения нет» (так публиковали до появления конвенции):
+   * такие бандлы понижением не считаем.
+   */
+  if (minNative !== null && native !== null && minNative > 0 && minNative < native) return false
+
+  return true
+}
+
 /** «1.2» либо «сборка 12» — как показать релиз пользователю. */
 export function updateReleaseLabel(release) {
   if (!release) return ''
@@ -95,13 +146,19 @@ export function formatBytes(bytes) {
 /**
  * Состояние баннера обновления.
  *
- * Приоритет: обязательное обновление → доступное обновление → ничего.
+ * Приоритет: обязательное нативное → доступное нативное → готовое OTA-обновление
+ * («применится после перезапуска») → доступное OTA-обновление → ничего.
  * Ошибка/офлайн самой проверки баннер НЕ показывают: проверка фоновая, и шуметь
  * «не удалось проверить» поверх работы мастерской нельзя (текст для настроек
  * отдаёт `appUpdateStatusText`).
  *
+ * Нативное обновление важнее OTA: новый APK приносит и новый веб-слой, поэтому
+ * пока мастеру нужно ставить APK, показываем именно его (и его нельзя отложить,
+ * если оно обязательное).
+ *
  * @param {{checking?: boolean, release?: object|null, available?: boolean,
- *   mandatory?: boolean, dismissed?: boolean, error?: string|null, online?: boolean}} status
+ *   mandatory?: boolean, dismissed?: boolean, error?: string|null, online?: boolean,
+ *   bundleAvailable?: boolean, bundleDismissed?: boolean, bundleReady?: boolean}} status
  * @returns {{visible: boolean, kind: string, icon: string, color: string, label: string,
  *   spin: boolean, canDismiss: boolean}}
  */
@@ -119,37 +176,66 @@ export function appUpdateView(status) {
     canDismiss: false,
   }
 
-  if (s.available !== true || !release) {
+  const nativeUpdate = s.available === true && Boolean(release)
+  const bundleReady = !nativeUpdate && release?.bundle && s.bundleReady === true
+  const bundleUpdate =
+    !nativeUpdate && release?.bundle && s.bundleAvailable === true && s.bundleDismissed !== true
+
+  if (!nativeUpdate && !bundleReady && !bundleUpdate) {
     // Отдельное состояние «проверяем» нужно секции настроек, но не баннеру.
     return s.checking === true
       ? { ...hidden, kind: 'checking', icon: 'system_update', color: 'secondary', spin: true }
       : hidden
   }
 
-  const version = updateReleaseLabel(release)
+  if (nativeUpdate) {
+    const version = updateReleaseLabel(release)
 
-  if (s.mandatory === true) {
+    if (s.mandatory === true) {
+      return {
+        visible: true,
+        kind: 'mandatory',
+        icon: 'system_update_alt',
+        color: 'deep-orange',
+        label: `нужно обновиться: ${version}`,
+        spin: false,
+        canDismiss: false,
+      }
+    }
+
+    if (s.dismissed === true) {
+      return hidden
+    }
+
     return {
       visible: true,
-      kind: 'mandatory',
+      kind: 'optional',
       icon: 'system_update_alt',
-      color: 'deep-orange',
-      label: `нужно обновиться: ${version}`,
+      color: 'secondary',
+      label: `доступна версия ${version}`,
+      spin: false,
+      canDismiss: true,
+    }
+  }
+
+  if (bundleReady) {
+    return {
+      visible: true,
+      kind: 'ota_ready',
+      icon: 'restart_alt',
+      color: 'positive',
+      label: 'обновление после перезапуска',
       spin: false,
       canDismiss: false,
     }
   }
 
-  if (s.dismissed === true) {
-    return hidden
-  }
-
   return {
     visible: true,
-    kind: 'optional',
-    icon: 'system_update',
+    kind: 'ota',
+    icon: 'cloud_download',
     color: 'secondary',
-    label: `доступна версия ${version}`,
+    label: 'обновление без установки',
     spin: false,
     canDismiss: true,
   }
@@ -169,6 +255,16 @@ export function appUpdateStatusText(status) {
     return s.mandatory === true
       ? `Требуется обновление до версии ${version}`
       : `Доступна версия ${version}`
+  }
+
+  // OTA-обновление веб-слоя (Фаза 15): «установка» тут ни при чём — приложение
+  // просто скачает бандл и применит его при следующем запуске.
+  if (s.bundleReady === true) {
+    return 'Обновление скачано — применится после перезапуска приложения'
+  }
+
+  if (s.bundleAvailable === true) {
+    return 'Доступно обновление без установки'
   }
 
   return s.lastCheckedAt ? 'Установлена последняя версия' : 'Обновления ещё не проверялись'

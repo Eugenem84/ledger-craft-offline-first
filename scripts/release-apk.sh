@@ -55,6 +55,7 @@ MANDATORY=0
 MIN_VERSION=0
 SERVER="${RELEASE_SERVER:-}"
 LOCAL_ONLY=0
+WITH_BUNDLE=0
 DRY_RUN=0
 ALLOW_LOCAL=0
 
@@ -72,6 +73,8 @@ usage() {
   --server user@host     сервер для публикации (или переменная RELEASE_SERVER)
   --remote-dir PATH      каталог репозитория на контуре (или RELEASE_REMOTE_DIR)
   --local-only           только собрать, без публикации
+  --with-bundle          после APK выложить и OTA-бандл из того же кода (одна команда на релиз,
+                         где меняется нативная часть; см. README §«Нативное обновление»)
   --dry-run              показать план (контур, адрес, версия на контуре) и выйти
   --allow-local          разрешить локальный адрес API (по умолчанию это ошибка)
   -h, --help             эта справка
@@ -91,6 +94,7 @@ while [ $# -gt 0 ]; do
     --server) SERVER="${2:-}"; shift 2 ;;
     --remote-dir) REMOTE_DIR="${2:-}"; REMOTE_DIR_EXPLICIT=1; shift 2 ;;
     --local-only) LOCAL_ONLY=1; shift ;;
+    --with-bundle) WITH_BUNDLE=1; shift ;;
     --dry-run) DRY_RUN=1; shift ;;
     --allow-local) ALLOW_LOCAL=1; shift ;;
     -h|--help) usage; exit 0 ;;
@@ -100,6 +104,13 @@ done
 
 step() { printf '\n\033[1m==> %s\033[0m\n' "$1"; }
 fail() { printf '\033[31m✖ %s\033[0m\n' "$1"; exit 1; }
+
+# Аргумент в одинарных кавычках для печатаемой команды публикации.
+# `printf %q` для этого не годится: в C-локали он превращает кириллицу в $'\237...'
+# (заметки релиза у нас русские, и мастер видит их в приложении).
+shell_quote() {
+  printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"
+}
 
 case "$CHANNEL" in
   dev|prod) ;;
@@ -203,6 +214,12 @@ if [ "$DRY_RUN" = '1' ]; then
   printf '  сборка:  VITE_API_URL=%s npx quasar build -m capacitor -T android\n' "$EXPECTED_API_URL"
   printf '  затем:   npx cap sync android && ./gradlew --no-daemon assembleRelease\n'
   printf '  контур:  %s:%s\n' "${SERVER:-<сервер не задан>}" "$REMOTE_DIR"
+
+  if [ "$WITH_BUNDLE" = '1' ]; then
+    printf '  бандл:   bash scripts/release-web.sh --channel %s --skip-build --min-native-version %s\n' \
+      "$CHANNEL" "$VERSION_CODE"
+  fi
+
   exit 0
 fi
 
@@ -284,7 +301,7 @@ if [ "$MANDATORY" = "1" ]; then
 fi
 
 if [ -n "$NOTES" ]; then
-  PUBLISH_CMD="$PUBLISH_CMD --notes=$(printf '%q' "$NOTES")"
+  PUBLISH_CMD="$PUBLISH_CMD --notes=$(shell_quote "$NOTES")"
 fi
 
 if [ "$LOCAL_ONLY" = "1" ] || [ -z "$SERVER" ]; then
@@ -298,6 +315,21 @@ if [ "$LOCAL_ONLY" = "1" ] || [ -z "$SERVER" ]; then
 
 После публикации проверьте: curl ${API_URL:-https://<домен>/api}/app-version
 EOF
+
+  if [ "$WITH_BUNDLE" = '1' ]; then
+    BUNDLE_HINT="bash scripts/release-web.sh --channel $CHANNEL --skip-build --min-native-version $VERSION_CODE"
+
+    if [ "$LOCAL_ONLY" = '1' ]; then
+      BUNDLE_HINT="$BUNDLE_HINT --local-only"
+    fi
+
+    if [ -n "$NOTES" ]; then
+      BUNDLE_HINT="$BUNDLE_HINT --notes=$(shell_quote "$NOTES")"
+    fi
+
+    printf '\nOTA-бандл из той же веб-сборки — отдельной командой:\n\n  %s\n' "$BUNDLE_HINT"
+  fi
+
   exit 0
 fi
 
@@ -310,6 +342,27 @@ ssh "$SERVER" "cd '$REMOTE_DIR' && $PUBLISH_CMD"
 if [ -n "$API_URL" ]; then
   step "Проверка /api/app-version"
   curl -sS "$API_URL/app-version"; echo
+fi
+
+# --- OTA-бандл из того же кода (задача 15.19) --------------------------------
+# Зачем: после нативного релиза на контуре не должен остаться бандл, собранный для прошлой
+# сборки (иначе новый APK увидит «обновление без установки» на старый веб-слой). `--skip-build`
+# берёт уже собранный `src-capacitor/www` — тот же код, что уехал в APK, — а
+# `--min-native-version $VERSION_CODE` помечает, для какой сборки бандл собран: на этом
+# основан клиентский запрет «понижения» (задача 15.16).
+if [ "$WITH_BUNDLE" = '1' ]; then
+  step 'OTA-бандл из того же кода'
+  BUNDLE_ARGS=(--channel "$CHANNEL" --skip-build --min-native-version "$VERSION_CODE")
+
+  if [ "$ALLOW_LOCAL" = '1' ]; then
+    BUNDLE_ARGS+=(--allow-local)
+  fi
+
+  if [ -n "$NOTES" ]; then
+    BUNDLE_ARGS+=(--notes "$NOTES")
+  fi
+
+  (cd "$ROOT_DIR" && bash scripts/release-web.sh "${BUNDLE_ARGS[@]}")
 fi
 
 step 'Готово'

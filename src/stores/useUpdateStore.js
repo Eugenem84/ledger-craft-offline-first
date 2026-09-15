@@ -21,6 +21,8 @@ export const useUpdateStore = defineStore('update', {
     installError: null,
     /** Версия, установка которой завершилась — показываем сообщение один раз. */
     installedVersion: null,
+    /** Идёт скачивание OTA-бандла (Фаза 15). */
+    applyingBundle: false,
   }),
 
   getters: {
@@ -40,6 +42,29 @@ export const useUpdateStore = defineStore('update', {
     downloadProgress: state => state.status.downloadProgress,
     /** Есть что обновлять и есть ссылка на файл — кнопка «Обновить» осмысленна. */
     canUpdate: state => state.status.available === true && Boolean(state.status.release?.apkUrl),
+    /** OTA веб-слоя (Фаза 15): есть бандл под этот APK — можно обновить без установки. */
+    canApplyBundle: state =>
+      state.status.bundleAvailable === true && Boolean(state.status.release?.bundle?.url),
+    bundle: state => state.status.release?.bundle || null,
+    bundleVersion: state => state.status.release?.bundle?.version || '',
+    bundleSize: state => formatBytes(state.status.release?.bundle?.sizeBytes),
+    bundleSizeBytes: state => Number(state.status.release?.bundle?.sizeBytes) || 0,
+    bundleReady: state => state.status.bundleReady === true,
+    /**
+     * Версия OTA-бандла, применённого при перезапуске — разовое сообщение.
+     * Берём из состояния сервиса: баннер подписывается позже, чем плагин отвечает,
+     * поэтому «съесть» одноразовое значение в `bind()` нельзя (дефект сборки 1.9).
+     */
+    appliedBundleVersion: state => state.status.appliedBundle || null,
+    currentBundleId: state => state.status.currentBundleId || '',
+    downloadingBundle: state => state.status.downloadingBundle,
+    bundleProgress: state => state.status.bundleProgress,
+    /**
+     * Диалог показывает OTA-сценарий (без установки), а не установку APK.
+     * Считаем из той же чистой функции, что и баннер, — чтобы вид и действия
+     * не разъезжались.
+     */
+    otaMode: state => ['ota', 'ota_ready'].includes(appUpdateView(state.status).kind),
   },
 
   actions: {
@@ -51,6 +76,10 @@ export const useUpdateStore = defineStore('update', {
         this.status = status
       })
       this.installedVersion = updateService.consumeInstalledVersion()
+      // OTA веб-слоя (Фаза 15): инициализируем **после монтирования**, а не в boot-файле.
+      // Так старт приложения не зависит от нативного плагина: в сборке 1.9 `await` на нём
+      // в boot-цепочке дал чёрный экран (Quasar ждёт boot-файлы перед монтированием).
+      updateService.startBundleSupport()
     },
 
     unbind() {
@@ -60,9 +89,20 @@ export const useUpdateStore = defineStore('update', {
       }
     },
 
-    /** Ручная проверка из настроек: сбрасывает «позже» и обходит паузу 6 часов. */
+    /**
+     * Ручная проверка из настроек: сбрасывает «позже» и обходит паузу 6 часов.
+     *
+     * ⚠️ `refreshCurrentVersion()` возвращает **версию** (`{versionCode, versionName}`), а не
+     * состояние сервиса: присваивать её в `this.status` нельзя — стор терял релиз, флаги и
+     * «когда проверяли», поэтому в разделе «приложение» оставалось «обновления ещё не
+     * проверялись», а кнопка выглядела мёртвой (дефект живой сборки 1.11). Состояние в стор
+     * приносят подписка `bind()` и возврат `check()`.
+     */
     async checkNow() {
       updateService.clearDismiss()
+      // Версию перечитываем (если нативная часть её не отдала — «версия неизвестна»),
+      // но в стор её не подменяем: это не состояние, а одно значение.
+      await updateService.refreshCurrentVersion()
       this.status = await updateService.check({ force: true })
 
       return this.status
@@ -124,6 +164,46 @@ export const useUpdateStore = defineStore('update', {
     /** Скрывает сообщение «обновление установлено». */
     clearInstalledNotice() {
       this.installedVersion = null
+    },
+
+    /**
+     * OTA-обновление веб-слоя (Фаза 15): скачать бандл и применить его при
+     * следующем запуске. Ни установки, ни системных диалогов, ни потери данных —
+     * меняется только «начинка» приложения (JS/CSS/HTML).
+     */
+    async applyBundle({ reload = false } = {}) {
+      this.installError = null
+      this.applyingBundle = true
+
+      try {
+        await updateService.downloadAndApplyBundle({ reload })
+
+        return true
+      } catch (error) {
+        this.installError = error?.message || 'Не удалось скачать обновление'
+
+        return false
+      } finally {
+        this.applyingBundle = false
+      }
+    },
+
+    /** «Перезапустить сейчас» — применить скачанный бандл, не закрывая приложение. */
+    async restartNow() {
+      this.installError = null
+
+      try {
+        return await updateService.restartNow()
+      } catch (error) {
+        this.installError = error?.message || 'Не удалось перезапустить приложение'
+
+        return false
+      }
+    },
+
+    /** Скрывает сообщение «обновление без установки применено». */
+    clearAppliedBundleNotice() {
+      updateService.clearAppliedBundleNotice()
     },
   },
 })
