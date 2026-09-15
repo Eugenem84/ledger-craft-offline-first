@@ -22,6 +22,13 @@ export const useStockHistoryStore = defineStore('stockHistory', {
     specializationId: null,
     /** Движения: приход «+» и расход «−», новые сверху. */
     movements: [],
+    /**
+     * Счётчики движений в базе **без** фильтра профиля (`{arrivals, expenses}`) — заполняются
+     * только когда лента профиля пуста. Нужны для понятного пустого состояния: «движений нет»
+     * и «движения есть, но не подошли под фильтр» — разные диагнозы (дефект Android-only
+     * 15.09.2026 выглядел именно вторым).
+     */
+    dbTotals: null,
     loading: false,
     error: null,
   }),
@@ -49,6 +56,7 @@ export const useStockHistoryStore = defineStore('stockHistory', {
       this.productId = null
       this.specializationId = null
       this.movements = []
+      this.dbTotals = null
       this.error = null
     },
 
@@ -68,6 +76,10 @@ export const useStockHistoryStore = defineStore('stockHistory', {
     /**
      * Читает историю **всех** товаров профиля (вкладка «движение товаров» на складе).
      * Без профиля (ещё ничего не заведено) — пустая история, без ошибки.
+     *
+     * Фильтр профиля идёт по двум формам ключа (см. `stockHistoryRepo.getAll`), поэтому
+     * пустая лента — уже диагноз: «движений нет вовсе» или «не подошёл фильтр». Во втором
+     * случае добираем счётчики по всей базе, чтобы UI сказал об этом прямо.
      */
     async loadAll(specializationId) {
       this.reset()
@@ -76,6 +88,10 @@ export const useStockHistoryStore = defineStore('stockHistory', {
 
       this.specializationId = specializationId
       this.movements = await this._read(() => stockHistoryRepo.getAll(specializationId))
+
+      if (!this.movements.length && !this.error) {
+        this.dbTotals = await this._read(() => stockHistoryRepo.countAll())
+      }
     },
 
     /** Общее для обоих режимов: флаг загрузки, ошибка и «пусто» вместо падения страницы. */

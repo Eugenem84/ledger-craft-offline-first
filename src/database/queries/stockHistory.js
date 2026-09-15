@@ -12,8 +12,16 @@
 // Два набора запросов:
 //   • `arrivals`/`expenses` — движения одного товара (карточка товара);
 //   • `allArrivals`/`allExpenses` — движения всех товаров **профиля** (вкладка
-//     «история перемещений» на складе). Профиль определяется по категории товара —
+//     «движение товаров» на складе). Профиль определяется категорией товара —
 //     та же привязка, по которой склад строит список товаров.
+//
+// ⚠️ Фильтр профиля — по **двум** формам ключа (`OR specialization_id = ?`):
+// в `product_categories.specialization_id` лежит либо локальный UUID (категория
+// создана на устройстве), либо серверный id (категория приехала синком —
+// `productCategoriesRepo.applyServerRecord` пишет `record.specialization_id` «как есть»).
+// Одна форма «опустошала» вкладку на Android, где категории синхронизированы, при том
+// что в браузере (категории созданы локально) лента показывалась. Пара ключей приходит
+// из `specializationsRepo.resolveScopeKeys()` — правило живёт в одном месте.
 //
 // Строки заказа могут быть мягко удалены (`deleted_at`) — такие движения в историю
 // не попадают: возврат строки заказа снимает и расход.
@@ -66,29 +74,44 @@ export default {
     ORDER BY order_product.created_at DESC, order_product.id DESC
   `,
 
-  /** Все приходы профиля (вкладка «история перемещений»). */
+  /** Все приходы профиля (вкладка «движение товаров»). Ключ профиля — в двух формах. */
   allArrivals: `
     SELECT ${ARRIVAL_COLUMNS}
     FROM incoming_products
     JOIN products ON products.id = incoming_products.product_id
     JOIN product_categories ON product_categories.id = products.product_category_id
     WHERE product_categories.specialization_id = ?
+       OR product_categories.specialization_id = ?
     ORDER BY incoming_products.created_at DESC, incoming_products.id DESC
     LIMIT ?
   `,
 
-  /** Все расходы профиля (вкладка «история перемещений»). */
+  /** Все расходы профиля (вкладка «движение товаров»). Ключ профиля — в двух формах. */
   allExpenses: `
     SELECT ${EXPENSE_COLUMNS}
     FROM order_product
     JOIN orders ON orders.id = order_product.order_id
     JOIN products ON products.id = order_product.product_id
     JOIN product_categories ON product_categories.id = products.product_category_id
-    WHERE product_categories.specialization_id = ?
+    WHERE (product_categories.specialization_id = ?
+        OR product_categories.specialization_id = ?)
       AND order_product.deleted_at IS NULL
       AND orders.deleted_at IS NULL
     ORDER BY order_product.created_at DESC, order_product.id DESC
     LIMIT ?
+  `,
+
+  /**
+   * Сколько движений лежит в локальной БД **без** фильтра профиля.
+   *
+   * Нужно только для пустого состояния вкладки: если лента пуста, а счётчики не нулевые,
+   * значит данные есть, но не подошли под фильтр (именно так выглядел дефект Android-only
+   * 15.09.2026) — это видно прямо на экране, без чтения кода.
+   */
+  dbTotals: `
+    SELECT
+      (SELECT COUNT(*) FROM incoming_products) AS arrivals,
+      (SELECT COUNT(*) FROM order_product WHERE deleted_at IS NULL) AS expenses
   `,
 }
 

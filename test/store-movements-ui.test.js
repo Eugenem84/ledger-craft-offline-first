@@ -45,6 +45,9 @@ describe('склад: вкладки «товары» и «движение то
     expect(panel).toContain('<EditArrivalDialogPage')
     // После правки прихода страница обновляет список товаров.
     expect(panel).toContain("emit('changed')")
+    // Пустая лента объясняет себя счётчиками по всей базе (диагностика «не тот фильтр»).
+    expect(panel).toContain('const emptyHint = computed(')
+    expect(panel).toContain('history.dbTotals')
   })
 
   it('строки истории: приход «+», расход «−», правка — только у прихода', () => {

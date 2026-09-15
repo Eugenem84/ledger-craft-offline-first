@@ -2,18 +2,23 @@ import { v4 as uuidv4 } from 'uuid'
 import dbAdapter from 'src/database/db.js'
 import queries from 'src/database/queries/product-categories'
 import operationsRepo from 'src/repositories/operationsRepo'
+import { resolveScopeKeys } from 'src/repositories/specializationsRepo.js'
 import { toEpochSeconds } from 'src/utils/timestamps.js'
 
+/**
+ * Категории товаров активного профиля.
+ *
+ * `specialization_id` в этой таблице хранит **одну из двух форм** ключа профиля
+ * (локальный UUID до синка / серверный id после — см. `specializationsRepo.resolveScopeKeys`),
+ * поэтому ищем обе. Здесь впервые и появилось это правило; теперь пару ключей отдаёт
+ * общий резолвер, а не копия запроса в каждом репозитории.
+ */
 export async function getBySpecializationId(specializationId) {
-  // Находим серверный ID для выбранной локальной специализации
-  const spec = await dbAdapter.queryOne('SELECT server_id FROM specializations WHERE id = ?', [specializationId]);
-  const serverSpecId = spec ? spec.server_id : null;
+  const { localId, serverId } = await resolveScopeKeys(specializationId);
 
-  // Ищем категории, у которых specialization_id равен либо локальному UUID (для новых),
-  // либо серверному ID (для синхронизированных)
   const rows = await dbAdapter.query(
     `SELECT * FROM product_categories WHERE specialization_id = ? OR specialization_id = ?`,
-    [specializationId, serverSpecId]
+    [localId, serverId]
   );
   return rows;
 }
@@ -34,15 +39,11 @@ export async function getLocalIdByServerId(serverId) {
 export async function findByTemplateKey(specializationId, templateKey) {
   if (!templateKey) return null;
 
-  const spec = await dbAdapter.queryOne(
-    'SELECT server_id FROM specializations WHERE id = ?',
-    [specializationId]
-  );
-  const serverId = spec ? spec.server_id : null;
+  const { localId, serverId } = await resolveScopeKeys(specializationId);
 
   const rows = await dbAdapter.query(
     'SELECT * FROM product_categories WHERE template_key = ? AND (specialization_id = ? OR specialization_id = ?)',
-    [templateKey, specializationId, serverId]
+    [templateKey, localId, serverId]
   );
 
   return rows.length ? rows[0] : null;

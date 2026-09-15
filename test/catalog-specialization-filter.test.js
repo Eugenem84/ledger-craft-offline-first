@@ -22,6 +22,7 @@ import * as categoriesRepo from 'src/repositories/categoriesRepo.js'
 import * as servicesRepo from 'src/repositories/servicesRepo.js'
 import * as clientsRepo from 'src/repositories/clientsRepo.js'
 import * as modelsRepo from 'src/repositories/modelsRepo.js'
+import * as productCategoriesRepo from 'src/repositories/productCategoriesRepo.js'
 
 import { useCategoriesStore } from 'src/stores/useCategoriesStore.js'
 import { useClientsStore } from 'src/stores/useClientsStore.js'
@@ -117,6 +118,42 @@ describe('Каталог строго по активному профилю (Ф
     await store.load(aquariumId)
 
     expect(store.items).toHaveLength(getPreset('aquarium').categories.length)
+  })
+})
+
+describe('resolveScopeKeys: пара ключей профиля (дефект Android-only 15.09.2026)', () => {
+  it('отдаёт локальный UUID и серверный id после синка', async () => {
+    const specializationId = await specializationsRepo.save({ name: 'Ремонт' })
+
+    expect(await specializationsRepo.resolveScopeKeys(specializationId)).toEqual({
+      localId: specializationId,
+      serverId: null,
+    })
+
+    await specializationsRepo.updateServerId(specializationId, 42)
+
+    expect(await specializationsRepo.resolveScopeKeys(specializationId)).toEqual({
+      localId: specializationId,
+      serverId: 42,
+    })
+
+    // Без профиля — пустые ключи: фильтр ничего не найдёт, но не упадёт.
+    expect(await specializationsRepo.resolveScopeKeys(null)).toEqual({ localId: null, serverId: null })
+  })
+
+  it('каталог товаров профиля виден в обеих формах ключа', async () => {
+    const specializationId = await specializationsRepo.save({ name: 'Склад' })
+    await specializationsRepo.updateServerId(specializationId, 42)
+
+    const local = await productCategoriesRepo.save({
+      name: 'Локальная',
+      specialization_id: specializationId,
+    })
+    const synced = await productCategoriesRepo.save({ name: 'Синхронизированная', specialization_id: 42 })
+
+    const categories = await productCategoriesRepo.getBySpecializationId(specializationId)
+
+    expect(categories.map(category => category.id).sort()).toEqual([local, synced].sort())
   })
 })
 

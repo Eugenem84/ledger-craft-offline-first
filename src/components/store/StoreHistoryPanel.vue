@@ -43,6 +43,24 @@ const visible = computed(() =>
     : history.movements.filter(movement => movement.kind === filter.value)
 )
 
+/**
+ * Подсказка для пустой ленты. Если в базе движения всё-таки есть, говорим об этом прямо:
+ * «движений нет» и «движения есть, но не подошли под фильтр профиля» — разные диагнозы
+ * (Android-only дефект 15.09.2026 выглядел именно вторым, и на экране это не читалось).
+ */
+const emptyHint = computed(() => {
+  const totals = history.dbTotals
+
+  if (!totals) {
+    return 'движений пока нет — приходуйте товар кнопкой «Поступление» в карточке товара'
+  }
+
+  return (
+    'движений по товарам профиля нет · ' +
+    `в базе: приходов ${totals.arrivals}, расходов ${totals.expenses}`
+  )
+})
+
 const load = () => history.loadAll(props.specializationId)
 
 onMounted(load)
@@ -99,7 +117,7 @@ const handleSaved = async () => {
         :movements="visible"
         :loading="history.loading"
         :error="history.error"
-        empty-hint="движений пока нет — приходуйте товар кнопкой «Поступление» в карточке товара"
+        :empty-hint="emptyHint"
         @edit="openEdit"
       />
     </div>

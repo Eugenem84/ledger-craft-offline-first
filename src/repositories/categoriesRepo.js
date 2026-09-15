@@ -2,6 +2,7 @@ import { v4 as uuidv4 } from 'uuid'
 import dbAdapter from 'src/database/db.js'
 import queries from 'src/database/queries/categories'
 import operationsRepo from 'src/repositories/operationsRepo'
+import { resolveScopeKeys } from 'src/repositories/specializationsRepo.js'
 import { toEpochSeconds } from 'src/utils/timestamps.js'
 
 export async function getAll() {
@@ -14,29 +15,24 @@ export async function getAll() {
  *
  * У `categories` нет парной колонки `specialization_server_id` (в отличие от
  * `clients`/`equipment_models`): до синка в `specialization_id` лежит локальный
- * UUID, а `applyServerRecord` пишет туда серверный id. Поэтому сначала достаём
- * `server_id` специализации и ищем обе формы FK — иначе после первого синка
- * каталог профиля «пустел» (как раньше вёл себя `productCategoriesRepo`).
+ * UUID, а `applyServerRecord` пишет туда серверный id. Поэтому ищем **обе** формы
+ * ключа — пару отдаёт общий `specializationsRepo.resolveScopeKeys()`; иначе после
+ * первого синка каталог профиля «пустел».
  *
  * @param {string} specializationId локальный UUID специализации
  * @returns {Promise<Array>}
  */
 export async function getBySpecializationId(specializationId) {
-  const spec = await dbAdapter.queryOne(
-    'SELECT server_id FROM specializations WHERE id = ?',
-    [specializationId]
-  );
-  const serverId = spec ? spec.server_id : null;
+  const { localId, serverId } = await resolveScopeKeys(specializationId);
 
-  return dbAdapter.query(queries.getBySpecializationId, [specializationId, serverId]);
+  return dbAdapter.query(queries.getBySpecializationId, [localId, serverId]);
 }
 
 /**
  * Идемпотентность пресета (Фаза 10, задача 10.4): есть ли в этой специализации
  * категория, уже перенесённая пресетом под ключом `templateKey`.
  *
- * Учитываем обе формы FK: до синка в `specialization_id` лежит локальный UUID,
- * после — серверный id (тем же приёмом живёт `productCategoriesRepo`).
+ * Учитываем обе формы FK (см. `specializationsRepo.resolveScopeKeys`).
  *
  * @param {string} specializationId локальный UUID специализации
  * @param {string} templateKey например `bike:wheels`
@@ -45,15 +41,11 @@ export async function getBySpecializationId(specializationId) {
 export async function findByTemplateKey(specializationId, templateKey) {
   if (!templateKey) return null;
 
-  const spec = await dbAdapter.queryOne(
-    'SELECT server_id FROM specializations WHERE id = ?',
-    [specializationId]
-  );
-  const serverId = spec ? spec.server_id : null;
+  const { localId, serverId } = await resolveScopeKeys(specializationId);
 
   const rows = await dbAdapter.query(
     'SELECT * FROM categories WHERE template_key = ? AND (specialization_id = ? OR specialization_id = ?)',
-    [templateKey, specializationId, serverId]
+    [templateKey, localId, serverId]
   );
 
   return rows.length ? rows[0] : null;

@@ -14,6 +14,7 @@
 // история всех товаров профиля (`getAll` — вкладка «история перемещений» на складе).
 import dbAdapter from 'src/database/db.js'
 import queries from 'src/database/queries/stockHistory.js'
+import { resolveScopeKeys } from 'src/repositories/specializationsRepo.js'
 
 /**
  * Сколько движений отдаём во вкладку «история перемещений»: страница не должна
@@ -83,8 +84,14 @@ export async function getByProductId(productId) {
 }
 
 /**
- * Движения всех товаров профиля — вкладка «история перемещений» на складе.
+ * Движения всех товаров профиля — вкладка «движение товаров» на складе.
  * Пустой профиль (ни одной категории) — пустая история, без ошибки.
+ *
+ * ⚠️ Фильтр идёт по **двум** формам ключа профиля: в `product_categories.specialization_id`
+ * лежит либо локальный UUID (категория создана на устройстве), либо серверный id (категория
+ * приехала синком). Строгое равенство по локальному UUID делало вкладку пустой **только на
+ * Android** (там категории синхронизированы), пока в браузере лента показывалась — дефект
+ * 15.09.2026. Пару ключей отдаёт общий `specializationsRepo.resolveScopeKeys()`.
  *
  * @param {string} specializationId локальный id рабочего профиля
  * @param {number} [limit] сколько движений вернуть (по умолчанию `HISTORY_LIMIT`)
@@ -92,9 +99,29 @@ export async function getByProductId(productId) {
 export async function getAll(specializationId, limit = HISTORY_LIMIT) {
   if (!specializationId) return []
 
-  const arrivals = await dbAdapter.query(queries.allArrivals, [specializationId, limit])
-  const expenses = await dbAdapter.query(queries.allExpenses, [specializationId, limit])
+  const { localId, serverId } = await resolveScopeKeys(specializationId)
+
+  const arrivals = await dbAdapter.query(queries.allArrivals, [localId, serverId, limit])
+  const expenses = await dbAdapter.query(queries.allExpenses, [localId, serverId, limit])
 
   return toMovements({ arrivals, expenses }).slice(0, limit)
+}
+
+/**
+ * Сколько движений лежит в локальной БД без фильтра профиля.
+ *
+ * Только для диагностики пустого состояния вкладки: «лента пуста, а в базе N приходов и
+ * M расходов» сразу отделяет «движений нет» от «не подошёл фильтр» (дефект Android-only
+ * 15.09.2026 выглядел именно вторым случаем).
+ *
+ * @returns {Promise<{arrivals: number, expenses: number}>}
+ */
+export async function countAll() {
+  const [totals] = await dbAdapter.query(queries.dbTotals)
+
+  return {
+    arrivals: Number(totals?.arrivals) || 0,
+    expenses: Number(totals?.expenses) || 0,
+  }
 }
 

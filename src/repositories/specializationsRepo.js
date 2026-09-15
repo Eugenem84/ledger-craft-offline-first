@@ -30,6 +30,36 @@ export async function findByServerId(serverId) {
 }
 
 /**
+ * Обе формы ключа рабочего профиля для фильтров каталога и склада (дефект 15.09.2026).
+ *
+ * В таблицах, где FK специализации хранится **одной** колонкой (`categories`,
+ * `product_categories` — парной `specialization_server_id` у них нет), до синка лежит
+ * локальный UUID, а после — **серверный id**: `applyServerRecord` пишет
+ * `record.specialization_id` «как есть». Строгое равенство по локальному UUID после
+ * первого синка «опустошало» такой раздел — так вкладка «движение товаров» на складе
+ * была пустой только на Android (там категории товаров приехали синком), а в браузере
+ * (категории созданы локально) показывалась. Поэтому фильтр обязан проверять **обе**
+ * формы: сначала получаем пару ключей здесь, дальше SQL идёт по
+ * `specialization_id = ? OR specialization_id = ?`.
+ *
+ * Владельцы правила: `categoriesRepo`, `productCategoriesRepo`, `stockHistoryRepo`.
+ *
+ * @param {string} specializationId локальный UUID специализации
+ * @returns {Promise<{localId: string|null, serverId: number|null}>}
+ */
+export async function resolveScopeKeys(specializationId) {
+  if (!specializationId) return { localId: null, serverId: null };
+
+  const spec = await dbAdapter.queryOne(
+    'SELECT id, server_id FROM specializations WHERE id = ?',
+    [specializationId]
+  );
+
+  // Записи может не быть (легаси/чужой id) — тогда работаем по тому, что передали.
+  return { localId: spec?.id ?? specializationId, serverId: spec?.server_id ?? null };
+}
+
+/**
  * Сохраняет новую специализацию в локальной базе и добавляет операцию в очередь.
  *
  * ⚠️ До 5.3 репозиторий клал операцию через `dbAdapter.enqueueOperation()` —

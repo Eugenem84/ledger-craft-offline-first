@@ -43,7 +43,8 @@ src/
 │   ├── productsRepo.js
 │   ├── categoriesRepo.js
 │   ├── productCategoriesRepo.js
-│   ├── specializationsRepo.js
+│   ├── specializationsRepo.js    # рабочие профили + `resolveScopeKeys()`: пара ключей профиля
+│   │                             #   (локальный UUID и серверный id) для фильтров каталога/склада
 │   ├── modelsRepo.js             # модели техники (equipment_models)
 │   ├── orderServiceRepo.js
 │   ├── orderProductRepo.js       # товары в заказе (order_product)
@@ -367,8 +368,12 @@ return id;
   пока приход не уехал на сервер, правится всё (остаток пересчитывается на дельту,
   ожидающий INSERT в очереди переписывается), у синхронизированного прихода количество
   заблокировано — сервер остаток по приходу не пересчитывает (закупка и поставщик уезжают
-  `update`). Логика покрыта `test/stock-history.test.js`, контракт вкладок и окна —
-  `test/store-movements-ui.test.js`.
+  `update`). Фильтр профиля — **по двум формам ключа** (`specializationsRepo.resolveScopeKeys()`:
+  локальный UUID и серверный id, см. `docs/DATA-MODEL.md` §«История склада»), а пустая лента
+  показывает счётчики движений по всей базе — так Android-only дефект 15.09.2026 («в браузере
+  видно, на телефоне пусто») был бы виден сразу на экране. Логика покрыта
+  `test/stock-history.test.js`, контракт вкладок и окна — `test/store-movements-ui.test.js`,
+  правило ключей — `test/catalog-specialization-filter.test.js`.
 - **AnalyticPage** (задача 9.1) — аналитика считается по **локальной** БД (офлайн-первый подход):
   `useAnalyticsStore` → `analyticsRepo` → `database/queries/analytics.js`, правила — в
   `utils/analytics.js`. Единая методика (та же, что в серверном `StatisticRepository`): учтённый

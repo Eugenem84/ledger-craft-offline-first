@@ -209,6 +209,109 @@ describe('история склада: приходы и расходы това
     expect(history.movements).toEqual([])
   })
 
+  // ⚠️ Регрессия Android-only (15.09.2026): на телефоне категории товаров приехали синком,
+  // и `applyServerRecord` положил в `product_categories.specialization_id` **серверный id**
+  // («Сохраняем серверный ID как есть»), а фильтр истории искал только локальный UUID —
+  // вкладка «движение товаров» была пустой, хотя в браузере (категории созданы локально)
+  // лента показывалась. Фильтр обязан проверять обе формы ключа профиля.
+  it('категория пришла синком (в specialization_id серверный id) — лента не пустеет', async () => {
+    const product = await seedProduct({ name: 'Фильтр' })
+    const stored = await db.queryOne('SELECT * FROM products WHERE id = ?', [product.id])
+    const category = await db.queryOne('SELECT * FROM product_categories WHERE id = ?', [
+      product.product_category_id,
+    ])
+
+    // Профиль уехал в синк, а категория товара пришла из выгрузки — как на Android.
+    await specializationsRepo.updateServerId(category.specialization_id, 42)
+    await db.execute('UPDATE product_categories SET specialization_id = ? WHERE id = ?', [
+      42,
+      category.id,
+    ])
+
+    await useProductsStore().receiveArrival({ product: stored, byPrice: 700, arrivalQuantity: 3 })
+    await insertOrder({
+      id: 'order-1',
+      specializationId: category.specialization_id,
+      userOrderNumber: 7,
+    })
+    await orderProductRepo.add('order-1', product.id, 1, 1000, 700)
+
+    // UI передаёт локальный UUID профиля (серверный id он не знает) — фильтр должен найти обе формы.
+    const movements = await stockHistoryRepo.getAll(category.specialization_id)
+
+    expect(movements.map(movement => movement.kind).sort()).toEqual(['in', 'out'])
+    expect(movements.every(movement => movement.productName === 'Фильтр')).toBe(true)
+
+    const history = useStockHistoryStore()
+    await history.loadAll(category.specialization_id)
+
+    expect(history.hasMovements).toBe(true)
+    expect(history.dbTotals).toBeNull()
+  })
+
+  it('смешанные формы ключа профиля: видны оба вида категорий, чужие — нет', async () => {
+    const product = await seedProduct({ name: 'Фильтр' })
+    const foreign = await seedProduct({ name: 'Свеча', specializationName: 'Другая мастерская' })
+
+    const first = await db.queryOne('SELECT * FROM products WHERE id = ?', [product.id])
+    const candle = await db.queryOne('SELECT * FROM products WHERE id = ?', [foreign.id])
+    const category = await db.queryOne('SELECT * FROM product_categories WHERE id = ?', [
+      product.product_category_id,
+    ])
+    const specializationId = category.specialization_id
+
+    // Профиль синхронизирован: у одной категории серверный id, у второй — локальный UUID
+    // (в одной базе встречаются обе формы: `updateFromServer` перезаписывает колонку).
+    await specializationsRepo.updateServerId(specializationId, 42)
+    await db.execute('UPDATE product_categories SET specialization_id = ? WHERE id = ?', [
+      42,
+      category.id,
+    ])
+
+    const localCategoryId = await productCategoriesRepo.save({
+      name: 'Своя категория',
+      specialization_id: specializationId,
+    })
+    const ownProductId = await productsRepo.save({
+      name: 'Вторая',
+      base_sale_price: 500,
+      product_category_id: localCategoryId,
+    })
+    const ownProduct = await db.queryOne('SELECT * FROM products WHERE id = ?', [ownProductId])
+
+    await useProductsStore().receiveArrival({ product: first, byPrice: 700, arrivalQuantity: 3 })
+    await useProductsStore().receiveArrival({ product: ownProduct, byPrice: 100, arrivalQuantity: 2 })
+    // Чужой профиль: в свой список он попасть не должен.
+    await useProductsStore().receiveArrival({ product: candle, byPrice: 50, arrivalQuantity: 9 })
+
+    const movements = await stockHistoryRepo.getAll(specializationId)
+
+    expect(movements).toHaveLength(2)
+    expect(movements.map(movement => movement.productName).sort()).toEqual(['Вторая', 'Фильтр'])
+  })
+
+  it('диагностика пустой ленты: `countAll` считает движения без фильтра профиля', async () => {
+    const product = await seedProduct({ name: 'Фильтр' })
+    const stored = await db.queryOne('SELECT * FROM products WHERE id = ?', [product.id])
+
+    await useProductsStore().receiveArrival({ product: stored, byPrice: 700, arrivalQuantity: 3 })
+    await useProductsStore().receiveArrival({ product: stored, byPrice: 700, arrivalQuantity: 1 })
+    await insertOrder({ id: 'order-1', userOrderNumber: 12 })
+    await orderProductRepo.add('order-1', product.id, 2, 1000, 700)
+
+    expect(await stockHistoryRepo.countAll()).toEqual({ arrivals: 2, expenses: 1 })
+
+    // Пустой профиль: лента пуста, но счётчики показывают, что движения в базе есть —
+    // именно так выглядел дефект, из-за которого вкладка молчала на Android.
+    const emptySpecializationId = await specializationsRepo.save({ name: 'Пустой профиль' })
+    const history = useStockHistoryStore()
+    await history.loadAll(emptySpecializationId)
+
+    expect(history.movements).toEqual([])
+    expect(history.dbTotals).toEqual({ arrivals: 2, expenses: 1 })
+    expect(history.error).toBeNull()
+  })
+
   it('стор отдаёт ленту движений и итоги «пришло / ушло»', async () => {
     const product = await seedProduct()
     const stored = await db.queryOne('SELECT * FROM products WHERE id = ?', [product.id])
