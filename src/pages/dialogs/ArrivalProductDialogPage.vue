@@ -10,6 +10,7 @@ import { ref } from 'vue'
 import { useQuasar } from 'quasar'
 import { useProductsStore } from 'stores/useProductsStore.js'
 import LcDialogShell from 'src/components/ui/LcDialogShell.vue'
+import LcQuantityStepper from 'src/components/ui/LcQuantityStepper.vue'
 
 const $q = useQuasar()
 const productsStore = useProductsStore()
@@ -29,7 +30,9 @@ const open = (product) => {
   currentProduct.value = product ? { ...product } : null
   baseSalePrice.value = product?.base_sale_price ?? ''
   byPrice.value = ''
-  arrivalQuantity.value = ''
+  // Количество по умолчанию — 1: шагомер сразу в рабочем положении, а не «пусто»
+  // (правка владельца 15.09.2026: количество задают стрелками влево/вправо).
+  arrivalQuantity.value = 1
   showDialog.value = true
 }
 
@@ -93,14 +96,8 @@ defineExpose({ open })
           />
         </div>
         <div class="col">
-          <q-input
-            v-model="arrivalQuantity"
-            outlined
-            dense
-            type="number"
-            label="Количество"
-            placeholder="+ шт."
-          />
+          <div class="text-caption lc-mute q-mb-xs">Количество</div>
+          <LcQuantityStepper v-model="arrivalQuantity" label="Количество" />
         </div>
       </div>
 

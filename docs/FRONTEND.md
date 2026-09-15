@@ -48,11 +48,13 @@ src/
 │   ├── orderServiceRepo.js
 │   ├── orderProductRepo.js       # товары в заказе (order_product)
 │   ├── materialsRepo.js          # ручные позиции заказа (таблица `materials`, решение D2)
-│   ├── incomingProductsRepo.js   # приходы товара + «приходуем» офлайн (9.2)
-│   ├── productStocksRepo.js      # остаток: локально оптимистично, источник истины — сервер (9.2)
+│   ├── incomingProductsRepo.js   # приходы товара + «приходуем» офлайн (9.2) и правка прихода (15.09.2026)
+│   ├── productStocksRepo.js      # остаток: локально оптимистично, источник истины — сервер (9.2);
+│   │                             #   правка прихода корректирует остаток на дельту (`adjustQuantity`)
 │   ├── buyProductPricesRepo.js   # закупочные цены (9.2; маржа — 9.5)
 │   ├── salesProductPricesRepo.js # цены продажи по заказам (9.3)
 │   ├── analyticsRepo.js          # аналитика страницы: только SELECT, очередь синка не трогает (9.1)
+│   ├── stockHistoryRepo.js       # история склада по товару: приходы + расходы одной лентой (правка 15.09.2026)
 │   └── feedbackRepo.js           # очередь отчётов об ошибке: pending/sending/sent/failed (Фаза 14)
 ├── domain/                       # Фаза 10: лексикон, пресеты, флаги, акцент (без UI-зависимостей)
 │   ├── lexicon.js                # словарь терминов по `preset_key` + useLexicon() (10.1)
@@ -64,12 +66,16 @@ src/
 │                                 #   useClientsStore, useCategoriesStore, useServicesStore,
 │                                 #   useProductCategoriesStore, useProductsStore,
 │                                 #   useSpecializationsStore, useModelsStore, useAuthStore,
-│                                 #   useAnalyticsStore (аналитика, 9.1)
+│                                 #   useAnalyticsStore (аналитика, 9.1),
+│                                 #   useStockHistoryStore (история склада по товару, правка 15.09.2026)
 ├── components/
 │   ├── SyncStatusBar.vue         # индикатор сети/синка (6.2)
 │   ├── ui/                       # общие элементы дизайн-системы (см. docs/UI.md):
 │   │                             #   LcPageHeader, LcSectionCard, LcStatusChip, LcEmptyState,
-│   │                             #   LcFab, LcDialogShell, AuthShell
+│   │                             #   LcFab, LcDialogShell, LcQuantityStepper, AuthShell
+│   ├── store/                    # вкладка «движение товаров» (15.09.2026): StoreHistoryPanel
+│   │                             #   (фильтр + список движений профиля) и StockMovementsList
+│   │                             #   (строки «+ приход / − расход», общие с карточкой товара)
 │   ├── order/                    # компоненты страницы заказа (8.1): OrderHeaderActions,
 │                                 #   OrderPartySelectors, OrderOverviewPanel, OrderServicesPanel,
 │                                 #   OrderMaterialsPanel, OrderServicesBlock, OrderMaterialsBlock,
@@ -88,7 +94,8 @@ src/
 │   ├── RegisterPage.vue          # регистрация + выбор специализаций (10.5)
 │   ├── ErrorNotFound.vue
 │   └── dialogs/                  # NewClientDialogPage, ProductDialogPage,
-│                                 #   ArrivalProductDialogPage, ProductCategoryDialogPage,
+│                                 #   ArrivalProductDialogPage, EditArrivalDialogPage (правка прихода),
+│                                 #   ProductCategoryDialogPage,
 │                                 #   NewServiceDialogPage, NewServiceCategoryDialogPage,
 │                                 #   EditServiceCategoryDialogPage, DeleteConfirmPage,
 │                                 #   FeedbackDialogPage («Сообщить об ошибке», Фаза 14)
@@ -306,8 +313,10 @@ return id;
   `orderServiceRepo.remove*` ставит delete-операцию по натуральному ключу
   `order_server_id + service_server_id`, а `applyServerRecord` матчит строку по `uuid_id` —
   правка заказа больше не оставляет дублей работ на сервере;
-- маржа и наценка (по закупке) — задача **9.5**: закупочная цена на складе уже видна, но
-  «прибыль» в отчётах пока не считается;
+- ✅ маржа и наценка (задача **9.5**): считаются в «Аналитике» по `buy_price` позиций
+  (`orderCost`/`orderMargin`/`marginPercent`); ⚠️ 15.09.2026 разобран дефект «прочерки и нули» —
+  `updateOrder()` стирал себестоимость строк при правке заказа (см. `docs/DATA-MODEL.md`
+  §«Маржа и наценка», регрессия `test/order-margin.test.js`);
 - ✅ `/api/arrival_product` на сервере закрыт `auth:sanctum` (задача 11.7): web-версия ходит по
   сессии (`withCredentials` + `X-CSRF-TOKEN`), чужой товар → `403`; приложение эту ручку не
   использует (приход идёт синком).
@@ -343,7 +352,23 @@ return id;
   `StorePage` показывает товары категории с колонками «остаток / закупка / продажа / посл. прод.»:
   `quantity` берётся из `product_stocks`, `buy_price` — из `buy_product_prices`,
   `last_sale_price` — из `sales_products_prices` (задача 9.3; раньше `product.quantity`
-  не имел источника и колонка была пустой).
+  не имел источника и колонка была пустой). Тап по строке открывает карточку товара, где
+  (правка владельца 15.09.2026) есть **история склада** — приходы «+» и расходы «−» одной лентой
+  (`useStockHistoryStore` → `stockHistoryRepo`), а цену закупки можно задать прямо в поле
+  «Цена закупки, р» (`useProductsStore.saveBuyPrice`) — раньше её задавал только приход, и без
+  неё «Аналитика» не могла посчитать маржу.
+- **Раздел «склад» — две вкладки (правка владельца 15.09.2026):** «товары» — прежний склад
+  (категория, список, «Поступление», «+»), «движение товаров» — `StoreHistoryPanel`:
+  движения **всех** товаров профиля (приходы «+» и расходы «−») с фильтром «все / приходы /
+  расходы» и кнопкой «изменить» у прихода. Строки — общие с карточкой товара
+  (`components/store/StockMovementsList.vue`), даты — `utils/formatDate.js`, лента ограничена
+  `stockHistoryRepo.HISTORY_LIMIT` (200) и честно об этом сообщает. Правка прихода —
+  `EditArrivalDialogPage` → `useProductsStore.updateArrival` → `incomingProductsRepo.updateArrival`:
+  пока приход не уехал на сервер, правится всё (остаток пересчитывается на дельту,
+  ожидающий INSERT в очереди переписывается), у синхронизированного прихода количество
+  заблокировано — сервер остаток по приходу не пересчитывает (закупка и поставщик уезжают
+  `update`). Логика покрыта `test/stock-history.test.js`, контракт вкладок и окна —
+  `test/store-movements-ui.test.js`.
 - **AnalyticPage** (задача 9.1) — аналитика считается по **локальной** БД (офлайн-первый подход):
   `useAnalyticsStore` → `analyticsRepo` → `database/queries/analytics.js`, правила — в
   `utils/analytics.js`. Единая методика (та же, что в серверном `StatisticRepository`): учтённый
@@ -354,10 +379,13 @@ return id;
   по статусам («что сейчас в работе») и топы работ/товаров/материалов. С задач 9.5/9.6 в итогах
   периода и в топах товаров/материалов есть **себестоимость, маржа и наценка**
   (`orderCost`/`orderMargin`/`marginPercent` в `utils/analytics.js`, `*_cost`/`margin` в
-  `database/queries/analytics.js`); у работ себестоимости нет — это труд мастера. Тесты:
+  `database/queries/analytics.js`); у работ себестоимости нет — это труд мастера. Если закупка
+  периода нулевая (у позиций нет цены закупки), страница не молчит прочерком, а объясняет текстом,
+  где её взять (карточка товара / «Поступление») — правка владельца 15.09.2026. Тесты:
   `test/analytics.test.js` (правила) и `test/analytics-repo.test.js` (SQL + стор) — контрольная
   цифра набора совпадает с серверным `tests/Feature/StatisticRepositoryTest.php` (1700 ₽ выручки,
-  740 ₽ закупки, маржа 960 ₽, наценка 130 %).
+  740 ₽ закупки, маржа 960 ₽, наценка 130 %); путь «склад → заказ → маржа» целиком — в
+  `test/order-margin.test.js`.
 
 ## 7. Известные проблемы (полный список)
 

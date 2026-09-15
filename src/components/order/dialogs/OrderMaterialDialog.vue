@@ -3,8 +3,12 @@
 // Валидация переехала сюда: `submit` уходит только с корректными данными,
 // иначе компонент сообщает `invalid` — страница показывает предупреждение.
 // Оболочка — общая `LcDialogShell`.
+//
+// Правка владельца (15.09.2026): количество задаётся шагомером «‹ N ›» — явными
+// стрелками влево/вправо, а не системными «вверх/вниз» у числового поля.
 import { ref, watch } from 'vue'
 import LcDialogShell from 'src/components/ui/LcDialogShell.vue'
+import LcQuantityStepper from 'src/components/ui/LcQuantityStepper.vue'
 
 const props = defineProps({
   modelValue: { type: Boolean, default: false },
@@ -13,7 +17,7 @@ const props = defineProps({
 const emit = defineEmits(['update:modelValue', 'submit', 'invalid'])
 
 /** Черновик формы: название, цена за единицу и количество. */
-const emptyForm = () => ({ name: '', price: 0, amount: 0 })
+const emptyForm = () => ({ name: '', price: 0, amount: 1 })
 
 const form = ref(emptyForm())
 
@@ -63,16 +67,8 @@ const submit = () => {
           <q-input v-model.number="form.price" label="Цена, р" type="number" outlined dense />
         </div>
         <div class="col">
-          <q-input
-            v-model.number="form.amount"
-            label="Количество"
-            type="number"
-            min="1"
-            step="1"
-            inputmode="numeric"
-            outlined
-            dense
-          />
+          <div class="text-caption lc-mute q-mb-xs">Количество</div>
+          <LcQuantityStepper v-model="form.amount" label="Количество" />
         </div>
       </div>
     </div>

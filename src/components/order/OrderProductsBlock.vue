@@ -11,6 +11,11 @@ import { normalizeQuantity } from 'src/utils/quantity.js'
 const props = defineProps({
   products: { type: Array, default: () => [] },
   editMode: { type: Boolean, default: false },
+  /**
+   * Показывать подсказку «товаров из склада пока нет». Родитель выключает её, когда в
+   * ордере есть ручные материалы (правка владельца 15.09.2026).
+   */
+  showEmpty: { type: Boolean, default: true },
 })
 
 const emit = defineEmits(['remove'])
@@ -23,7 +28,7 @@ const qty = line => normalizeQuantity(line?.amount)
 
 <template>
   <div>
-    <div v-if="!props.products.length" class="text-caption lc-mute lc-pad">
+    <div v-if="props.showEmpty && !props.products.length" class="text-caption lc-mute lc-pad">
       товаров из склада пока нет — добавьте их на вкладке «материалы»
     </div>
 

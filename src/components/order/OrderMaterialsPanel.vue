@@ -66,11 +66,15 @@ const emit = defineEmits([
     </div>
 
     <!-- Правка: редактируемые строки. Просмотр: те же данные только для чтения
-         (вкладка видна всегда, но менять позиции можно лишь после включения правки). -->
+         (вкладка видна всегда, но менять позиции можно лишь после включения правки).
+         Подсказка «пусто» показывается только у той группы, которой в заказе правда
+         нет, и гаснет, если во второй группе есть позиции (правка владельца
+         15.09.2026): «материалов пока нет» рядом с товаром со склада сбивало с толку. -->
     <template v-if="props.editMode">
       <OrderMaterialsEditor
         :materials="props.materials"
         :total="props.materialsTotal"
+        :show-empty="!props.products.length"
         @remove="index => emit('remove-material', index)"
         @update-line="payload => emit('update-material-line', payload)"
       />
@@ -78,14 +82,23 @@ const emit = defineEmits([
       <OrderProductsEditor
         :products="props.products"
         :total="props.productsTotal"
+        :show-empty="!props.materials.length"
         @remove="index => emit('remove-product', index)"
         @update-line="payload => emit('update-product-line', payload)"
       />
     </template>
 
     <template v-else>
-      <OrderMaterialsBlock :materials="props.materials" :edit-mode="false" />
-      <OrderProductsBlock :products="props.products" :edit-mode="false" />
+      <OrderMaterialsBlock
+        :materials="props.materials"
+        :edit-mode="false"
+        :show-empty="!props.products.length"
+      />
+      <OrderProductsBlock
+        :products="props.products"
+        :edit-mode="false"
+        :show-empty="!props.materials.length"
+      />
     </template>
   </div>
 </template>

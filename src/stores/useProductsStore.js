@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import * as productsRepo from 'src/repositories/productsRepo.js'
 import * as incomingProductsRepo from 'src/repositories/incomingProductsRepo.js'
+import * as buyProductPricesRepo from 'src/repositories/buyProductPricesRepo.js'
 
 export const useProductsStore = defineStore('products', {
   state: () => ({
@@ -108,6 +109,66 @@ export const useProductsStore = defineStore('products', {
         }
 
         return result
+      } catch (err) {
+        this.error = err
+        throw err
+      }
+    },
+
+    /**
+     * Правка прихода (правка владельца 15.09.2026: «историю приходов тоже должна быть
+     * возможность редактировать»).
+     *
+     * Остаток склада корректируется на дельту, закупка уезжает в `buy_product_prices`,
+     * а операция — в очередь синка. Ограничение одно: количество прихода, который уже
+     * уехал на сервер, менять нельзя (сервер остаток по нему не пересчитывает) — репозиторий
+     * бросит понятную ошибку. Подробности — в `incomingProductsRepo.updateArrival`.
+     *
+     * @param {string} arrivalId локальный id прихода
+     * @param {{quantity?: unknown, byPrice?: unknown, supplier?: unknown}} patch
+     */
+    async updateArrival(arrivalId, patch) {
+      this.error = null
+
+      try {
+        const result = await incomingProductsRepo.updateArrival(arrivalId, patch)
+
+        // Остаток мог измениться — отражаем это в списке склада сразу (офлайн-первый подход).
+        if (result.stockQuantity !== null) {
+          const index = this.items.findIndex(item => item.id === result.productId)
+          if (index !== -1) {
+            this.items[index] = { ...this.items[index], quantity: result.stockQuantity }
+          }
+        }
+
+        return result
+      } catch (err) {
+        this.error = err
+        throw err
+      }
+    },
+
+    /**
+     * Цена закупки товара, заданная вручную в карточке товара (задачи 9.5/9.6).
+     *
+     * Семантика та же, что у прихода: одна актуальная закупка на товар. Из неё
+     * «Аналитика» считает себестоимость и маржу, поэтому строки заказа берут
+     * `buy_price` товара в момент продажи.
+     *
+     * @param {string} id локальный UUID товара
+     * @param {number|string} buyPrice целые рубли
+     */
+    async saveBuyPrice(id, buyPrice) {
+      this.error = null
+      const price = Math.round(Number(buyPrice) || 0)
+
+      try {
+        await buyProductPricesRepo.saveBuyPrice(id, price)
+
+        const index = this.items.findIndex(item => item.id === id)
+        if (index !== -1) {
+          this.items[index] = { ...this.items[index], buy_price: price }
+        }
       } catch (err) {
         this.error = err
         throw err

@@ -59,6 +59,35 @@ export async function applyLocalArrival(productId, quantity, supplier = '') {
 }
 
 /**
+ * Корректирует локальный остаток **на дельту** (правка прихода, 15.09.2026).
+ *
+ * Живёт отдельно от `applyLocalArrival`, потому что меняет не «+N к остатку», а
+ * «−2 от остатка»: приход правится, а не оформляется заново. Применяется только к
+ * приходу, который ещё **не уехал** на сервер (`incomingProductsRepo.updateArrival`):
+ * сервер считает остаток сам и приходует ровно один раз, поэтому «отменить» уже
+ * применённый приход на сервере нельзя, и количество такого прихода мы не даём менять.
+ *
+ * Остаток никогда не уходит ниже нуля: отрицательное количество — не склад, а ошибка.
+ *
+ * @param {string} productId локальный UUID товара
+ * @param {number} delta изменение остатка (может быть отрицательным)
+ * @returns {Promise<number|null>} остаток после правки (`null` — строки остатка нет)
+ */
+export async function adjustQuantity(productId, delta) {
+  const change = Math.trunc(Number(delta) || 0)
+  if (!change) return null
+
+  const existing = await getByProductId(productId)
+  if (!existing) return null
+
+  const next = Math.max(0, Number(existing.quantity || 0) + change)
+
+  await dbAdapter.execute(queries.setQuantity, [next, existing.id])
+
+  return next
+}
+
+/**
  * Применяет строку остатка с сервера. Строка одна на товар, поэтому ищем её по
  * `server_id`, а если не нашли — по товару: так «наша» оптимистичная строка
  * превращается в серверную и дубль не появляется.

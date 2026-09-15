@@ -23,6 +23,7 @@ import operationsRepo from 'src/repositories/operationsRepo'
 import * as productStocksRepo from 'src/repositories/productStocksRepo.js'
 import * as buyProductPricesRepo from 'src/repositories/buyProductPricesRepo.js'
 import * as productsRepo from 'src/repositories/productsRepo.js'
+import { normalizeQuantity } from 'src/utils/quantity.js'
 import { toEpochSeconds } from 'src/utils/timestamps.js'
 import {
   arrivalInsertParams,
@@ -123,6 +124,126 @@ export async function receiveArrival({
     byPrice: purchasePrice,
     stockQuantity,
     baseSalePrice: appliedSalePrice,
+  }
+}
+
+/**
+ * Правит приход (правка владельца 15.09.2026: «историю приходов тоже должна быть
+ * возможность редактировать»).
+ *
+ * Что можно менять — диктует сервер (`IncomingProductRepository::recordArrival()`):
+ *
+ *   • приход ещё **не уехал** (нет `server_id`) — правим всё: количество, закупку,
+ *     поставщика. Остаток корректируем на дельту (`productStocksRepo.adjustQuantity`),
+ *     а ожидающий INSERT в очереди переписываем: payload операции сериализуется в момент
+ *     постановки, поэтому иначе на сервер ушло бы старое количество (и он приходовал бы
+ *     не то, что видит мастер);
+ *   • приход **уже на сервере** — количество менять нельзя: сервер увеличивает склад по
+ *     приходу ровно один раз и при повторной отправке только правит строку, остаток не
+ *     пересчитывает. Правка количества тихо разошлась бы со складом, поэтому отклоняем
+ *     её явной ошибкой, а закупку и поставщика (остаток они не меняют) отправляем обычным
+ *     `update`.
+ *
+ * @param {string} arrivalId локальный id прихода (`incoming_products.id`)
+ * @param {{quantity?: unknown, byPrice?: unknown, supplier?: unknown}} patch
+ * @returns {Promise<{arrivalId: string, productId: string, quantity: number,
+ *   byPrice: number, supplier: string, stockQuantity: number|null, synced: boolean}>}
+ */
+export async function updateArrival(arrivalId, { quantity, byPrice, supplier } = {}) {
+  const arrival = await dbAdapter.queryOne(queries.getById, [arrivalId])
+
+  if (!arrival) {
+    throw new Error('Приход не найден — возможно, он уже удалён или не уехал в синк')
+  }
+
+  const nextQuantity = normalizeQuantity(quantity)
+  const nextPrice = Math.round(Number(byPrice) || 0)
+  const nextSupplier = String(supplier ?? '').trim()
+  const currentQuantity = Number(arrival.quantity) || 0
+  const quantityChanged = nextQuantity !== currentQuantity
+  const synced = Boolean(arrival.server_id)
+
+  if (synced && quantityChanged) {
+    throw new Error(
+      'Приход уже на сервере: количество не пересчитывается — сервер считает остаток по приходу ' +
+        'один раз. Измените закупку или поставщика'
+    )
+  }
+
+  let stockQuantity = null
+
+  // Локальные записи — одной транзакцией: либо приход и остаток целиком, либо ничего.
+  await dbAdapter.transaction(async () => {
+    if (quantityChanged) {
+      stockQuantity = await productStocksRepo.adjustQuantity(
+        arrival.product_id,
+        nextQuantity - currentQuantity
+      )
+    }
+
+    await dbAdapter.execute(queries.updateLocal, [
+      nextQuantity,
+      nextPrice,
+      nextSupplier,
+      arrivalId,
+    ])
+  })
+
+  // Закупочная цена — та же семантика, что у прихода: одна актуальная цена товара.
+  // Она участвует в марже, поэтому правку цены обязательно доводим и до склада.
+  if (nextPrice > 0) {
+    await buyProductPricesRepo.saveBuyPrice(arrival.product_id, nextPrice)
+  }
+
+  if (!synced) {
+    // Строка ещё не уезжала: переписываем ожидающий INSERT (см. шапку функции).
+    const product = await dbAdapter.queryOne('SELECT server_id FROM products WHERE id = ?', [
+      arrival.product_id,
+    ])
+
+    await operationsRepo.removeByLocalId(TABLE, arrivalId)
+    await operationsRepo.enqueue([
+      uuidv4(),
+      'insert',
+      TABLE,
+      JSON.stringify({
+        local_id: arrivalId,
+        product_id: arrival.product_id,
+        product_server_id: product?.server_id ?? null,
+        supplier: nextSupplier,
+        quantity: nextQuantity,
+        by_price: nextPrice,
+      }),
+      Date.now(),
+    ])
+  } else {
+    // Приход на сервере: количество не менялось (проверено выше), поэтому обычный update.
+    await operationsRepo.enqueue([
+      uuidv4(),
+      'update',
+      TABLE,
+      JSON.stringify({
+        id: arrival.server_id,
+        quantity: nextQuantity,
+        by_price: nextPrice,
+        supplier: nextSupplier,
+      }),
+      Date.now(),
+    ])
+  }
+
+  logger.log(
+    `[Склад] Приход обновлён: «${arrival.product_id}» ${currentQuantity} → ${nextQuantity}, закупка ${nextPrice}`
+  )
+
+  return {
+    arrivalId,
+    productId: arrival.product_id,
+    quantity: nextQuantity,
+    byPrice: nextPrice,
+    supplier: nextSupplier,
+    stockQuantity,
+    synced,
   }
 }
 

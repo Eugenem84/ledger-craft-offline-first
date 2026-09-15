@@ -19,6 +19,13 @@ export default {
     SET quantity = quantity + ?, updated_at = strftime('%s','now')
     WHERE id = ?
   `,
+  // Правка прихода (15.09.2026): остаток меняется на дельту, а не на всё количество —
+  // приход мог быть уже применён, и «поставить новое значение» стёрло бы другие движения.
+  setQuantity: `
+    UPDATE product_stocks
+    SET quantity = ?, updated_at = strftime('%s','now')
+    WHERE id = ?
+  `,
   insertFromServer: `
     INSERT INTO product_stocks (id, server_id, product_id, quantity, supplier, created_at, updated_at)
     VALUES (?, ?, ?, ?, ?, ?, ?)

@@ -7,9 +7,12 @@
 // Задача 14.19: в диалоге есть «Количество» — мастер сразу добавляет несколько
 // одинаковых товаров (одной строкой заказа с количеством), а не открывает диалог N раз.
 // Поле доступно только после выбора товара; количество — целое ≥ 1.
+// Правка владельца (15.09.2026): количество задаётся шагомером «‹ N ›» — явными
+// стрелками влево/вправо, а не системными «вверх/вниз» у числового поля.
 import { ref, watch } from 'vue'
 import { useLexicon } from 'src/domain/lexicon.js'
 import LcDialogShell from 'src/components/ui/LcDialogShell.vue'
+import LcQuantityStepper from 'src/components/ui/LcQuantityStepper.vue'
 import { normalizeQuantity, normalizeQuantityInput } from 'src/utils/quantity.js'
 
 const { t } = useLexicon()
@@ -89,24 +92,23 @@ const submit = () => {
         @update:model-value="value => emit('update:selectedProduct', value)"
       />
 
-      <q-input
-        :model-value="amount"
-        label="Количество"
-        type="number"
-        min="1"
-        step="1"
-        inputmode="numeric"
-        outlined
-        dense
-        color="secondary"
-        :disable="!props.selectedProduct"
-        :hint="
-          props.selectedProduct
-            ? 'Сколько одинаковых — столько и добавим одной строкой'
-            : `Сначала выберите ${t('part')}`
-        "
-        @update:model-value="setAmount"
-      />
+      <div>
+        <div class="text-caption lc-mute q-mb-xs">Количество</div>
+        <LcQuantityStepper
+          :model-value="amount"
+          full
+          label="Количество"
+          :disable="!props.selectedProduct"
+          @update:model-value="setAmount"
+        />
+        <div class="text-caption lc-mute q-mt-xs">
+          {{
+            props.selectedProduct
+              ? 'Сколько одинаковых — столько и добавим одной строкой'
+              : `Сначала выберите ${t('part')}`
+          }}
+        </div>
+      </div>
     </div>
   </LcDialogShell>
 </template>

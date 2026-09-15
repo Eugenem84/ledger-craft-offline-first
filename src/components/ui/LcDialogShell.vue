@@ -80,10 +80,28 @@ const resolvedTextColor = computed(() =>
 .lc-dialog {
   width: 100%;
   max-width: 440px;
+  /*
+   * Окно никогда не вылезает за экран (правка владельца 15.09.2026: у карточки товара
+   * с длинной историей склада карточка уезжала вниз за пределы экрана). Высоту
+   * ограничивает вьюпорт, а прокручивается **тело** диалога: заголовок и кнопки
+   * остаются на месте. `dvh` — то же значение, но с учётом динамических панелей
+   * браузера/Android; `vh` оставлен фолбэком для старых WebView.
+   */
+  max-height: calc(100vh - 32px);
+  max-height: calc(100dvh - 32px);
+  display: flex;
+  flex-direction: column;
+}
+
+/* Заголовок и кнопки не сжимаются — сжимается и прокручивается только тело. */
+.lc-dialog > .q-card__section,
+.lc-dialog > .q-card__actions {
+  flex: 0 0 auto;
 }
 
 .lc-dialog__body {
-  max-height: 65vh;
+  flex: 1 1 auto;
+  min-height: 0;
   overflow: auto;
 }
 </style>

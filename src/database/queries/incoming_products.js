@@ -25,5 +25,12 @@ export default {
     SET server_id = ?, supplier = ?, quantity = ?, by_price = ?, updated_at = ?
     WHERE id = ?
   `,
+  // Правка прихода пользователем (правка владельца 15.09.2026): количество, закупка,
+  // поставщик. Строк прихода одна на движение, поэтому «удалить и вставить» не нужно.
+  updateLocal: `
+    UPDATE incoming_products
+    SET quantity = ?, by_price = ?, supplier = ?, updated_at = strftime('%s','now')
+    WHERE id = ?
+  `,
   delete: 'DELETE FROM incoming_products WHERE id = ?',
 }

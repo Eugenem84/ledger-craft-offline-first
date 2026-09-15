@@ -21,8 +21,10 @@ import FeedbackDialogPage from 'pages/dialogs/FeedbackDialogPage.vue'
 import LcPageHeader from 'src/components/ui/LcPageHeader.vue'
 import LcSectionCard from 'src/components/ui/LcSectionCard.vue'
 import LcDialogShell from 'src/components/ui/LcDialogShell.vue'
-// Обновление приложения (Фаза 13, задача 13.9).
+// Обновление приложения (Фаза 13, задача 13.9). «Что нового» — списком пунктов
+// через тире (правка владельца 15.09.2026; разбор строки — `utils/releaseNotes.js`).
 import UpdateDialog from 'src/components/UpdateDialog.vue'
+import { parseReleaseNotes } from 'src/utils/releaseNotes.js'
 
 // «Режим разработчика» (задача 12.5; доработка). Панель доступна всегда, но
 // подгружается лениво и показывается, только когда включён тумблер в настройках
@@ -58,6 +60,9 @@ const specializationsStore = useSpecializationsStore()
 const update = useUpdateStore()
 const updateDialogOpen = ref(false)
 const updateChecking = computed(() => update.status.checking)
+
+/** Заметки релиза — пунктами списка (в тексте они склеены запятыми). */
+const releaseNotes = computed(() => parseReleaseNotes(update.releaseNotes))
 
 const checkUpdates = async () => {
   await update.checkNow()
@@ -443,8 +448,9 @@ const confirmRestore = () => {
           />
         </div>
 
-        <div v-if="update.releaseNotes" class="text-caption lc-mute">
-          Что нового: {{ update.releaseNotes }}
+        <div v-if="releaseNotes.length" class="text-caption lc-mute">
+          <div class="q-mb-xs">Что нового:</div>
+          <div v-for="(note, index) in releaseNotes" :key="index">— {{ note }}</div>
         </div>
 
         <q-btn

@@ -9,6 +9,8 @@ import { computed, onMounted, ref } from 'vue'
 import { useUpdateStore } from 'src/stores/useUpdateStore.js'
 import updateService from 'src/services/updateService.js'
 import LcDialogShell from 'src/components/ui/LcDialogShell.vue'
+// «Что нового» — списком пунктов через тире (правка владельца 15.09.2026).
+import { parseReleaseNotes } from 'src/utils/releaseNotes.js'
 
 const props = defineProps({
   modelValue: { type: Boolean, default: false },
@@ -27,6 +29,9 @@ onMounted(async () => {
 
 const view = computed(() => update.view)
 const closer = () => emit('update:modelValue', false)
+
+/** Заметки релиза — пунктами списка (в тексте они склеены запятыми). */
+const releaseNotes = computed(() => parseReleaseNotes(update.releaseNotes))
 
 const dismiss = () => {
   update.dismiss()
@@ -70,7 +75,10 @@ const startInstall = async () => {
         </div>
       </div>
 
-      <div v-if="update.releaseNotes" class="text-caption lc-muted">Что нового: {{ update.releaseNotes }}</div>
+      <div v-if="releaseNotes.length" class="text-caption lc-muted">
+        <div class="q-mb-xs">Что нового:</div>
+        <div v-for="(note, index) in releaseNotes" :key="index">— {{ note }}</div>
+      </div>
 
       <!-- Прогресс загрузки: виден, пока файл качается внутри приложения. -->
       <div v-if="update.downloading">

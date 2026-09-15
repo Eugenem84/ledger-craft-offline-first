@@ -44,10 +44,14 @@ const emptyModel = () => ({ id: null, name: null })
 const emptyOrder = () => ({ status: 'waiting', paid: false, clientId: null, modelId: null, comments: '' })
 /**
  * Количество строки черновика: у работ это `quantity`, у товаров и ручных позиций —
- * `amount`. В поле ввода может лежать пусто/`0`/`−3`/`2.5`, а в заказ, в БД и на сервер
- * уходит только целое ≥ 1 (задача 14.19) — нормализация одна на весь стор.
+ * `amount`.
+ *
+ * ⚠️ Порядок проверки важен: у товара со склада в строке мог остаться `quantity`
+ * (остаток склада из `product_stocks`). Количество **строки заказа** берём из `amount`
+ * первым — иначе итоги и себестоимость считались по остатку, а не по тому, сколько
+ * мастер продал (дефект разобран 15.09.2026 вместе с обнулением маржи).
  */
-const lineQuantity = line => normalizeQuantity(line?.quantity ?? line?.amount)
+const lineQuantity = line => normalizeQuantity(line?.amount ?? line?.quantity)
 
 export const useOrderDraftStore = defineStore('orderDraft', {
   state: () => ({
@@ -338,13 +342,22 @@ export const useOrderDraftStore = defineStore('orderDraft', {
       // Себестоимость берём из последней закупки товара (склад отдаёт её как `buy_price`,
       // задача 9.3) — это и есть «закупка на момент продажи» (задачи 9.5/9.6).
       // Количество — целое ≥ 1 (мусор/ноль/минус/дробное → 1, задача 14.19).
-      this.products.push({
+      //
+      // ⚠️ Остаток склада (`quantity` из `product_stocks`) в строку заказа не переносим:
+      // количество строки — это `amount` («сколько продали»). Раньше остаток уезжал в
+      // черновик, и итоги заказа с себестоимостью считались по остатку склада, а не по
+      // введённому количеству (дефект разобран 15.09.2026).
+      const line = {
         ...product,
         product_id: product.id,
         price: product.base_sale_price,
         amount: normalizeQuantity(amount),
         buy_price: product.buy_price ?? null,
-      })
+      }
+
+      delete line.quantity
+
+      this.products.push(line)
       this.selectedStoreProduct = null
     },
 
@@ -499,16 +512,27 @@ export const useOrderDraftStore = defineStore('orderDraft', {
 
       await materialsRepo.removeByOrderId(this.order.id)
       for (const material of this.materials) {
+        // ⚠️ `buy_price` обязателен и при правке: строки пересоздаются («удалить и
+        // добавить заново»), и раньше себестоимость здесь терялась — «Аналитика»
+        // показывала закупку 0 и наценку прочерком, хотя товар был заведён с ценой
+        // закупки (дефект разобран 15.09.2026).
         await materialsRepo.add(this.order.id, {
           name: material.name,
           price: material.price,
           amount: material.amount,
+          buy_price: material.buy_price ?? null,
         })
       }
 
       await orderProductRepo.removeByOrderId(this.order.id)
       for (const product of this.products) {
-        await orderProductRepo.add(this.order.id, product.id, product.amount, product.price)
+        await orderProductRepo.add(
+          this.order.id,
+          product.id,
+          product.amount,
+          product.price,
+          product.buy_price ?? null
+        )
       }
     },
 

@@ -39,7 +39,7 @@
   --lc-radius: 14px;
   --lc-radius-sm: 10px;
   --lc-gap: 16px; // вертикальный ритм между блоками
-  --lc-pad-x: 12px; // боковое поле страницы
+  --lc-pad-x: 0px; // боковое поле страницы: карточки «во всю ширину» телефона
   --lc-pad-card: 12px; // боковое поле внутри карточек и строк
   --lc-tap: 44px;
   --lc-shadow-1: 0 1px 2px rgba(0, 0, 0, 0.55);
@@ -48,10 +48,12 @@
 
 // Поля по краям экрана.
 //
-// На телефоне экран узкий, поэтому боковые поля считаем «экономно»: карточки и
-// строки почти касаются краёв, а не «отъезжают» от них вдвойне (поле страницы
-// плюс поле внутри карточки). На планшете/десктопе возвращаем прежние 16px,
-// на очень узких экранах ужимаем ещё на шаг.
+// Правка владельца (15.09.2026): «приложение слишком узкое — убери отступы карточек
+// по краям, используй всю ширину экрана телефона». Поэтому боковое поле страницы
+// (`--lc-pad-x`) на телефоне — **ноль**: карточки и строки прижаты к краям, а
+// «воздух» остался только внутри карточек (`--lc-pad-card`), иначе текст упирался
+// бы в кромку экрана. На планшете/десктопе (≥600px) возвращаем привычные 16px —
+// там ширина не в дефиците, и контент не липнет к краям окна.
 @media (min-width: 600px) {
   :root {
     --lc-pad-x: 16px;
@@ -59,9 +61,10 @@
   }
 }
 
+// Очень узкие экраны (≤360px): ужимаем только внутренние поля карточек —
+// бокового поля страницы уже нет.
 @media (max-width: 360px) {
   :root {
-    --lc-pad-x: 10px;
     --lc-pad-card: 10px;
   }
 }
@@ -279,7 +282,9 @@ body {
 
 .lc-fab {
   position: fixed;
-  right: var(--lc-pad-x);
+  // Кнопка не должна липнуть к кромке: боковое поле страницы теперь 0,
+  // поэтому у самой кнопки оставляем «воздух» в 12px от края.
+  right: max(var(--lc-pad-x), 12px);
   bottom: calc(76px + env(safe-area-inset-bottom, 0px));
   z-index: 1400;
   box-shadow: var(--lc-shadow-2);
@@ -339,10 +344,78 @@ body {
   text-align: center;
 }
 
+// Колонка количества со «шагомером» (`LcQuantityStepper`): «‹ N ›» (32 + 32 + 32 + 2px
+// рамки) шире текста «× 3», поэтому под неё отдаём чуть больше места. Модификатор
+// ставят и на строку заголовка, иначе подпись «кол-во» разъезжается с колонкой.
+.lc-col-qty--stepper {
+  flex: 0 0 98px;
+}
+
 .lc-col-del {
   flex: 0 0 36px;
   display: flex;
   justify-content: flex-end;
+}
+
+// --- Шагомер количества («‹ 1 ›») ------------------------------------------
+//
+// Правка владельца (15.09.2026): количество меняют **явными стрелками влево/вправо**,
+// а не системными «вверх/вниз» у `input[type=number]` — на телефоне по ним почти
+// не попасть. Стрелки и значение живут в одной «таблетке», чтобы не разъезжаться
+// в узкой колонке строки позиции.
+
+.lc-stepper {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--lc-border-strong);
+  border-radius: 999px;
+  background: var(--lc-surface-2);
+  overflow: hidden;
+}
+
+.lc-stepper--full {
+  display: flex;
+  width: 100%;
+}
+
+.lc-stepper__btn.q-btn {
+  min-width: 32px;
+  min-height: 32px;
+  border-radius: 0;
+  color: var(--lc-accent);
+}
+
+.lc-stepper__btn.q-btn .q-focus-helper {
+  border-radius: 0;
+}
+
+// Поле значения: без рамки и фона (рамку держит сама «таблетка»), цифры —
+// системные стрелки «вверх/вниз» не рисуем даже если браузер их умеет.
+.lc-stepper__value {
+  flex: 1 1 auto;
+  width: 32px;
+  min-width: 32px;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: var(--lc-text);
+  font: inherit;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  padding: 0;
+  appearance: textfield;
+  -moz-appearance: textfield;
+}
+
+.lc-stepper__value:disabled {
+  color: var(--lc-text-mute);
+}
+
+.lc-stepper__value::-webkit-outer-spin-button,
+.lc-stepper__value::-webkit-inner-spin-button {
+  appearance: none;
+  margin: 0;
 }
 
 // --- KPI-плитки (аналитика) -------------------------------------------------

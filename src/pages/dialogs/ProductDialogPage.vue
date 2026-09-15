@@ -1,14 +1,22 @@
 <script setup>
 import { ref } from 'vue'
 import { useProductsStore } from 'stores/useProductsStore.js'
+import { useStockHistoryStore } from 'src/stores/useStockHistoryStore.js'
 import DeleteConfirmPage from 'pages/dialogs/DeleteConfirmPage.vue'
 import ArrivalProductDialogPage from 'pages/dialogs/ArrivalProductDialogPage.vue'
+import EditArrivalDialogPage from 'pages/dialogs/EditArrivalDialogPage.vue'
 import LcDialogShell from 'src/components/ui/LcDialogShell.vue'
+// Строки истории склада общие со вкладкой «движение товаров» (`StockMovementsList`).
+import StockMovementsList from 'src/components/store/StockMovementsList.vue'
 
 const productsStore = useProductsStore()
+// История склада (правка владельца 15.09.2026): приходы и расходы товара одной лентой.
+const history = useStockHistoryStore()
 
 const deleteConfirmPage = ref(null)
 const arrivalConfirmPage = ref(null)
+// Правка уже оформленного прихода (правка владельца 15.09.2026).
+const editArrivalDialog = ref(null)
 
 const emit = defineEmits(['product-saved'])
 
@@ -24,6 +32,10 @@ const description = ref('')
 const manufacturer = ref('')
 const product_number = ref('')
 const weight = ref('')
+// Цена закупки (задачи 9.5/9.6): из неё считается маржа в «Аналитике». Раньше её
+// можно было задать только приходом — товар, заведённый руками, оставался без
+// себестоимости, и наценка показывалась прочерком (правка владельца 15.09.2026).
+const buyPrice = ref('')
 
 const open = (product, productCategory, isDetailView) => {
   if (product) { // Existing product
@@ -43,8 +55,31 @@ const open = (product, productCategory, isDetailView) => {
   manufacturer.value = currentProduct.value.manufacturer || ''
   product_number.value = currentProduct.value.product_number || ''
   weight.value = currentProduct.value.weight || ''
+  buyPrice.value = currentProduct.value.buy_price ?? ''
+
+  // История — только у существующего товара (у нового ещё нет движений).
+  if (isNew.value) {
+    history.reset()
+  } else {
+    history.load(currentProduct.value.id)
+  }
 
   showDialog.value = true
+}
+
+/**
+ * Пишет цену закупки, если её действительно задали или изменили.
+ * Пустое поле — «не знаю» (как в приходе: без цены закупка не появляется).
+ *
+ * @param {string} productId локальный UUID товара
+ */
+const saveBuyPriceIfFilled = async productId => {
+  const price = Math.round(Number(buyPrice.value) || 0)
+
+  if (!(price > 0)) return
+  if (price === Number(currentProduct.value.buy_price ?? 0)) return
+
+  await productsStore.saveBuyPrice(productId, price)
 }
 
 const saveProduct = async () => {
@@ -60,9 +95,14 @@ const saveProduct = async () => {
     }
 
     if (isNew.value) {
-      await productsStore.add(productData)
+      // id задаём здесь: сразу после сохранения нужно записать и цену закупки,
+      // а `productsStore.add` не возвращает созданную запись.
+      const id = crypto.randomUUID()
+      await productsStore.add({ ...productData, id })
+      await saveBuyPriceIfFilled(id)
     } else {
       await productsStore.update(currentProduct.value.id, productData)
+      await saveBuyPriceIfFilled(currentProduct.value.id)
     }
 
     emit('product-saved')
@@ -100,6 +140,21 @@ const openArrivalProductDialog = () => {
  */
 const handleArrivalSaved = () => {
   emit('product-saved')
+  // Приход — это движение склада: обновляем ленту истории, если карточка открыта.
+  if (currentProduct.value?.id) history.load(currentProduct.value.id)
+}
+
+/** Открывает правку прихода из ленты истории склада (правка владельца 15.09.2026). */
+const openEditArrival = movement => editArrivalDialog.value?.open(movement)
+
+/**
+ * Приход изменили: остаток мог поменяться — обновляем ленту истории и список товаров
+ * на странице склада (`emit('product-saved')` → `StorePage.handleProductSaved`).
+ */
+const handleArrivalEdited = async () => {
+  emit('product-saved')
+
+  if (currentProduct.value?.id) await history.load(currentProduct.value.id)
 }
 
 defineExpose({ open })
@@ -123,6 +178,17 @@ defineExpose({ open })
         type="number"
         :disable="!isEditing"
       />
+      <!-- Цена закупки (задачи 9.5/9.6): без неё «Аналитика» не может посчитать маржу
+           и показывает наценку прочерком (правка владельца 15.09.2026). -->
+      <q-input
+        v-model="buyPrice"
+        outlined
+        dense
+        label="Цена закупки, р"
+        type="number"
+        hint="Из неё считается маржа в «Аналитике»"
+        :disable="!isEditing"
+      />
       <q-input
         v-model="description"
         outlined
@@ -141,6 +207,30 @@ defineExpose({ open })
         </div>
       </div>
       <q-input v-model="weight" outlined dense label="Вес" type="number" :disable="!isEditing" />
+
+      <!-- История склада (правка владельца 15.09.2026): приходы «+» и расходы «−»
+           товара одной лентой. Видна в просмотре карточки — там же, где «Поступление».
+           Строки общие с вкладкой «движение товаров» (`StockMovementsList`), включая
+           правку прихода. -->
+      <div v-if="!isNew && !isEditing">
+        <div class="row items-center no-wrap q-mb-xs">
+          <q-icon name="swap_vert" size="18px" class="lc-mute q-mr-sm" />
+          <div class="lc-eyebrow">история склада</div>
+          <q-space />
+          <div class="text-caption lc-mute">+{{ history.totalIn }} · −{{ history.totalOut }}</div>
+        </div>
+
+        <div class="lc-card">
+          <StockMovementsList
+            :movements="history.movements"
+            :loading="history.loading"
+            :error="history.error"
+            :show-product="false"
+            empty-hint="приходов и расходов пока нет — товар приходит кнопкой «Поступление»"
+            @edit="openEditArrival"
+          />
+        </div>
+      </div>
     </div>
 
     <template #actions>
@@ -193,6 +283,7 @@ defineExpose({ open })
 
   <DeleteConfirmPage ref="deleteConfirmPage" />
   <ArrivalProductDialogPage ref="arrivalConfirmPage" @product-arrival-saved="handleArrivalSaved" />
+  <EditArrivalDialogPage ref="editArrivalDialog" @saved="handleArrivalEdited" />
 </template>
 
 <style scoped></style>

@@ -77,6 +77,21 @@ export async function applyLocalArrival(productId, buyPrice) {
   return existing.id
 }
 
+/**
+ * Цена закупки товара, заданная вручную — в карточке товара, а не приходом.
+ *
+ * Нужна для маржи: пока у товара нет закупки, «Аналитика» считает себестоимость
+ * нулевой и показывает наценку прочерком (правка владельца 15.09.2026). Семантика та
+ * же, что у прихода: одна актуальная закупка на товар, она уезжает очередью синка.
+ *
+ * @param {string} productId локальный UUID товара
+ * @param {number} buyPrice целые рубли
+ * @returns {Promise<string>} локальный id строки цены
+ */
+export async function saveBuyPrice(productId, buyPrice) {
+  return applyLocalArrival(productId, buyPrice)
+}
+
 /** Применяет закупочную цену с сервера (история — ключ `server_id`). */
 export async function applyServerRecord(record) {
   const product = await dbAdapter.queryOne('SELECT id FROM products WHERE server_id = ?', [
