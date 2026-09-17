@@ -22,9 +22,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import {
-  BACKGROUND_FALLBACK_SCALE,
   BACKGROUND_SHIFT_MAX,
-  BACKGROUND_SHIFT_MIN,
   BACKGROUND_SLACK_USAGE,
   SWIPE_EDGE_GUARD,
   SWIPE_MAX_DRIFT_Y,
@@ -248,67 +246,85 @@ describe('фон: параллакс по вкладкам', () => {
   })
 })
 
-describe('фон: раскладка под реальные пропорции картинки', () => {
+describe('фон: картинка ровно по ширине экрана, движение — по свободному месту', () => {
   /** Обычный портретный телефон (360×800 CSS px). */
   const viewport = { viewportWidth: 360, viewportHeight: 800 }
   const at = (offset, image = { imageWidth: 1024, imageHeight: 1024 }) =>
     backgroundLayout({ ...viewport, ...image, offset })
 
-  it('квадрат: запас свой, увеличения нет, амплитуда на пределе', () => {
-    // `cover` тянет квадрат по высоте (800px при экране 360px) — лишняя ширина и есть запас
-    // под параллакс, увеличивать картинку не нужно (иначе теряем резкость и композицию).
-    expect(at(-1).scale).toBe(1)
-    expect(at(1).scale).toBe(1)
-    // Знак: на первой вкладке картинка сдвинута вправо, окно обзора — у её левого края.
-    expect(at(-1).shift).toBe(BACKGROUND_SHIFT_MAX)
-    expect(at(1).shift).toBe(-BACKGROUND_SHIFT_MAX)
-    // Сдвиг 16% экрана (58px) намного меньше запаса (220px) — край не оголится.
-    const slack = (800 - 360) / 2
-    expect((BACKGROUND_SHIFT_MAX / 100) * 360).toBeLessThan(slack)
+  it('квадрат (кадр владельца): видно всю ширину, ход — по полосе сверху/снизу', () => {
+    // Высота полосы = 360 px при экране 800 px: свободного места по 220 px сверху и снизу.
+    const left = at(-1)
+    const right = at(1)
+
+    expect(left.scale).toBe(1)
+    expect(left.shiftX).toBe(0)
+    // Ход 12 % высоты экрана = 96 px; это меньше свободного места (220 px), край не оголится.
+    expect(left.shiftY).toBe((BACKGROUND_SHIFT_MAX / 100) * 800)
+    expect(right.shiftY).toBe(-((BACKGROUND_SHIFT_MAX / 100) * 800))
+    expect((BACKGROUND_SHIFT_MAX / 100) * 800).toBeLessThan((800 - 360) / 2)
   })
 
-  it('кадр ровно 9:20: запаса нет — картинка чуть увеличивается', () => {
-    const ratio = { imageWidth: 1440, imageHeight: 3200 }
-    const left = at(-1, ratio)
-    const right = at(1, ratio)
+  it('по бокам не обрезается никогда: увеличения нет ни у одного кадра', () => {
+    // Это и есть обещание владельцу: «не от края до края / обрезается слева и справа» больше
+    // невозможно — картинка всегда ровно по ширине экрана.
+    const images = [
+      { imageWidth: 1024, imageHeight: 1024 },
+      { imageWidth: 1440, imageHeight: 3200 },
+      { imageWidth: 4000, imageHeight: 1000 },
+      { imageWidth: 1080, imageHeight: 1080 },
+      { imageWidth: 300, imageHeight: 2000 },
+    ]
 
-    // coverWidth = 360 (экран), нужно 360 + 2×8% → scale ≈ 1.16.
-    expect(left.scale).toBeCloseTo(1.16, 2)
-    expect(left.shift).toBe(BACKGROUND_SHIFT_MIN)
-    expect(right.shift).toBe(-BACKGROUND_SHIFT_MIN)
+    for (const image of images) {
+      const layout = at(-1, image)
+
+      expect(layout.scale, `${image.imageWidth}×${image.imageHeight}`).toBe(1)
+      expect(layout.shiftX).toBe(0)
+    }
   })
 
-  it('промежуточный случай: амплитуда = доля запаса, а не предел', () => {
-    // Кадр чуть шире экранного 9:20: запаса хватает на 10% ширины экрана.
-    const layout = at(1, { imageWidth: 600, imageHeight: 1000 })
-    const coverWidth = 800 * 0.6
+  it('кадр ровно в пропорциях экрана: свободного места нет — фон стоит', () => {
+    // 1440×3200 = 9:20 = пропорции экрана: по бокам и так ничего не режется, а увеличивать
+    // нельзя (увеличение = обрезка по бокам), поэтому хода нет. Каким должен быть кадр, чтобы
+    // параллакс был, — в ТЗ (`docs/UI.md` §7).
+    const layout = at(-1, { imageWidth: 1440, imageHeight: 3200 })
 
-    expect(((coverWidth - 360) / 2 / 360) * 100 * BACKGROUND_SLACK_USAGE).toBeCloseTo(10, 5)
-    expect(layout.shift).toBe(-10)
+    expect(layout).toEqual({ scale: 1, shiftX: 0, shiftY: 0 })
+  })
+
+  it('кадр чуть выше экрана: запас — его скрытые верх и низ', () => {
+    // 1080×2160 = 9:18: полоса 720 px при экране 800 px → свободного места по 40 px,
+    // ход = 40 × 0.6 = 24 px (≈3 % высоты экрана).
+    const layout = at(1, { imageWidth: 1080, imageHeight: 2160 })
+
     expect(layout.scale).toBe(1)
+    expect(layout.shiftY).toBe(-24)
+    // Ход — доля свободного места (`BACKGROUND_SLACK_USAGE`), а не всё место целиком:
+    // остаток гарантирует, что край картинки не вылезет в кадр.
+    expect(Math.abs(layout.shiftY)).toBeCloseTo(40 * BACKGROUND_SLACK_USAGE, 5)
+    expect(Math.abs(layout.shiftY)).toBeLessThan(40)
+  })
+
+  it('очень широкий кадр: ход ограничен пределом, а не запасом', () => {
+    const wide = at(-1, { imageWidth: 4000, imageHeight: 1000 })
+
+    // Свободного места 355 px → 26 % высоты, но больше предела (12 %) не берём.
+    expect(wide.shiftY).toBe((BACKGROUND_SHIFT_MAX / 100) * 800)
   })
 
   it('середина списка и мусорные данные не ломают раскладку', () => {
-    expect(at(0).shift).toBe(0)
+    expect(at(0).shiftY).toBe(0)
 
     const unknown = backgroundLayout({ ...viewport, offset: 1 })
-    expect(unknown.scale).toBe(BACKGROUND_FALLBACK_SCALE)
-    expect(unknown.shift).toBe(-BACKGROUND_SHIFT_MIN)
+    expect(unknown).toEqual({ scale: 1, shiftX: 0, shiftY: 0 })
 
     const broken = backgroundLayout({ viewportWidth: 0, viewportHeight: 0, offset: -1 })
-    expect(broken.scale).toBe(BACKGROUND_FALLBACK_SCALE)
-    expect(broken.shift).toBe(BACKGROUND_SHIFT_MIN)
+    expect(broken).toEqual({ scale: 1, shiftX: 0, shiftY: 0 })
 
     const nanOffset = at(Number.NaN)
     expect(Number.isFinite(nanOffset.scale)).toBe(true)
-    expect(nanOffset.shift).toBe(0)
-  })
-
-  it('очень широкий кадр (панорама): амплитуда всё равно ограничена', () => {
-    const wide = at(-1, { imageWidth: 6000, imageHeight: 1000 })
-
-    expect(wide.scale).toBe(1)
-    expect(wide.shift).toBe(BACKGROUND_SHIFT_MAX)
+    expect(nanOffset.shiftY).toBe(0)
   })
 })
 
@@ -352,18 +368,19 @@ describe('фон: ТЗ картинок совпадает с именами ф�
     }
   })
 
-  it('в ТЗ есть размер, вес, формат и требования к яркости', () => {
+  it('в ТЗ есть размер, вес, формат, яркость и главное правило', () => {
     const readme = read('src/assets/backgrounds/README.md')
     const spec = read('docs/UI.md')
 
-    // Размеры: квадрат — предпочтительный кадр (запас под параллакс), поэтому в README
-    // описан он; «портретный» вариант 1440 × 3200 живёт в полном ТЗ (`docs/UI.md` §7).
     expect(readme).toContain('1024 × 1024')
     expect(readme).toContain('2048 × 2048')
-    expect(spec).toContain('1440 × 3200')
     expect(readme).toContain('300 КБ')
     expect(readme).toContain('sRGB')
     expect(readme).toContain('WebP')
+
+    // Полное ТЗ: те же размеры и главное обещание — по бокам картинка не обрезается.
+    expect(spec).toContain('1024 × 1024')
+    expect(spec).toContain('по бокам не обрезается')
   })
 })
 
@@ -418,15 +435,19 @@ describe('каркас: свайп подключён и учтён контра
     )
     expect(background).toContain('z-index: -1')
     expect(background).toContain('pointer-events: none')
-    expect(background).toContain('object-fit: cover')
+    // Ширина ровно по экрану, высота — по пропорциям кадра: по бокам не обрезается.
+    expect(background).toContain('width: 100%')
+    expect(background).toContain('height: auto')
+    // `object-fit: cover` — ровно то, что обрезало бока квадратного кадра, в стилях его нет.
+    expect(background).not.toMatch(/^\s*object-fit:/m)
     // Движения фона: параллакс при листании и кроссфейд при смене профиля.
     expect(background).toContain('translate3d(')
     expect(background).toContain('lc-appbg-fade-enter-active')
   })
 
-  it('амплитуда параллакса считается от пропорций картинки, а не задана жёстко', () => {
-    // Квадрат (как у владельца) отдаёт свой запас, кадр ровно 9:20 увеличивается. Жёсткие
-    // «scale(1.25) и ±8%» либо прятали запас квадрата, либо мылили картинку.
+  it('движение фона считается от пропорций картинки, а не задано жёстко', () => {
+    // Ход может быть только там, где есть свободное место по вертикали (полоса сверху/снизу
+    // у широкого кадра или его скрытые края у высокого), поэтому амплитуда — вычисляемая.
     expect(background).toContain('backgroundLayout({')
     expect(background).toContain('@load="onImageLoad"')
     expect(background).toContain('viewportWidth: $q.screen.width')

@@ -22,19 +22,27 @@ export const SWIPE_EDGE_GUARD = 24
 /**
  * Параллакс фона: насколько сильно картинка едет при листании.
  *
- *   • `BACKGROUND_SHIFT_MIN` — минимальная амплитуда в % ширины экрана: меньше — и сдвиг не
- *     читается как параллакс;
- *   • `BACKGROUND_SHIFT_MAX` — предел амплитуды: дальше картинку «уносит» и она перестаёт
- *     быть фоном;
- *   • `BACKGROUND_SLACK_USAGE` — какую долю свободного запаса картинки используем (остаток
- *     гарантирует, что край никогда не оголится);
- *   • `BACKGROUND_FALLBACK_SCALE` — увеличение, пока размер картинки неизвестен: 25 %
- *     запаса хватает любому кадру, включая ровно 9:20.
+ * Модель — «картинка всегда по ширине экрана»: фон **не увеличивается вообще**, поэтому по
+ * горизонтали ничего не обрезается (правка владельца 17.09.2026: «по горизонтали картинка
+ * начинается не от края до края, она почему то обрезается слева и справа» — так выглядел
+ * `object-fit: cover` у квадратного кадра: на портретном экране он показывал только
+ * центральные 45 % ширины).
+ *
+ * Следствие: кадр шире пропорций экрана (квадрат на портретном телефоне) встаёт полосой в
+ * центре, сверху и снизу — чёрный фон приложения (у тёмных картинок этого не видно). Именно
+ * это свободное место по вертикали и есть запас для движения — фон едет по нему.
+ *
+ *   • `BACKGROUND_SHIFT_MAX` — предел хода, % высоты экрана (дальше картинку «уносит»);
+ *   • `BACKGROUND_SLACK_USAGE` — какую долю свободного места используем (остаток — гарантия,
+ *     что край картинки не вылезет в кадр).
+ *
+ * Ход = `min(BACKGROUND_SHIFT_MAX, свободное место × BACKGROUND_SLACK_USAGE)`: у кадра ровно
+ * в пропорциях экрана свободного места нет, поэтому фон стоит — увеличивать его нельзя (это
+ * и была бы обрезка по бокам). Каким должен быть кадр, чтобы параллакс был, — в ТЗ
+ * (`docs/UI.md` §7).
  */
-export const BACKGROUND_SHIFT_MIN = 8
-export const BACKGROUND_SHIFT_MAX = 16
+export const BACKGROUND_SHIFT_MAX = 12
 export const BACKGROUND_SLACK_USAGE = 0.6
-export const BACKGROUND_FALLBACK_SCALE = 1.25
 
 /** `-0` — валидный JavaScript, но в CSS-строку попадёт `-0.00%`, а `Object.is` на нём спотыкается. */
 function normalizeZero(value) {
@@ -183,30 +191,30 @@ export function backgroundLayout({
   const ih = Number(imageHeight)
   const position = Number.isFinite(Number(offset)) ? Number(offset) : 0
 
-  if (!(vw > 0) || !(vh > 0) || !(iw > 0) || !(ih > 0)) {
-    return {
-      scale: BACKGROUND_FALLBACK_SCALE,
-      shift: normalizeZero(-position * BACKGROUND_SHIFT_MIN),
-    }
-  }
+  // Пока размер картинки не измерен (или данные мусорные) — фон стоит: обрезки нет,
+  // движения тоже (считать его не из чего).
+  const still = { scale: 1, shiftX: 0, shiftY: 0 }
 
-  // Ширина картинки во вьюпорте после `cover`: она обязана закрыть экран целиком, поэтому
-  // берём максимум из «по ширине» и «по высоте».
-  const coverWidth = Math.max(vw, (vh * iw) / ih)
+  if (!(vw > 0) || !(vh > 0) || !(iw > 0) || !(ih > 0)) return still
 
-  // Свободный запас по горизонтали (на каждую сторону) и сдвиг, который из него следует.
-  const slack = Math.max(0, (coverWidth - vw) / 2)
-  const slackShift = ((slack * BACKGROUND_SLACK_USAGE) / vw) * 100
-  const amplitude = Math.min(BACKGROUND_SHIFT_MAX, Math.max(BACKGROUND_SHIFT_MIN, slackShift))
+  // Картинка растягивается ровно по ширине экрана, высота — по пропорциям кадра.
+  const displayedHeight = (vw * ih) / iw
 
-  // Увеличение ровно такое, чтобы запаса хватило на амплитуду (и никогда меньше единицы).
-  const scale = Math.max(1, (vw * (1 + (2 * amplitude) / 100)) / coverWidth)
+  // Свободное место по вертикали: у полосы (кадр шире экрана) это расстояния до краёв
+  // экрана, у высокого кадра — его скрытые верх и низ. Ноль — кадр ровно в пропорциях экрана.
+  const reserve = Math.abs(displayedHeight - vh) / 2
+
+  if (reserve <= 0) return still
+
+  const amplitude = Math.min(BACKGROUND_SHIFT_MAX, ((reserve * BACKGROUND_SLACK_USAGE) / vh) * 100)
 
   return {
-    scale: Number(scale.toFixed(4)),
-    // Знак минус — направление параллакса: вкладки уходят влево, «дальний план» едет за
-    // ними (окно обзора смещается вправо по картинке).
-    shift: Number(normalizeZero(-position * amplitude).toFixed(3)),
+    // Увеличения нет — это и есть обещание «по бокам ничего не обрезается».
+    scale: 1,
+    shiftX: 0,
+    // Знак: на первой вкладке картинка внизу своего свободного места, на последней — вверху
+    // (вкладки уходят вправо, «дальний план» уезжает вверх).
+    shiftY: Number(normalizeZero((-position * amplitude * vh) / 100).toFixed(2)),
   }
 }
 
