@@ -22,12 +22,11 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import {
-  BACKGROUND_SHIFT_MAX,
-  BACKGROUND_SLACK_USAGE,
   SWIPE_EDGE_GUARD,
   SWIPE_MAX_DRIFT_Y,
   backgroundLayout,
   backgroundOffset,
+  contentBounds,
   isEdgeGesture,
   resolveSwipe,
   resolveSwipeTarget,
@@ -246,81 +245,119 @@ describe('фон: параллакс по вкладкам', () => {
   })
 })
 
-describe('фон: заполняет экран и едет по горизонтали', () => {
+describe('фон: картинка шире экрана, окно ходит по её контенту', () => {
   /** Обычный портретный телефон (360×800 CSS px). */
   const viewport = { viewportWidth: 360, viewportHeight: 800 }
-  const at = (offset, image = { imageWidth: 1024, imageHeight: 1024 }) =>
-    backgroundLayout({ ...viewport, ...image, offset })
+  const at = (offset, params = {}) =>
+    backgroundLayout({
+      ...viewport,
+      imageWidth: 1024,
+      imageHeight: 1024,
+      offset,
+      ...params,
+    })
 
-  it('квадрат (кадр владельца): экран заполнен, бока — запас, ход заметный', () => {
-    // `cover` тянет квадрат по высоте: 800×800 px при экране 360×800 → по 220 px запаса с боков.
-    const left = at(-1)
-    const right = at(1)
+  it('без данных о контенте: картинка шире экрана, окно по центру', () => {
+    // Квадрат на портретном экране: `cover` растягивает его до 800×800 px — по 220 px с каждой
+    // стороны уходит за экран. Именно поэтому сдвиг показывает продолжение рисунка.
+    const layout = at(0)
 
-    expect(left.scale).toBe(1)
-    // Первая вкладка — картинка сдвинута вправо (окно обзора у её левого края), последняя — влево.
-    const amplitude = (BACKGROUND_SHIFT_MAX / 100) * 360
-
-    expect(left.shiftX).toBeCloseTo(amplitude, 2)
-    expect(right.shiftX).toBeCloseTo(-amplitude, 2)
-    // Ход 86 px меньше запаса (220 px) — край картинки не оголится.
-    expect(Math.abs(left.shiftX)).toBeLessThan(220)
+    expect(layout.width).toBe(800)
+    expect(layout.height).toBe(800)
+    expect(layout.left).toBe(-220)
+    expect(layout.top).toBe(0)
+    expect(layout.shiftX).toBe(0)
   })
 
-  it('экран всегда покрыт целиком и сдвиг никогда не выходит за запас', () => {
+  it('край картинки не оголяется ни на одной вкладке', () => {
+    // Главный инвариант дефекта «картинка срезана по краям»: элемент шире экрана, и при любом
+    // сдвиге он всё равно закрывает вьюпорт.
     const images = [
       { imageWidth: 1024, imageHeight: 1024 },
       { imageWidth: 1440, imageHeight: 3200 },
-      { imageWidth: 1080, imageHeight: 2160 },
       { imageWidth: 4000, imageHeight: 1000 },
       { imageWidth: 300, imageHeight: 2000 },
     ]
 
     for (const image of images) {
-      const { scale, shiftX } = at(-1, image)
-      const coverScale = Math.max(360 / image.imageWidth, 800 / image.imageHeight)
-      const renderedWidth = image.imageWidth * coverScale * scale
-      const renderedHeight = image.imageHeight * coverScale * scale
-      const label = `${image.imageWidth}×${image.imageHeight}`
+      for (const offset of [-1, -0.5, 0, 0.5, 1]) {
+        const layout = backgroundLayout({ ...viewport, ...image, offset })
+        const left = layout.left + layout.shiftX
+        const label = `${image.imageWidth}×${image.imageHeight} при offset ${offset}`
 
-      // Заполнение: картинка закрывает экран по обеим сторонам…
-      expect(renderedWidth, label).toBeGreaterThanOrEqual(360)
-      expect(renderedHeight, label).toBeGreaterThanOrEqual(800)
-      // …а сдвиг не выходит за её ширину — край кадра не оголяется ни на одной вкладке.
-      expect(Math.abs(shiftX), label).toBeLessThanOrEqual((renderedWidth - 360) / 2 + 0.01)
+        expect(left, label).toBeLessThanOrEqual(0)
+        expect(left + layout.width, label).toBeGreaterThanOrEqual(360)
+        expect(layout.top, label).toBeLessThanOrEqual(0)
+        expect(layout.top + layout.height, label).toBeGreaterThanOrEqual(800)
+      }
     }
   })
 
-  it('кадр ровно в пропорциях экрана: своего запаса нет — картинка чуть увеличивается', () => {
-    // 1440×3200 = пропорции экрана: увеличение ×1.2 даёт по 36 px запаса с каждой стороны,
-    // ровно на столько фон и едет (без него движения не было бы вовсе).
+  it('окно обзора не заезжает в пустые поля рисунка', () => {
+    // Замер `bike.webp`: контент занимает 10–70 % ширины, справа и слева чёрные поля. Раньше
+    // сдвиг заводил окно в них — на экране появлялась чёрная полоса, «картинка срезана».
+    const content = { left: 0.1, right: 0.7 }
+    const middle = at(0, { content })
+    const extremes = [-1, 1].map((offset) => at(offset, { content }))
+    const contentLeft = 0.1 * middle.width
+    const contentRight = 0.7 * middle.width
+
+    // Покой: окно обзора стоит на центре контента (картинка с полями иначе съезжает вбок).
+    expect(180 - middle.left).toBeCloseTo((contentLeft + contentRight) / 2, 1)
+
+    for (const layout of [middle, ...extremes]) {
+      const windowLeft = -(layout.left + layout.shiftX)
+
+      expect(windowLeft).toBeGreaterThanOrEqual(contentLeft - 0.01)
+      expect(windowLeft + 360).toBeLessThanOrEqual(contentRight + 0.01)
+    }
+
+    // И ход при этом есть — иначе параллакса бы не было.
+    expect(Math.abs(extremes[0].shiftX)).toBeGreaterThan(20)
+  })
+
+  it('кадр ровно в пропорциях экрана: запаса нет — картинка чуть увеличивается', () => {
     const layout = at(-1, { imageWidth: 1440, imageHeight: 3200 })
 
-    expect(layout.scale).toBeCloseTo(1.2, 3)
-    expect(layout.shiftX).toBe(36)
+    // Контента нет (весь кадр) → свободного места 0 → увеличение ровно на минимальный ход.
+    expect(layout.width).toBeCloseTo(417.6, 1)
+    expect(Math.abs(layout.shiftX)).toBeGreaterThan(20)
+    expect(Math.abs(layout.shiftX)).toBeLessThan(30)
   })
 
-  it('промежуточный кадр: ход — доля собственного запаса', () => {
-    // 1024×1600 (2:3): под `cover` ширина 512 px при экране 360 px → запас по 76 px на сторону,
-    // ход = 76 × 0.8 = 61 px. Значение между минимумом и пределом — значит, берётся доля запаса.
-    const layout = at(-1, { imageWidth: 1024, imageHeight: 1600 })
-
-    expect(layout.scale).toBe(1)
-    expect(Math.abs(layout.shiftX)).toBeCloseTo(76 * BACKGROUND_SLACK_USAGE, 0)
-  })
-
-  it('середина списка — без сдвига, мусорные данные не ломают раскладку', () => {
-    expect(at(0).shiftX).toBe(0)
-
-    const unknown = backgroundLayout({ ...viewport, offset: 1 })
-    expect(unknown).toEqual({ scale: 1, shiftX: 0 })
-
-    const broken = backgroundLayout({ viewportWidth: 0, viewportHeight: 0, offset: -1 })
-    expect(broken).toEqual({ scale: 1, shiftX: 0 })
+  it('мусорные данные не ломают раскладку', () => {
+    expect(backgroundLayout({ ...viewport, offset: 1 })).toEqual({
+      width: 0,
+      height: 0,
+      left: 0,
+      top: 0,
+      shiftX: 0,
+    })
 
     const nanOffset = at(Number.NaN)
-    expect(Number.isFinite(nanOffset.scale)).toBe(true)
+
+    expect(Number.isFinite(nanOffset.width)).toBe(true)
     expect(nanOffset.shiftX).toBe(0)
+  })
+})
+
+describe('фон: границы контента рисунка', () => {
+  it('находит, где кончаются пустые поля (замер bike.webp)', () => {
+    // Профиль яркости по колонкам (5 % ширины каждая) второй версии картинки владельца:
+    // слева 10 % пустоты, справа 30 %.
+    const columns = [0, 0, 2, 5, 5, 5, 2, 2, 4, 2, 6, 3, 2, 2, 1, 1, 1, 0, 0, 0]
+
+    expect(contentBounds(columns)).toEqual({ left: 0.1, right: 0.7 })
+  })
+
+  it('равномерный рисунок считается контентом целиком', () => {
+    expect(contentBounds([6, 7, 8, 9, 8, 7])).toEqual({ left: 0, right: 1 })
+  })
+
+  it('нет данных или совсем чёрный кадр — весь кадр контент', () => {
+    expect(contentBounds([])).toEqual({ left: 0, right: 1 })
+    expect(contentBounds(null)).toEqual({ left: 0, right: 1 })
+    expect(contentBounds([0, 0, 0, 0])).toEqual({ left: 0, right: 1 })
   })
 })
 
@@ -432,21 +469,25 @@ describe('каркас: свайп подключён и учтён контра
     )
     expect(background).toContain('z-index: -1')
     expect(background).toContain('pointer-events: none')
-    // Картинка заполняет экран целиком, а «лишняя» ширина кадра — запас для хода по горизонтали.
-    expect(background).toContain('object-fit: cover')
-    expect(background).toContain('height: 100%')
+    // Размеры картинки приходят из раскладки в px: элемент шире экрана — иначе сдвиг оголял бы
+    // край (у `<img>` с `object-fit` содержимое обрезается по границам элемента).
+    expect(background).toContain('ref="box"')
+    expect(background).toContain('layout.value.width')
+    expect(background).toContain('max-width: none')
+    expect(background).not.toMatch(/^\s*object-fit:/m)
     // Движения фона: параллакс при листании и кроссфейд при смене профиля.
     expect(background).toContain('translate3d(')
     expect(background).toContain('lc-appbg-fade-enter-active')
   })
 
-  it('движение фона считается от пропорций картинки, а не задано жёстко', () => {
-    // Ход может быть только там, где есть свободное место по вертикали (полоса сверху/снизу
-    // у широкого кадра или его скрытые края у высокого), поэтому амплитуда — вычисляемая.
+  it('движение фона считается от размеров слоя и контента рисунка, а не задано жёстко', () => {
+    // Вьюпорт меряем в DOM (а не берём из `$q.screen`), границы контента — из самого рисунка.
     expect(background).toContain('backgroundLayout({')
     expect(background).toContain('@load="onImageLoad"')
-    expect(background).toContain('viewportWidth: $q.screen.width')
+    expect(background).toContain('viewportWidth: boxSize.value.width')
     expect(background).toContain('imageWidth: natural.value?.width')
+    expect(background).toContain('content: content.value')
+    expect(background).toContain('contentBounds(columns)')
   })
 
   it('«стеклянные» поверхности включаются только вместе с картинкой', () => {

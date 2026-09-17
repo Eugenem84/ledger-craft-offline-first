@@ -19,9 +19,9 @@
 // Компонент намеренно «глупый»: URL считает `services/backgroundAssets.js`, арифметику —
 // `utils/tabSwipe.js`, а «стеклянный» вид поверхностей включает класс `.lc-has-bg`
 // в `layouts/MainLayout.vue`. Здесь только замер картинки, разметка и CSS.
-import { computed, ref } from 'vue'
-import { useQuasar } from 'quasar'
-import { backgroundLayout } from 'src/utils/tabSwipe.js'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { backgroundLayout, contentBounds } from 'src/utils/tabSwipe.js'
+import { logger } from 'src/utils/logger'
 
 const props = defineProps({
   /** URL картинки активного профиля; пусто — фон не рисуется. */
@@ -30,36 +30,110 @@ const props = defineProps({
   offset: { type: Number, default: 0 },
 })
 
-const $q = useQuasar()
+/** Слой фона: его размер и есть вьюпорт — меряем в DOM, а не берём из `$q.screen`. */
+const box = ref(null)
+const boxSize = ref({ width: 0, height: 0 })
+
+/** Натуральный размер картинки (из `@load`) и границы её контента. */
+const natural = ref(null)
+const content = ref(null)
+
+function measureBox() {
+  const rect = box.value?.getBoundingClientRect?.()
+
+  if (rect && rect.width > 0 && rect.height > 0) {
+    boxSize.value = { width: rect.width, height: rect.height }
+  }
+}
 
 /**
- * Натуральный размер картинки — из `@load`. Без него неизвестен запас для параллакса:
- * у квадрата он больше, чем нужно, у кадра ровно 9:20 — нулевой (см. `backgroundLayout`).
+ * Где в картинке «непустая» часть: рисуем её на маленьком canvas (48×48) и берём границы по
+ * колонкам. Нужно, чтобы окно обзора не заезжало в пустые поля кадра — иначе на экране
+ * появлялась чёрная полоса и выглядело так, будто картинка «обрезана».
  */
-const natural = ref(null)
+function measureContent(image) {
+  try {
+    const size = 48
+    const canvas = document.createElement('canvas')
+
+    canvas.width = size
+    canvas.height = size
+
+    const ctx = canvas.getContext('2d', { willReadFrequently: true })
+    if (!ctx) return null
+
+    ctx.drawImage(image, 0, 0, size, size)
+
+    const { data } = ctx.getImageData(0, 0, size, size)
+    const columns = []
+
+    for (let x = 0; x < size; x += 1) {
+      let sum = 0
+
+      for (let y = 0; y < size; y += 1) {
+        const p = (y * size + x) * 4
+
+        sum += 0.2126 * data[p] + 0.7152 * data[p + 1] + 0.0722 * data[p + 2]
+      }
+
+      columns.push(sum / size)
+    }
+
+    return contentBounds(columns)
+  } catch {
+    // Картинка не далась (canvas недоступен) — работаем как раньше: считаем контентом весь кадр.
+    return null
+  }
+}
+
+/** Размеры и позиция картинки в px: элемент шире экрана, края скрыты за вьюпортом. */
+const layout = computed(() =>
+  backgroundLayout({
+    viewportWidth: boxSize.value.width,
+    viewportHeight: boxSize.value.height,
+    imageWidth: natural.value?.width,
+    imageHeight: natural.value?.height,
+    content: content.value,
+    offset: props.offset,
+  }),
+)
+
+const imageStyle = computed(() => ({
+  width: `${layout.value.width}px`,
+  height: `${layout.value.height}px`,
+  left: `${layout.value.left}px`,
+  top: `${layout.value.top}px`,
+  transform: `translate3d(${layout.value.shiftX}px, 0, 0)`,
+}))
 
 function onImageLoad(event) {
   const image = event?.target
   if (!image) return
 
   natural.value = { width: image.naturalWidth, height: image.naturalHeight }
+  content.value = measureContent(image)
+  measureBox()
+
+  // Геометрия фона в лог: по этим числам видно, сколько места нашлось для хода
+  // (в production-сборке `logger.log` молчит, в dev — помогает разбирать раскладку).
+  logger.log('[bg] фон собран', {
+    box: boxSize.value,
+    image: natural.value,
+    content: content.value,
+    layout: layout.value,
+  })
 }
 
-/** Сдвиг фона: от вьюпорта (реагирует на поворот экрана) и пропорций картинки. */
-const layout = computed(() =>
-  backgroundLayout({
-    viewportWidth: $q.screen.width,
-    viewportHeight: $q.screen.height,
-    imageWidth: natural.value?.width,
-    imageHeight: natural.value?.height,
-    offset: props.offset,
-  }),
-)
+onMounted(() => {
+  measureBox()
+  window.addEventListener('resize', measureBox)
+  window.addEventListener('orientationchange', measureBox)
+})
 
-const imageStyle = computed(() => ({
-  // Движение — по горизонтали: вкладки уходят в сторону, «дальний план» едет за ними.
-  transform: `translate3d(${layout.value.shiftX}px, 0, 0) scale(${layout.value.scale})`,
-}))
+onBeforeUnmount(() => {
+  window.removeEventListener('resize', measureBox)
+  window.removeEventListener('orientationchange', measureBox)
+})
 </script>
 
 <template>
@@ -69,7 +143,7 @@ const imageStyle = computed(() => ({
     чёрного фона `body`. `pointer-events: none` — слой не перехватывает касания, свайп
     по вкладкам работает поверх него.
   -->
-  <div v-if="url" class="lc-appbg" aria-hidden="true">
+  <div v-if="url" ref="box" class="lc-appbg" aria-hidden="true">
     <Transition name="lc-appbg-fade" appear>
       <img
         :key="url"
@@ -95,15 +169,14 @@ const imageStyle = computed(() => ({
 .lc-appbg__image {
   position: absolute;
   /*
-    Картинка заполняет экран целиком: `cover` растягивает кадр так, чтобы закрыть вьюпорт, а
-    «лишняя» ширина (у квадрата на портретном экране — по 28 % с каждой стороны) остаётся
-    запасом для движения по горизонтали (см. `backgroundLayout`). Что за вьюпортом — срезает
-    `.lc-appbg` (`overflow: hidden`).
+    Размеры и позиция приходят из раскладки в px (`backgroundLayout`): элемент **шире экрана**,
+    поэтому его края скрыты за вьюпортом и сдвиг показывает продолжение рисунка. Так же это
+    лечит главную ловушку: у `<img>` с `object-fit: cover` содержимое обрезается по границам
+    элемента, и «запас» существовал бы только на бумаге — при сдвиге уехавший край обнажал
+    чёрный фон (живой прогон 17.09.2026: «картинка срезана по краям»).
   */
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
+  max-width: none;
+  max-height: none;
   transition: transform 0.28s cubic-bezier(0.4, 0, 0.2, 1);
   will-change: transform;
 }

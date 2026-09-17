@@ -20,32 +20,27 @@
 export const SWIPE_EDGE_GUARD = 24
 
 /**
- * Параллакс фона: картинка заполняет экран целиком (`cover`) и при листании едет **по
- * горизонтали** — вкладки уходят в сторону, «дальний план» отстаёт.
+ * Параллакс фона: картинка заполняет экран целиком и при листании едет **по горизонтали**.
  *
- * История правки (17.09.2026). Сначала жалоба владельца «по горизонтали картинка начинается не
- * от края до края, она почему то обрезается слева и справа» была понята буквально — «не резать
- * бока» — и фон сделали ровно по ширине экрана, полосой в центре. На живом прогоне выяснилось,
- * что понято было неверно: «картинка должна ездить по горизонтали конечно же при свайпах влево
- * и вправо. И она должна покрывать весь экран конечно же, а не частично». Поэтому вернулись к
- * заполнению экрана, а запас для хода берём из «лишней» ширины кадра: у квадрата на портретном
- * экране её очень много (по 28 % с каждой стороны — они и есть запас), у кадра ровно в
- * пропорциях экрана запаса нет, и он получает небольшое увеличение.
+ * ⚠️ Главная техническая тонкость (живой прогон 17.09.2026, дефект «картинка срезана по краям,
+ * а за краями должно быть продолжение»): у `<img>` с `object-fit: cover` содержимое
+ * **обрезается по границам самого элемента**, поэтому «запас» существует только если элемент
+ * шире вьюпорта. Пока элемент был размером во вьюпорт, сдвиг уводил его край и на экране
+ * появлялась чёрная полоса. Поэтому раскладка теперь возвращает явные размеры и позицию
+ * картинки в px: элемент шире экрана, его края скрыты за вьюпортом (`.lc-appbg` → `overflow:
+ * hidden`), и сдвиг показывает продолжение картинки, а не пустоту.
  *
- *   • `BACKGROUND_SHIFT_MIN` — минимальный ход, % ширины экрана (ради него и добавляется
- *     увеличение, если своего запаса у кадра нет) — иначе сдвиг не читается как параллакс;
- *   • `BACKGROUND_SHIFT_MAX` — предел хода, % ширины экрана (дальше картинку «уносит»);
- *   • `BACKGROUND_SLACK_USAGE` — какую долю собственного запаса кадра используем (остаток
- *     гарантирует, что край картинки не оголится).
+ * Ещё две тонкости, оттуда же:
+ *   • окно обзора центрируется по **самому рисунку**, а не по кадру: у картинок бывают широкие
+ *     пустые поля (у `bike.webp` контент занимает 10–70 % ширины), и центрирование по кадру
+ *     показывало пустоту сбоку;
+ *   • ход ограничен контентом рисунка (`contentBounds`): окно не заезжает в пустые поля, иначе
+ *     на экране появляется чёрная полоса — это и выглядело как «срезано».
  */
-export const BACKGROUND_SHIFT_MIN = 10
-export const BACKGROUND_SHIFT_MAX = 24
-export const BACKGROUND_SLACK_USAGE = 0.8
-
-/** `-0` — валидный JavaScript, но в CSS-строку попадёт `-0.00%`, а `Object.is` на нём спотыкается. */
-function normalizeZero(value) {
-  return value === 0 ? 0 : value
-}
+export const BACKGROUND_SHIFT_MAX = 25
+export const BACKGROUND_SHIFT_MIN = 8
+export const BACKGROUND_CONTENT_INSET = 0.85
+export const BACKGROUND_CONTENT_THRESHOLD = 0.5
 
 /**
  * Индекс вкладки по текущему пути.
@@ -150,35 +145,66 @@ export function backgroundOffset(index, count) {
 }
 
 /**
- * Раскладка фона: насколько увеличить картинку и на сколько её сдвинуть по горизонтали.
+ * Границы «непустой» части рисунка по колонкам (доли 0..1 от ширины).
  *
- * Параллакс устроен так: картинка закрывает вьюпорт целиком (`object-fit: cover`), поэтому
- * «лишняя» ширина картинки (когда она шире пропорций экрана — как квадрат на портретном
- * телефоне) и есть запас, внутри которого можно двигать картинку, не оголяя край. Вкладки
- * уходят в сторону — картинка едет за ними, но меньше: «дальний план» отстаёт.
+ * Нужны, чтобы фон не заезжал в пустые поля кадра: у `bike.webp` контент занимает 10–70 % ширины,
+ * и как только окно обзора заходило за границу, на экране появлялась чёрная полоса — это
+ * выглядело как «картинка обрезана, а продолжения нет» (живой прогон 17.09.2026).
  *
- * Отсюда две величины:
- *   • `scale` — дополнительное увеличение. Нужно только если своего запаса у картинки нет
- *     (кадр ровно в пропорциях экрана): тогда картинку приходится чуть увеличить, чтобы сдвиг
- *     вообще был возможен. Квадрат увеличивать не нужно — иначе теряется и резкость, и часть
- *     композиции;
- *   • `shiftX` — сдвиг по X, px. Берётся доля фактического запаса (`BACKGROUND_SLACK_USAGE`),
- *     но не меньше `BACKGROUND_SHIFT_MIN` (иначе параллакса не видно) и не больше
- *     `BACKGROUND_SHIFT_MAX` (иначе «уносит»).
+ * Порог относительный (`средняя × BACKGROUND_CONTENT_THRESHOLD`): картинки бывают очень тёмными
+ * — у `bike.webp` контент это 2…6 из 255, и абсолютный порог отрезал бы вообще всё.
+ *
+ * @param {number[]} columns средняя яркость каждой колонки (0..255), слева направо
+ * @returns {{ left: number, right: number }} доли ширины; без данных — весь кадр (0..1)
+ */
+export function contentBounds(columns) {
+  const values = Array.isArray(columns) ? columns.filter((v) => Number.isFinite(v)) : []
+
+  if (values.length === 0) return { left: 0, right: 1 }
+
+  const mean = values.reduce((sum, value) => sum + value, 0) / values.length
+  // Нижняя граница порога — 1.5 из 255: совсем тёмные пиксели (1 — это почти чистый чёрный)
+  // контентом не считаем, иначе поля кадра «прирастают» и ход получается шире рисунка.
+  const threshold = Math.max(1.5, mean * BACKGROUND_CONTENT_THRESHOLD)
+  const isContent = (value) => value >= threshold
+
+  const first = values.findIndex(isContent)
+  if (first < 0) return { left: 0, right: 1 }
+
+  let last = values.length - 1
+
+  while (last > first && !isContent(values[last])) last -= 1
+
+  return { left: first / values.length, right: (last + 1) / values.length }
+}
+
+const clamp01 = (value) =>
+  Math.min(1, Math.max(0, Number.isFinite(Number(value)) ? Number(value) : 0))
+const clamp = (value, min, max) => Math.min(max, Math.max(min, value))
+const round2 = (value) => Number(value.toFixed(2))
+
+/**
+ * Раскладка фона: размеры и позиция картинки (px) плюс сдвиг по вкладкам.
+ *
+ * Картинка закрывает экран целиком (`cover`), её элемент **шире вьюпорта** — края скрыты за
+ * экраном, поэтому сдвиг показывает продолжение рисунка, а не пустоту (см. комментарий к
+ * константам). Окно обзора стоит на центре контента рисунка и ходит внутри него.
  *
  * @param {object} params
  * @param {number} params.viewportWidth ширина вьюпорта, px
  * @param {number} params.viewportHeight высота вьюпорта, px
  * @param {number} [params.imageWidth] натуральная ширина картинки, px
  * @param {number} [params.imageHeight] натуральная высота картинки, px
+ * @param {{ left: number, right: number }} [params.content] границы контента (`contentBounds`)
  * @param {number} [params.offset] положение вкладки: -1 первая, 0 середина, +1 последняя
- * @returns {{ scale: number, shiftX: number }} увеличение (≥1) и сдвиг по X, px
+ * @returns {{ width: number, height: number, left: number, top: number, shiftX: number }}
  */
 export function backgroundLayout({
   viewportWidth,
   viewportHeight,
   imageWidth,
   imageHeight,
+  content,
   offset = 0,
 }) {
   const vw = Number(viewportWidth)
@@ -187,32 +213,49 @@ export function backgroundLayout({
   const ih = Number(imageHeight)
   const position = Number.isFinite(Number(offset)) ? Number(offset) : 0
 
-  // Пока размер картинки не измерен (или данные мусорные) — экран заполняем, но не двигаем:
-  // сдвиг считать не из чего.
-  const still = { scale: 1, shiftX: 0 }
+  const still = { width: 0, height: 0, left: 0, top: 0, shiftX: 0 }
 
   if (!(vw > 0) || !(vh > 0) || !(iw > 0) || !(ih > 0)) return still
 
-  // `cover`: картинка масштабируется так, чтобы закрыть экран целиком. Лишняя ширина кадра
-  // (у квадрата на портретном экране её очень много) — это и есть запас для хода.
+  // `cover`: картинка закрывает экран целиком — по ширине или по высоте, что больше.
   const coverScale = Math.max(vw / iw, vh / ih)
-  const renderedWidth = iw * coverScale
-  const slack = Math.max(0, (renderedWidth - vw) / 2)
+  const coverWidth = iw * coverScale
+  const coverHeight = ih * coverScale
+
+  // Границы контента: доли → px. Мусор и отсутствие данных = весь кадр.
+  const rawLeft = clamp01(content?.left)
+  const rawRight = clamp01(content?.right ?? 1)
+  const share = rawRight > rawLeft ? rawRight - rawLeft : 1
+  const contentShare = rawRight > rawLeft ? rawLeft : 0
+
+  // Сколько места есть для хода внутри контента (окно обязано остаться в его границах).
+  const minRoom = (BACKGROUND_SHIFT_MIN / 100) * vw
+  const contentRoom = Math.max(0, (share * coverWidth - vw) / 2)
+
+  // Своего запаса нет (контент ровно в ширину экрана) — минимальное увеличение, ровно чтобы
+  // ход появился: края кадра и так уходят за экран, а движения без запаса не бывает.
+  const scale = contentRoom >= minRoom ? 1 : Math.max(1, (vw + 2 * minRoom) / (share * coverWidth))
+
+  const width = coverWidth * scale
+  const height = coverHeight * scale
+
+  // Центр окна — центр контента, но так, чтобы картинка всё равно закрывала экран.
+  const contentCenter = (contentShare + share / 2) * width
+  const center = clamp(contentCenter, vw / 2, width - vw / 2)
+  const imageRoom = Math.max(0, Math.min(center - vw / 2, width - vw / 2 - center))
 
   const amplitude = Math.min(
-    BACKGROUND_SHIFT_MAX,
-    Math.max(BACKGROUND_SHIFT_MIN, ((slack * BACKGROUND_SLACK_USAGE) / vw) * 100),
+    (BACKGROUND_SHIFT_MAX / 100) * vw,
+    Math.max(0, (share * width - vw) / 2) * BACKGROUND_CONTENT_INSET,
+    imageRoom,
   )
 
-  // Увеличение — только если своего запаса на минимальный ход не хватает (кадр ровно в
-  // пропорциях экрана). Тогда оно ровно такое, чтобы ход поместился без оголённого края.
-  const scale = Math.max(1, (vw * (1 + (2 * amplitude) / 100)) / renderedWidth)
-
   return {
-    scale: Number(scale.toFixed(4)),
-    // Знак: на первой вкладке картинка сдвинута вправо (окно обзора — у её левого края),
-    // на последней — влево. Вкладки уходят в сторону, «дальний план» едет за ними.
-    shiftX: Number(normalizeZero((-position * amplitude * vw) / 100).toFixed(2)),
+    width: round2(width),
+    height: round2(height),
+    left: round2(vw / 2 - center),
+    top: round2((vh - height) / 2),
+    shiftX: round2(-position * amplitude),
   }
 }
 
