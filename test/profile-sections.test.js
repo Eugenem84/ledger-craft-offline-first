@@ -83,12 +83,12 @@ describe('10.3 Доработка UI: тумблеры разделов и ка�
   const catalog = read('src/pages/CatalogPage.vue')
 
   it('в настройках разделы включаются тумблерами, а не показываются read-only', () => {
-    expect(settings).toContain('setDraftFeature')
+    expect(settings).toContain('setFeature')
     expect(settings).toContain('FEATURE_HINTS')
     expect(settings).toMatch(/v-for="\(label, flag\) in FEATURE_LABELS"/)
-    expect(settings).toMatch(/<q-toggle[\s\S]{0,200}:model-value="draftFeatures\[flag\]/)
-    expect(settings).toContain('@update:model-value="value => setDraftFeature(flag, value)"')
-    expect(settings).not.toContain("draftFeatures[flag] ? 'включено' : 'скрыто'")
+    expect(settings).toMatch(/<q-toggle[\s\S]{0,200}:model-value="activeFeatures\[flag\]/)
+    expect(settings).toContain('@update:model-value="value => setFeature(flag, value)"')
+    expect(settings).not.toContain("activeFeatures[flag] ? 'включено' : 'скрыто'")
   })
 
   it('в каталоге нет старта из шаблона', () => {

@@ -391,10 +391,10 @@ describe('17.09 отчёт клиенту: UI', () => {
     expect(panel).toContain('buildOrderReportText')
     expect(panel).toContain('lc-report-preview')
 
-    // Панель подключена именно к вкладке «отчёты» окна настроек и пишет черновики.
+    // Панель подключена именно к вкладке «отчёты» окна настроек: пишет настройки сразу.
     expect(dialog).toContain('ReportSettingsPanel')
-    expect(dialog).toMatch(/v-model:format="draftReportFormat"/)
-    expect(dialog).toMatch(/v-model:content="draftReportContent"/)
+    expect(dialog).toMatch(/v-model:format="reportFormat"/)
+    expect(dialog).toMatch(/v-model:content="reportContent"/)
   })
 
   it('подсказка кнопки не обещает только ссылку', () => {

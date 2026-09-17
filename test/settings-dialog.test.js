@@ -5,12 +5,13 @@
 //   • из таббара ушла вкладка «ещё» — вместо неё узкая кнопка-шестерёнка без подписи
 //     («сменить название, лучше без названия просто шестерёнку», «сделать уже кнопку, чтоб
 //     случайно не тыкать»), а на настройки нельзя попасть свайпом;
-//   • настройки — модальное окно на ≈90 % экрана с кнопками «Сохранить»/«Отмена»;
+//   • настройки — окно на ≈90 % экрана **без кнопок «Сохранить»/«Отмена»**: правка владельца
+//     «кнопки отмена и сохранить вообще не надо» — настройка применяется в момент изменения;
 //   • содержимое разложено по вкладкам: специализация, разделы профиля, отчёты, обновление,
 //     данные и синхронизация, поддержка, аккаунт, разработка.
 //
 // Структурные проверки (в проекте нет @vue/test-utils — та же практика, что в
-// `profile-sections.test.js`), плюс поведение «настройки пишутся только по „Сохранить“».
+// `profile-sections.test.js`), плюс поведение «настройки применяются сразу».
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -29,10 +30,7 @@ const dialog = read('src/components/settings/SettingsDialog.vue')
 const layout = read('src/layouts/MainLayout.vue')
 const routes = read('src/router/routes.js')
 
-/** Срез исходника между двумя маркерами (для проверок «где именно что вызывается»). */
-const slice = (from, to) => dialog.slice(dialog.indexOf(from), dialog.indexOf(to))
-
-describe('окно настроек: вкладки, размер, «Сохранить»/«Отмена»', () => {
+describe('окно настроек: вкладки, размер, закрытие', () => {
   it('вкладки идут в заказанном владельцем порядке и с его подписями', () => {
     const expected = [
       "name: 'specialization', label: 'специализация'",
@@ -70,26 +68,35 @@ describe('окно настроек: вкладки, размер, «Сохра�
     }
   })
 
-  it('окно большое (≈90 % экрана) и модальное', () => {
+  it('окно большое (≈90 % экрана) и закрывается без кнопок сохранения', () => {
     expect(dialog).toMatch(/\.lc-settings\s*\{[^}]*width: 92vw/)
     expect(dialog).toMatch(/\.lc-settings\s*\{[^}]*height: 90dvh/)
-    expect(dialog).toContain('persistent')
+
+    // Правка владельца 17.09.2026: «кнопки отмена и сохранить вообще не надо» — ни блока
+    // действий, ни `persistent` (закрыть можно крестиком или тапом по фону: терять нечего).
+    expect(dialog).not.toContain('q-card-actions')
+    expect(dialog).not.toContain('label="Отмена"')
+    expect(dialog).not.toContain('label="Сохранить"')
+    expect(dialog).not.toContain('persistent')
+    expect(dialog).toContain('@click="close"')
+
+    // Пояснение про кнопки тоже убрано из шапки окна.
+    expect(dialog).not.toContain('Изменения применяются кнопкой')
+
+    // Шапка и лента вкладок не прокручиваются вместе с содержимым.
+    expect(dialog).toContain('.lc-settings > .q-card__section')
+    expect(dialog).toMatch(/\.lc-settings__body\s*\{[^}]*flex: 1 1 auto/)
   })
 
-  it('кнопки «Сохранить» и «Отмена» видны на всех вкладках', () => {
-    expect(dialog).toContain('label="Отмена"')
-    expect(dialog).toContain('label="Сохранить"')
-    expect(dialog).toContain('@click="save"')
-    expect(dialog).toContain('@click="cancel"')
-
-    // Шапка, лента вкладок и кнопки не прокручиваются вместе с содержимым.
-    expect(dialog).toContain('.lc-settings > .q-card__actions')
-    expect(dialog).toMatch(/\.lc-settings__body\s*\{[^}]*flex: 1 1 auto/)
+  it('подписи и иконки вкладок мелкие, чтобы лента влезала целиком', () => {
+    expect(dialog).toMatch(/\.lc-settings__tabs \.q-tab__label\s*\{[^}]*font-size: 10px/)
+    expect(dialog).toMatch(/\.lc-settings__tabs \.q-icon\s*\{[^}]*font-size: 15px/)
+    expect(dialog).toMatch(/\.lc-settings__tabs \.q-tab\s*\{[^}]*min-height: 40px/)
   })
 })
 
-describe('настройки пишутся только по «Сохранить»', () => {
-  it('в черновиках лежат профиль, разделы, отчёт и режим разработчика', () => {
+describe('настройки применяются сразу — ни «Сохранить», ни «Отмена» не нужны', () => {
+  it('черновиков нет: значения читаются из хранилищ напрямую', () => {
     for (const marker of [
       'draftProfileId',
       'draftFeatures',
@@ -97,35 +104,50 @@ describe('настройки пишутся только по «Сохранит
       'draftReportContent',
       'draftDevMode',
     ]) {
-      expect(dialog, `нет черновика ${marker}`).toContain(marker)
+      expect(dialog, `остался черновик ${marker}`).not.toContain(marker)
     }
 
-    // Черновики пересобираются при каждом открытии окна — «Отмена» не оставляет следов.
-    expect(dialog).toContain('resetDrafts')
+    for (const marker of ['const save =', 'const cancel =', 'const saving =']) {
+      expect(dialog, `остался ${marker}`).not.toContain(marker)
+    }
   })
 
-  it('«Сохранить» применяет черновики, «Отмена» — только закрывает окно', () => {
-    const save = slice('const save = async () => {', '// --- Обновление приложения')
-    const cancel = slice('const cancel = (', '// --- Сохранение')
+  it('профиль, разделы, отчёт и режим разработчика пишутся в момент изменения', () => {
+    // Профиль — computed с записью: выбор сразу меняет рабочий контекст.
+    expect(dialog).toMatch(/const selectedProfileId = computed\(\{/)
+    expect(dialog).toContain('await store.select(id)')
 
-    expect(save).toContain('setReportFormat(draftReportFormat.value)')
-    expect(save).toContain('setReportContent(draftReportContent.value)')
-    expect(save).toContain('setDevMode(draftDevMode.value)')
-    expect(save).toContain('store.setFeatures(target.id, draftFeatures.value)')
-    expect(save).toContain("emit('saved', { profileChanged })")
+    // Разделы профиля — тумблер пишет флаги текущего профиля (не теряя остальные).
+    expect(dialog).toMatch(
+      /await store\.setFeatures\(specialization\.id, \{ \.\.\.activeFeatures\.value, \[flag\]: value === true \}\)/
+    )
+    expect(dialog).toContain(':model-value="activeFeatures[flag] !== false"')
+    expect(dialog).toContain('@update:model-value="value => setFeature(flag, value)"')
 
-    expect(cancel).not.toContain('setReport')
-    expect(cancel).not.toContain('setDevMode')
-    expect(cancel).toContain('close()')
+    // Отчёт и режим разработчика — те же правила «настройка устройства».
+    expect(dialog).toMatch(/const reportFormat = computed\(\{/)
+    expect(dialog).toContain('set: value => setReportFormat(value)')
+    expect(dialog).toContain('set: value => setReportContent(value)')
+    expect(dialog).toContain('v-model:format="reportFormat"')
+    expect(dialog).toContain('v-model:content="reportContent"')
+
+    expect(dialog).toMatch(/const devMode = computed\(\{/)
+    expect(dialog).toContain('set: value => setDevMode(value)')
+    expect(dialog).toContain('<q-toggle v-model="devMode"')
+    expect(dialog).toContain('<component :is="DeveloperPanel" v-if="devMode" />')
   })
 
-  it('смена профиля в черновике подтягивает его разделы, а в БД уходит по «Сохранить»', () => {
-    expect(dialog).toMatch(/watch\(draftProfileId, id => \{/)
-    expect(dialog).toContain('if (profileChanged) await store.select(target.id)')
+  it('смена/добавление/архивация профиля сообщают каркасу, что контекст изменился', () => {
+    // Событие `saved` больше не «сохранение по кнопке», а «профиль применился»: каркас должен
+    // увести с раздела, который новым профилем скрыт.
+    expect(dialog.match(/emit\('saved', \{ profileChanged: true \}\)/g)).toHaveLength(3)
+    expect(dialog).toContain('emit(\'saved\', { profileChanged: true })')
   })
 
-  it('разделы не пишутся «на всякий случай»: сравнение с текущими флагами профиля', () => {
-    expect(dialog).toContain('sameFeatures(draftFeatures.value, resolveFeatures(target))')
+  it('при открытии сбрасываются только «детские» диалоги, а не настройки', () => {
+    expect(dialog).toContain('resetTemporaryUi')
+    expect(dialog).toContain('newProfileDialogOpen.value = false')
+    expect(dialog).toContain('restoreOpen.value = false')
   })
 })
 

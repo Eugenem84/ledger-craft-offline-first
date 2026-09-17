@@ -8,16 +8,17 @@
 //     кнопка-шестерёнка (`MainLayout.vue`), поэтому на настройки нельзя ни попасть свайпом,
 //     ни промахнуться пальцем по широкой вкладке (жалоба владельца: «сделать уже кнопку,
 //     чтоб случайно не тыкать»);
-//   • **окно большое** (≈90 % экрана) и с кнопками «Сохранить»/«Отмена»: всё, что относится
-//     к настройкам (профиль, разделы, отчёт, режим разработчика), живёт в **черновиках** и
-//     пишется только по «Сохранить» — «Отмена» закрывает окно без следов;
+//   • **окно большое** (≈90 % экрана) и **без кнопок сохранения**: правка владельца 17.09.2026
+//     («кнопки отмена и сохранить вообще не надо») — настройка применяется в момент изменения,
+//     как переключатель в карточке заказа: профиль, разделы профиля, формат и состав отчёта,
+//     режим разработчика пишутся сразу, поэтому терять при закрытии нечего. Закрывается окно
+//     крестиком или тапом по фону;
 //   • **разделы разложены по вкладкам**: специализация, разделы профиля, отчёты, обновление,
 //     данные и синхронизация, поддержка, аккаунт, разработка (раньше — одна длинная простыня).
 //
-// Исключение из «черновиков» — действия, а не настройки: добавить/архивировать/вернуть
-// профиль, синхронизировать, сделать бэкап, восстановиться из бэкапа, проверить обновление,
-// применить OTA-бандл, отправить отчёт об ошибке, выйти из аккаунта. Они делают работу сразу
-// (и показывают своё уведомление), иначе «Сохранить» пришлось бы нажимать после каждой.
+// Действия (а не настройки) выполняются так же сразу и показывают своё уведомление: добавить/
+// архивировать/вернуть профиль, синхронизировать, сделать бэкап, восстановиться из бэкапа,
+// проверить обновление, применить OTA-бандл, отправить отчёт об ошибке, выйти из аккаунта.
 //
 // Панели `q-tab-panel` объявлены здесь и лежат **прямыми детьми** `q-tab-panels` — иначе
 // Quasar не отрисует содержимое вкладок (ловушка описана в `docs/UI.md` §4). Содержимое
@@ -84,60 +85,83 @@ const update = useUpdateStore()
 const auth = useAuthStore()
 
 const tab = ref(SETTINGS_TABS[0].name)
-const saving = ref(false)
 
 /** Короткие уведомления внизу: сверху они спорят с шапкой (правка владельца 17.09.2026). */
 const notify = (type, message) => $q.notify({ type, message, position: 'bottom', timeout: 2200 })
 
-// --- Черновики настроек -------------------------------------------------------
-// Ничего из этого не пишется, пока не нажато «Сохранить»: именно ради этого окно и
-// получило кнопку «Отмена» (закрытие крестиком и «Отменой» — одно и то же).
-const draftProfileId = ref(null)
-const draftFeatures = ref({ ...resolveFeatures(null) })
-const draftReportFormat = ref(getReportFormat())
-const draftReportContent = ref(getReportContent())
-const draftDevMode = ref(devModeEnabled.value)
-
-const profileById = id => store.items.find(item => item.id === id) || null
-const activeSpecialization = computed(
-  () => profileById(draftProfileId.value) || store.getSelectedSpecialization
-)
+// --- Настройки применяются сразу ----------------------------------------------
+// Правка владельца 17.09.2026 (сразу после первого выката): «кнопки отмена и сохранить вообще
+// не надо» — значит, черновиков тоже быть не должно. Настройка срабатывает в момент изменения:
+// профиль переключается, разделы профиля, формат и состав отчёта, режим разработчика пишутся
+// в свои хранилища тут же. Гарантия та же, что у переключателя статуса в карточке заказа:
+// закрывать окно «нечего терять» — всё уже применено.
+const activeSpecialization = computed(() => store.getSelectedSpecialization)
+const activeFeatures = computed(() => resolveFeatures(store.getSelectedSpecialization))
 const archivedItems = computed(() => store.items.filter(item => item.archived))
 const profileOptions = computed(() =>
   store.activeItems.map(item => ({ value: item.id, label: item.name }))
 )
 
-/** Разделы профиля: тумблеры пишут черновик, в БД уходит по «Сохранить». */
-const setDraftFeature = (flag, value) => {
-  draftFeatures.value = { ...draftFeatures.value, [flag]: value === true }
-}
+/**
+ * Активный профиль: выбор сразу меняет рабочий контекст (заказы, клиенты, каталог) — тот же
+ * путь, что у переключателя в шапке. По событию `saved` каркас уводит с раздела, который новым
+ * профилем скрыт (иначе остался бы экран без данных).
+ */
+const selectedProfileId = computed({
+  get: () => store.selectedId,
+  set: async id => {
+    if (!id || id === store.selectedId) return
 
-const FEATURE_FLAGS = Object.keys(FEATURE_LABELS)
-const sameFeatures = (left, right) =>
-  FEATURE_FLAGS.every(flag => Boolean(left?.[flag]) === Boolean(right?.[flag]))
-
-/** Смена профиля в черновике подтягивает его разделы: у каждого профиля свои флаги. */
-watch(draftProfileId, id => {
-  draftFeatures.value = { ...resolveFeatures(profileById(id)) }
+    try {
+      await store.select(id)
+      emit('saved', { profileChanged: true })
+    } catch (error) {
+      logger.error('[Settings] Не удалось переключить профиль:', error)
+      notify('negative', 'Не удалось переключить профиль')
+    }
+  },
 })
 
 /**
- * Режим разработчика может выключить сама панель (у неё своя кнопка) — тогда черновик
- * не должен показывать «включено»: подтягиваем внешнее значение.
+ * Разделы профиля: тумблер пишет флаги текущего профиля (тот же JSON, что уезжает синком).
+ * Ставим ровно один флаг поверх текущих значений — остальные разделы не теряются.
  */
-watch(devModeEnabled, value => {
-  if (!value) draftDevMode.value = false
+const setFeature = async (flag, value) => {
+  const specialization = activeSpecialization.value
+  if (!specialization) return
+
+  try {
+    await store.setFeatures(specialization.id, { ...activeFeatures.value, [flag]: value === true })
+  } catch (error) {
+    logger.error('[Settings] Не удалось сохранить разделы профиля:', error)
+    notify('negative', 'Не удалось сохранить раздел')
+  }
+}
+
+/** Формат и состав отчёта — настройка устройства (`localStorage`), пишется сразу. */
+const reportFormat = computed({
+  get: () => getReportFormat(),
+  set: value => setReportFormat(value),
+})
+const reportContent = computed({
+  get: () => getReportContent(),
+  set: value => setReportContent(value),
+})
+
+/** Режим разработчика — флаг в `localStorage`; панель ниже читает это значение напрямую. */
+const devMode = computed({
+  get: () => devModeEnabled.value,
+  set: value => setDevMode(value),
 })
 
 // --- Открытие окна ------------------------------------------------------------
 
-const resetDrafts = () => {
-  draftProfileId.value = store.selectedId
-  draftFeatures.value = { ...resolveFeatures(store.getSelectedSpecialization) }
-  draftReportFormat.value = getReportFormat()
-  draftReportContent.value = getReportContent()
-  draftDevMode.value = devModeEnabled.value
-
+/**
+ * Временное состояние окна: диалоги-«дети» (выбор ниши, восстановление из бэкапа) не должны
+ * «всплывать» при повторном открытии настроек. Сами настройки сбрасывать нечего — они лежат в
+ * своих хранилищах и применяются сразу (см. блок выше).
+ */
+const resetTemporaryUi = () => {
   newProfilePreset.value = null
   newProfileDialogOpen.value = false
   restoreOpen.value = false
@@ -161,41 +185,6 @@ async function refreshSecondary() {
 }
 
 const close = () => emit('update:modelValue', false)
-
-/** «Отмена» и крестик: черновики просто выбрасываются. */
-const cancel = () => close()
-
-// --- Сохранение ---------------------------------------------------------------
-
-const save = async () => {
-  saving.value = true
-
-  try {
-    const target = profileById(draftProfileId.value)
-    const profileChanged = Boolean(target && target.id !== store.selectedId)
-
-    if (profileChanged) await store.select(target.id)
-
-    // Пишем разделы, только если они реально изменились: `setFeatures` — это ещё и
-    // операция в очереди синка, лишние записи «на всякий случай» там не нужны.
-    if (target && !sameFeatures(draftFeatures.value, resolveFeatures(target))) {
-      await store.setFeatures(target.id, draftFeatures.value)
-    }
-
-    setReportFormat(draftReportFormat.value)
-    setReportContent(draftReportContent.value)
-    setDevMode(draftDevMode.value)
-
-    notify('positive', 'Настройки сохранены')
-    close()
-    emit('saved', { profileChanged })
-  } catch (error) {
-    logger.error('[Settings] Не удалось сохранить настройки:', error)
-    notify('negative', 'Не удалось сохранить настройки')
-  } finally {
-    saving.value = false
-  }
-}
 
 // --- Обновление приложения (Фазы 13/15) ---------------------------------------
 
@@ -372,8 +361,9 @@ const addProfile = async () => {
   try {
     await store.createFromPreset(newProfilePreset.value)
     newProfileDialogOpen.value = false
-    // Новый профиль сразу становится активным — черновик подтягивает его разделы.
-    draftProfileId.value = store.selectedId
+    // Новый профиль сразу становится активным (`createFromPreset` его выбирает), поэтому
+    // каркас должен проверить, что текущий раздел этим профилем не скрыт.
+    emit('saved', { profileChanged: true })
     notify('positive', 'Специализация добавлена')
   } catch (error) {
     logger.error('[Settings] Ошибка добавления специализации:', error)
@@ -393,7 +383,8 @@ const archiveProfile = async () => {
 
   try {
     await store.archive(specialization.id)
-    draftProfileId.value = store.selectedId
+    // После архивации активным становится другой профиль — проверяем доступность раздела.
+    emit('saved', { profileChanged: true })
     notify('positive', 'Профиль в архиве — его история сохранена')
   } catch (error) {
     logger.error('[Settings] Не удалось архивировать профиль:', error)
@@ -423,8 +414,7 @@ const signOut = async () => {
 //
 // Подписка на `modelValue` стоит **в конце setup** и с `immediate: true`: колбэк умеет
 // открыть окно сразу при монтировании (если родитель отрисовал его уже открытым), а ему
-// нужны `drafts`, `lastBackupAtValue` и `refreshFeedbackPending` — все они объявлены выше.
-// Без `immediate` окно, смонтированное открытым, показало бы пустые черновики.
+// нужны `lastBackupAtValue` и `refreshFeedbackPending` — оба объявлены выше.
 watch(
   () => props.modelValue,
   async value => {
@@ -434,7 +424,7 @@ watch(
       ? props.initialTab
       : SETTINGS_TABS[0].name
 
-    resetDrafts()
+    resetTemporaryUi()
     await refreshSecondary()
   },
   { immediate: true }
@@ -451,18 +441,12 @@ watch(
   <div class="lc-settings-root">
     <q-dialog
       :model-value="props.modelValue"
-      persistent
       @update:model-value="value => emit('update:modelValue', value)"
     >
       <q-card class="lc-settings">
-        <q-card-section class="row items-start no-wrap">
-          <q-icon name="settings" size="20px" class="lc-mute q-mr-sm q-mt-xs" />
-          <div class="col">
-            <div class="text-subtitle1">настройки</div>
-            <div class="text-caption lc-mute">
-              Изменения применяются кнопкой «Сохранить», «Отмена» их отбрасывает
-            </div>
-          </div>
+        <q-card-section class="row items-center no-wrap">
+          <q-icon name="settings" size="18px" class="lc-mute q-mr-sm" />
+          <div class="col text-subtitle1">настройки</div>
           <q-btn
             flat
             round
@@ -470,7 +454,7 @@ watch(
             icon="close"
             color="grey-6"
             aria-label="закрыть настройки"
-            @click="cancel"
+            @click="close"
           />
         </q-card-section>
 
@@ -509,7 +493,7 @@ watch(
             <LcSectionCard title="рабочий профиль" icon="badge">
               <div class="q-gutter-y-sm">
                 <q-select
-                  v-model="draftProfileId"
+                  v-model="selectedProfileId"
                   :loading="store.loading"
                   :options="profileOptions"
                   label="Переключить профиль"
@@ -520,7 +504,7 @@ watch(
                   color="secondary"
                 />
                 <div class="text-caption lc-mute">
-                  Профиль сменится по кнопке «Сохранить» — разделы ниже тоже.
+                  Профиль переключается сразу — разделы ниже тоже.
                 </div>
 
                 <q-separator dark class="q-my-sm" />
@@ -578,13 +562,13 @@ watch(
             </LcSectionCard>
           </q-tab-panel>
 
-          <!-- 2. Разделы профиля: тумблеры пишут черновик, в БД уходят по «Сохранить». -->
+          <!-- 2. Разделы профиля: тумблер пишет флаги профиля сразу. -->
           <q-tab-panel name="sections" class="q-pa-md">
             <LcSectionCard title="разделы профиля" icon="tune">
               <div class="q-gutter-y-sm">
                 <div class="text-caption lc-mute">
-                  Включите разделы, которые нужны этой специализации. Применяется по кнопке
-                  «Сохранить» и синхронизируется с сервером.
+                  Включите разделы, которые нужны этой специализации. Применяется сразу и
+                  синхронизируется с сервером.
                 </div>
 
                 <div
@@ -597,10 +581,10 @@ watch(
                     <div class="text-caption lc-mute">{{ FEATURE_HINTS[flag] }}</div>
                   </div>
                   <q-toggle
-                    :model-value="draftFeatures[flag] !== false"
+                    :model-value="activeFeatures[flag] !== false"
                     color="secondary"
                     :disable="!activeSpecialization"
-                    @update:model-value="value => setDraftFeature(flag, value)"
+                    @update:model-value="value => setFeature(flag, value)"
                   />
                 </div>
 
@@ -613,10 +597,7 @@ watch(
 
           <!-- 3. Отчёты: формат (ссылка / текст) и состав с живым образцом. -->
           <q-tab-panel name="reports" class="q-pa-md">
-            <ReportSettingsPanel
-              v-model:format="draftReportFormat"
-              v-model:content="draftReportContent"
-            />
+            <ReportSettingsPanel v-model:format="reportFormat" v-model:content="reportContent" />
           </q-tab-panel>
 
           <!-- 4. Обновление: своя версия, проверка, APK и OTA веб-слоя. -->
@@ -796,34 +777,17 @@ watch(
                 <div class="col">
                   <div class="lc-muted">Режим разработчика</div>
                   <div class="text-caption lc-mute">
-                    Логи, диагностика и очередь синка. Выбор запоминается на устройстве по кнопке
-                    «Сохранить» и работает даже в боевой сборке.
+                    Логи, диагностика и очередь синка. Включается сразу и запоминается на
+                    устройстве — работает даже в боевой сборке.
                   </div>
                 </div>
-                <q-toggle v-model="draftDevMode" color="secondary" />
+                <q-toggle v-model="devMode" color="secondary" />
               </div>
             </LcSectionCard>
 
-            <component :is="DeveloperPanel" v-if="draftDevMode" />
+            <component :is="DeveloperPanel" v-if="devMode" />
           </q-tab-panel>
         </q-tab-panels>
-
-        <q-separator dark />
-
-        <!-- Кнопки окна: «Отмена» выбрасывает черновики, «Сохранить» пишет их. -->
-        <q-card-actions align="right" class="q-pa-md">
-          <q-btn flat no-caps color="grey-5" label="Отмена" @click="cancel" />
-          <q-btn
-            unelevated
-            no-caps
-            color="secondary"
-            text-color="black"
-            icon="check"
-            label="Сохранить"
-            :loading="saving"
-            @click="save"
-          />
-        </q-card-actions>
       </q-card>
     </q-dialog>
 
@@ -917,15 +881,14 @@ watch(
   flex-direction: column;
 }
 
-/* Шапка, лента вкладок и кнопки не сжимаются: прокручивается только содержимое вкладки. */
+/* Шапка и лента вкладок не сжимаются: прокручивается только содержимое вкладки. */
 .lc-settings > .q-card__section,
-.lc-settings > .q-tabs,
-.lc-settings > .q-card__actions {
+.lc-settings > .q-tabs {
   flex: 0 0 auto;
 }
 
 /* Тело окна — flex-контейнер: единственная отрисованная панель занимает всю высоту, а
-   прокручивается она сама (заголовок и кнопки «Сохранить»/«Отмена» остаются на месте). */
+   прокручивается она сама (шапка с крестиком и лента вкладок остаются на месте). */
 .lc-settings__body {
   flex: 1 1 auto;
   min-height: 0;
@@ -938,20 +901,21 @@ watch(
   overflow-y: auto;
 }
 
-/* Восемь вкладок: подписи мелкие, как в таббаре, чтобы в ленту влезало больше разделов,
-   а до дальних помогают доехать стрелки (`mobile-arrows` + `outside-arrows`). */
+/* Восемь вкладок: подписи и иконки мелкие (правка владельца 17.09.2026 — «название вкладок и
+   иконки помельче»), поэтому в ленту влезает больше разделов, а до дальних помогают доехать
+   стрелки (`mobile-arrows` + `outside-arrows`). */
 .lc-settings__tabs .q-tab {
-  min-height: 46px;
-  padding: 4px 10px;
+  min-height: 40px;
+  padding: 2px 7px;
 }
 
 .lc-settings__tabs .q-tab__label {
-  font-size: 11px;
+  font-size: 10px;
   letter-spacing: 0.02em;
 }
 
 .lc-settings__tabs .q-icon {
-  font-size: 18px;
+  font-size: 15px;
 }
 
 @media (max-width: 599px) {

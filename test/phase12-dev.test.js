@@ -253,13 +253,13 @@ describe('12.4/12.5 UI: настройки и dev-панель', () => {
   })
 
   it('режим разработчика включается тумблером, панель грузится лениво и по флагу', () => {
-    // Тумблер пишет черновик окна настроек: в storage флаг уходит по «Сохранить»
-    // (правка владельца 17.09.2026 — «Сохранить»/«Отмена» вместо мгновенных записей).
-    expect(page).toContain('draftDevMode')
-    expect(page).toContain('<q-toggle v-model="draftDevMode"')
+    // Тумблер пишет флаг сразу (правка владельца 17.09.2026: «кнопки отмена и сохранить вообще
+    // не надо» — настройки применяются в момент изменения), а панель — ленивый чанк.
+    expect(page).toContain('devMode')
+    expect(page).toContain('<q-toggle v-model="devMode"')
     expect(page).toContain("import('src/components/dev/DeveloperPanel.vue')")
     expect(page).not.toMatch(/import\s+DeveloperPanel\s+from/)
-    expect(page).toContain('<component :is="DeveloperPanel" v-if="draftDevMode" />')
+    expect(page).toContain('<component :is="DeveloperPanel" v-if="devMode" />')
   })
 
   it('добавление специализации — кнопкой с диалогом-селектором, а не селектором на странице', () => {
