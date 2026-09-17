@@ -16,7 +16,7 @@ feedback/
 
 ```bash
 # .env.local (в git не попадает):
-#   VITE_API_URL=https://dev.medovf2h.beget.tech/api
+#   VITE_API_URL=https://ledgercraft.dev.medovf2h.beget.tech/api
 #   FEEDBACK_PULL_TOKEN=<токен выгрузки с сервера>
 
 npm run feedback:pull                 # выгрузить новые отчёты → feedback/INBOX.md + feedback/inbox/*

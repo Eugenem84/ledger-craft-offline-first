@@ -17,7 +17,7 @@
 // сработает, и код, который должен быть вырезан в проде, останется в бандле:
 // именно так `mockApi.js` уезжал отдельным чанком.
 
-const DEFAULT_API_URL = 'https://dev.medovf2h.beget.tech/api'
+const DEFAULT_API_URL = 'https://ledgercraft.dev.medovf2h.beget.tech/api'
 
 export const API_URL =
   import.meta.env.VITE_API_URL || process.env.VITE_API_URL || DEFAULT_API_URL

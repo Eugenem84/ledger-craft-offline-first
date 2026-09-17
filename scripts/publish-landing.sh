@@ -18,7 +18,7 @@
 # ⚠️ prod-VPS ещё не поднят (задача 11.12) — боевой выкат станет возможен после него.
 #
 # Примеры:
-#   scripts/publish-landing.sh                            # dev-VPS (по умолчанию), адрес из index.html
+#   scripts/publish-landing.sh                            # домашний контур (текущий dev)
 #   scripts/publish-landing.sh --dry-run                  # только показать, что уедет
 #   scripts/publish-landing.sh --server prod-vps \
 #     --url https://<prod-домен>/promo/ --api https://<prod-домен>/api
@@ -28,10 +28,14 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SOURCE_DIR="$ROOT_DIR/landing"
 
-REMOTE_ROOT="${LANDING_REMOTE_ROOT:-/var/www/LedgerCraftDocker03/public/promo}"
-SERVER="${LANDING_SERVER:-dev-vps}"
-URL="${LANDING_URL:-https://dev.medovf2h.beget.tech/promo/}"
+REMOTE_ROOT="${LANDING_REMOTE_ROOT:-/opt/projects/ledgercraft/backend/public/promo}"
+SERVER="${LANDING_SERVER:-ledgercraft-home}"
+URL="${LANDING_URL:-https://ledgercraft.dev.medovf2h.beget.tech/promo/}"
 API="${LANDING_API:-}"
+# Контур по умолчанию — домашний сервер (текущий dev). Для прежнего dev-VPS задайте
+# `--server dev-vps --remote-root /var/www/LedgerCraftDocker03/public/promo` и явные
+# `--url`/`--api`: для не-дефолтного сервера они обязательны (защита от чужого контура).
+DEV_SERVER="${LANDING_DEV_SERVER:-ledgercraft-home}"
 
 URL_EXPLICIT="${LANDING_URL:+1}"
 DRY_RUN=0
@@ -82,10 +86,10 @@ fail() { printf '\033[31m✖ %s\033[0m\n' "$1"; exit 1; }
 [ -f "$SOURCE_DIR/index.html" ] || fail "В $SOURCE_DIR нет index.html"
 command -v rsync >/dev/null 2>&1 || fail 'Не найден rsync'
 
-# Не-dev контур: адрес проверки и адрес API обязаны быть заданы явно — иначе страница
-# уедет на боевой хост, а спрашивать версию и APK будет у dev (и проверка HTTP пойдёт
-# по dev-адресу, то есть промолчит).
-if [ "$SERVER" != 'dev-vps' ]; then
+# Не-дефолтный контур: адрес проверки и адрес API обязаны быть заданы явно — иначе страница
+# уедет на чужой хост, а спрашивать версию и APK будет у контура по умолчанию (и проверка HTTP
+# пойдёт по чужому адресу, то есть промолчит).
+if [ "$SERVER" != "$DEV_SERVER" ]; then
   [ "$URL_EXPLICIT" = '1' ] || fail "Для контура '$SERVER' задайте адрес страницы: --url https://<домен>/promo/"
   [ -n "$API" ] || fail "Для контура '$SERVER' задайте адрес API: --api https://<домен>/api"
 fi
@@ -120,6 +124,12 @@ if [ "$DRY_RUN" = "1" ]; then
   step 'Dry-run: копирование пропущено'
   exit 0
 fi
+
+# Права: rsync сохраняет их с источника, а промежуточный staging-каталог у `--api`
+# создаётся через `mktemp -d` (режим 700). Тогда веб-сервер контура не может прочитать
+# каталог и отдаёт 403 — поэтому после выката выставляем «читаемо всем».
+step 'Права на опубликованные файлы'
+ssh "$SERVER" "chmod -R a+rX '$REMOTE_ROOT'"
 
 step 'Проверка HTTP'
 check() {

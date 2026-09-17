@@ -26,7 +26,7 @@
 #
 # Примеры:
 #   npm run release:web -- --channel dev --notes "Правки склада"   # соберёт и покажет команды публикации
-#   RELEASE_SERVER=dev-vps npm run release:web -- --channel dev    # соберёт и опубликует на dev
+#   RELEASE_SERVER=ledgercraft-home npm run release:web -- --channel dev   # домашний контур (текущий dev)
 #   npm run release:web -- --channel dev --dry-run                 # план без сборки
 #   npm run release:web -- --channel dev --version 1.8.15 --min-native-version 10
 #
@@ -38,9 +38,14 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 GRADLE_PROPERTIES="$ROOT_DIR/src-capacitor/android/gradle.properties"
 WWW_DIR="$ROOT_DIR/src-capacitor/www"
-# Каталог публикации по умолчанию — dev-VPS (у prod он другой и задаётся явно).
-REMOTE_DIR="${RELEASE_REMOTE_DIR:-/var/www/LedgerCraftDocker03}"
+# Каталог публикации по умолчанию — домашний контур (текущий dev); у prod он другой и задаётся явно.
+REMOTE_DIR="${RELEASE_REMOTE_DIR:-/opt/projects/ledgercraft/backend}"
 REMOTE_DIR_EXPLICIT="${RELEASE_REMOTE_DIR:+1}"
+# Чем запускать artisan на контуре. На домашнем сервере (текущий dev) PHP-расширения
+# (pdo_pgsql) есть только в контейнере, поэтому по умолчанию идём через `docker exec`.
+# Для прежнего dev-VPS (страховка/откат) задайте явно:
+#   RELEASE_SERVER=dev-vps RELEASE_REMOTE_DIR=/var/www/LedgerCraftDocker03 RELEASE_REMOTE_PHP=php
+REMOTE_PHP="${RELEASE_REMOTE_PHP:-docker exec ledgercraft-app php}"
 
 CHANNEL="${RELEASE_CHANNEL:-dev}"
 
@@ -134,7 +139,7 @@ esac
 ENV_LOCAL_URL="$(grep -E '^VITE_API_URL=' "$ROOT_DIR/.env.local" 2>/dev/null | head -1 | cut -d= -f2- || true)"
 ENV_URL="$(grep -E '^VITE_API_URL=' "$ROOT_DIR/.env" 2>/dev/null | head -1 | cut -d= -f2- || true)"
 
-DEV_API_URL="${DEV_API_URL:-https://dev.medovf2h.beget.tech/api}"
+DEV_API_URL="${DEV_API_URL:-https://ledgercraft.dev.medovf2h.beget.tech/api}"
 PROD_API_URL="${PROD_API_URL:-}" # боевой домен ещё не выбран — задача 11.12
 
 if [ -n "${RELEASE_API_URL:-}" ]; then
@@ -305,7 +310,7 @@ SHA256_BASE64="$(openssl dgst -sha256 -binary "$ZIP_PATH" | openssl base64 -A)"
 printf '\n  бандл:  %s\n  sha256: %s (hex — это значение сверяет клиент)\n  sha256: %s (base64, справочно)\n  размер: %s байт\n' \
   "$ZIP_PATH" "$SHA256_HEX" "$SHA256_BASE64" "$ZIP_SIZE"
 
-PUBLISH_CMD="php artisan app:publish-bundle storage/app/bundles/$ZIP_NAME"
+PUBLISH_CMD="$REMOTE_PHP artisan app:publish-bundle storage/app/bundles/$ZIP_NAME"
 # ⚠️ Опция — `--bundle-version`, а не `--version`: `--version` у Symfony Console глобальный
 # (печатает версию фреймворка и выходит, не доходя до команды) — публикация молча ничего не делала.
 PUBLISH_CMD="$PUBLISH_CMD --bundle-version=$(shell_quote "$BUNDLE_VERSION")"
@@ -324,7 +329,7 @@ if [ "$LOCAL_ONLY" = '1' ] || [ -z "$SERVER" ]; then
 Бандл собран. Публикация — командой (или запустите с --server user@host / RELEASE_SERVER):
 
   ssh $SERVER "mkdir -p $REMOTE_DIR/storage/app/bundles"
-  scp "$ZIP_PATH" $SERVER:$REMOTE_DIR/storage/app/bundles/
+  rsync -av "$ZIP_PATH" $SERVER:$REMOTE_DIR/storage/app/bundles/
   ssh $SERVER "cd $REMOTE_DIR && $PUBLISH_CMD"
 
 После публикации проверьте: curl $EXPECTED_API_URL/app-version — в ответе должен быть
@@ -337,7 +342,7 @@ fi
 # --- Публикация --------------------------------------------------------------
 step "Публикация на $SERVER"
 ssh "$SERVER" "mkdir -p '$REMOTE_DIR/storage/app/bundles'"
-scp "$ZIP_PATH" "$SERVER:$REMOTE_DIR/storage/app/bundles/"
+rsync -av "$ZIP_PATH" "$SERVER:$REMOTE_DIR/storage/app/bundles/"
 ssh "$SERVER" "cd '$REMOTE_DIR' && $PUBLISH_CMD"
 
 step 'Проверка /api/app-version'

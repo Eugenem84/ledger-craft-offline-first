@@ -30,7 +30,7 @@
 #
 # Примеры:
 #   npm run release:android -- --channel dev --notes "Чиним склад"     # соберёт и покажет команды публикации
-#   RELEASE_SERVER=dev-vps npm run release:android -- --channel dev    # соберёт и опубликует на dev
+#   RELEASE_SERVER=ledgercraft-home npm run release:android -- --channel dev   # домашний контур (текущий dev)
 #   npm run release:android -- --channel dev --dry-run                 # план без сборки (что и куда уедет)
 #   RELEASE_SERVER=prod-vps RELEASE_REMOTE_DIR=/var/www/<prod> \
 #     RELEASE_API_URL=https://<prod-домен>/api \
@@ -44,9 +44,14 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ANDROID_DIR="$ROOT_DIR/src-capacitor/android"
 GRADLE_PROPERTIES="$ANDROID_DIR/gradle.properties"
-# Каталог публикации по умолчанию — dev-VPS (пути контуров разные, для prod задаётся явно).
-REMOTE_DIR="${RELEASE_REMOTE_DIR:-/var/www/LedgerCraftDocker03}"
+# Каталог публикации по умолчанию — домашний контур (текущий dev); пути контуров разные, для prod задаётся явно.
+REMOTE_DIR="${RELEASE_REMOTE_DIR:-/opt/projects/ledgercraft/backend}"
 REMOTE_DIR_EXPLICIT="${RELEASE_REMOTE_DIR:+1}"
+# Чем запускать artisan на контуре. На домашнем сервере (текущий dev) PHP-расширения
+# (pdo_pgsql) есть только в контейнере, поэтому по умолчанию идём через `docker exec`.
+# Для прежнего dev-VPS (страховка/откат) задайте явно:
+#   RELEASE_SERVER=dev-vps RELEASE_REMOTE_DIR=/var/www/LedgerCraftDocker03 RELEASE_REMOTE_PHP=php
+REMOTE_PHP="${RELEASE_REMOTE_PHP:-docker exec ledgercraft-app php}"
 
 CHANNEL="${RELEASE_CHANNEL:-dev}"
 
@@ -143,7 +148,7 @@ step "Релиз: versionName $VERSION_NAME, versionCode $VERSION_CODE (конт
 ENV_LOCAL_URL="$(grep -E '^VITE_API_URL=' "$ROOT_DIR/.env.local" 2>/dev/null | head -1 | cut -d= -f2- || true)"
 ENV_URL="$(grep -E '^VITE_API_URL=' "$ROOT_DIR/.env" 2>/dev/null | head -1 | cut -d= -f2- || true)"
 
-DEV_API_URL="${DEV_API_URL:-https://dev.medovf2h.beget.tech/api}"
+DEV_API_URL="${DEV_API_URL:-https://ledgercraft.dev.medovf2h.beget.tech/api}"
 PROD_API_URL="${PROD_API_URL:-}" # боевой домен ещё не выбран — задача 11.12
 
 if [ -n "${RELEASE_API_URL:-}" ]; then
@@ -292,7 +297,7 @@ if [ "$CHANNEL" = 'prod' ]; then
 EOF
 fi
 
-PUBLISH_CMD="php artisan app:publish-apk storage/app/releases/$APK_NAME"
+PUBLISH_CMD="$REMOTE_PHP artisan app:publish-apk storage/app/releases/$APK_NAME"
 PUBLISH_CMD="$PUBLISH_CMD --version-code=$VERSION_CODE --version-name=$VERSION_NAME"
 PUBLISH_CMD="$PUBLISH_CMD --min-version=$MIN_VERSION"
 
@@ -310,7 +315,7 @@ if [ "$LOCAL_ONLY" = "1" ] || [ -z "$SERVER" ]; then
 Релиз собран. Публикация — командой (или запустите с --server user@host / RELEASE_SERVER):
 
   ssh $SERVER "mkdir -p $REMOTE_DIR/storage/app/releases"
-  scp "$APK" $SERVER:$REMOTE_DIR/storage/app/releases/
+  rsync -av "$APK" $SERVER:$REMOTE_DIR/storage/app/releases/
   ssh $SERVER "cd $REMOTE_DIR && $PUBLISH_CMD"
 
 После публикации проверьте: curl ${API_URL:-https://<домен>/api}/app-version
@@ -336,7 +341,7 @@ fi
 # --- Публикация --------------------------------------------------------------
 step "Публикация на $SERVER"
 ssh "$SERVER" "mkdir -p '$REMOTE_DIR/storage/app/releases'"
-scp "$APK" "$SERVER:$REMOTE_DIR/storage/app/releases/"
+rsync -av "$APK" "$SERVER:$REMOTE_DIR/storage/app/releases/"
 ssh "$SERVER" "cd '$REMOTE_DIR' && $PUBLISH_CMD"
 
 if [ -n "$API_URL" ]; then

@@ -49,8 +49,8 @@ ssh dev-vps 'docker restart ledger_craft_app'
 Проверка после этого:
 
 ```bash
-curl -s https://dev.medovf2h.beget.tech/api/app-quasar-android-version   # → {"version":"1.1","apk_name":"…"}
-curl -sI https://dev.medovf2h.beget.tech/api/download-apk | grep -i content-type
+curl -s https://ledgercraft.dev.medovf2h.beget.tech/api/app-quasar-android-version   # → {"version":"1.1","apk_name":"…"}
+curl -sI https://ledgercraft.dev.medovf2h.beget.tech/api/download-apk | grep -i content-type
 ```
 
 ## Адрес API
@@ -61,7 +61,7 @@ curl -sI https://dev.medovf2h.beget.tech/api/download-apk | grep -i content-type
 
 ```html
 <script>
-  window.LEDGER_CRAFT_API = window.LEDGER_CRAFT_API || 'https://dev.medovf2h.beget.tech/api'
+  window.LEDGER_CRAFT_API = window.LEDGER_CRAFT_API || 'https://ledgercraft.dev.medovf2h.beget.tech/api'
 </script>
 ```
 
@@ -104,7 +104,7 @@ npm run landing:publish -- --server prod-vps --url https://<прод-домен>
 `try_files $uri $uri/ /index.php?$query_string`). Поэтому файл в `public/promo/` доступен по
 `/promo/` **сразу** — без правки конфига nginx и без перезапуска контейнера.
 
-**Текущий статус:** на dev-VPS опубликовано → <https://dev.medovf2h.beget.tech/promo/>.
+**Текущий статус:** на dev-VPS опубликовано → <https://ledgercraft.dev.medovf2h.beget.tech/promo/>.
 
 CORS не нужен, пока страница и API на одном домене. **APK при этом должен быть опубликован**
 (`php artisan app:publish-apk`, см. `LedgerCraftDocker03/docs/ENVIRONMENTS.md` §10) — иначе

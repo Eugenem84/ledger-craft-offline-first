@@ -12,7 +12,7 @@
   'use strict'
 
   /** База API. Меняется одной строкой в `index.html` (window.LEDGER_CRAFT_API). */
-  var API = (window.LEDGER_CRAFT_API || 'https://dev.medovf2h.beget.tech/api').replace(/\/+$/, '')
+  var API = (window.LEDGER_CRAFT_API || 'https://ledgercraft.dev.medovf2h.beget.tech/api').replace(/\/+$/, '')
 
   /** Ссылка «последний релиз» — валидна всегда, даже без манифеста релизов. */
   var LATEST_APK_URL = API + '/download-apk'
