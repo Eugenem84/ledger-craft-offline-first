@@ -19,8 +19,27 @@
  */
 export const SWIPE_EDGE_GUARD = 24
 
-/** Смещение картинки-фона на крайних вкладках, % ширины (запас даёт `scale(1.25)`). */
-export const BACKGROUND_PARALLAX_PERCENT = 8
+/**
+ * Параллакс фона: насколько сильно картинка едет при листании.
+ *
+ *   • `BACKGROUND_SHIFT_MIN` — минимальная амплитуда в % ширины экрана: меньше — и сдвиг не
+ *     читается как параллакс;
+ *   • `BACKGROUND_SHIFT_MAX` — предел амплитуды: дальше картинку «уносит» и она перестаёт
+ *     быть фоном;
+ *   • `BACKGROUND_SLACK_USAGE` — какую долю свободного запаса картинки используем (остаток
+ *     гарантирует, что край никогда не оголится);
+ *   • `BACKGROUND_FALLBACK_SCALE` — увеличение, пока размер картинки неизвестен: 25 %
+ *     запаса хватает любому кадру, включая ровно 9:20.
+ */
+export const BACKGROUND_SHIFT_MIN = 8
+export const BACKGROUND_SHIFT_MAX = 16
+export const BACKGROUND_SLACK_USAGE = 0.6
+export const BACKGROUND_FALLBACK_SCALE = 1.25
+
+/** `-0` — валидный JavaScript, но в CSS-строку попадёт `-0.00%`, а `Object.is` на нём спотыкается. */
+function normalizeZero(value) {
+  return value === 0 ? 0 : value
+}
 
 /**
  * Индекс вкладки по текущему пути.
@@ -125,19 +144,70 @@ export function backgroundOffset(index, count) {
 }
 
 /**
- * Сдвиг картинки-фона для вкладки, % ширины: движение вкладок влево-вправо двигает
- * фон в ту же сторону, но заметно меньше — «дальний план отстаёт».
+ * Раскладка фона: насколько увеличить картинку и на сколько её сдвинуть.
  *
- * @param {number} index индекс активной вкладки
- * @param {number} count число вкладок
- * @returns {number} сдвиг по X, % (отрицательный — картинка уезжает влево)
+ * Параллакс устроен так: картинка закрывает вьюпорт целиком (`object-fit: cover`), поэтому
+ * «лишняя» ширина картинки (когда она шире пропорций экрана — как квадрат на портретном
+ * телефоне) и есть запас, внутри которого можно двигать картинку, не оголяя край.
+ *
+ * Отсюда две величины:
+ *   • `scale` — дополнительное увеличение. Нужно только если своего запаса у картинки нет
+ *     (кадр ровно 9:20 на портретном экране): тогда картинку приходится чуть увеличить,
+ *     чтобы сдвиг вообще был возможен. Квадрат увеличивать не нужно — иначе теряется и
+ *     резкость, и часть композиции;
+ *   • `shift` — сдвиг по X в % ширины экрана. Берётся доля фактического запаса
+ *     (`BACKGROUND_SLACK_USAGE`), но не меньше `BACKGROUND_SHIFT_MIN` (иначе параллакса не
+ *     видно) и не больше `BACKGROUND_SHIFT_MAX` (иначе «уносит»).
+ *
+ * Пока размер картинки неизвестен (не загрузилась), возвращается осторожная раскладка:
+ * `scale` 1.25 и минимальный сдвиг — ровно то, что гарантирует запас на любой кадр.
+ *
+ * @param {object} params
+ * @param {number} params.viewportWidth ширина вьюпорта, px
+ * @param {number} params.viewportHeight высота вьюпорта, px
+ * @param {number} [params.imageWidth] натуральная ширина картинки, px
+ * @param {number} [params.imageHeight] натуральная высота картинки, px
+ * @param {number} [params.offset] положение вкладки: -1 первая, 0 середина, +1 последняя
+ * @returns {{ scale: number, shift: number }} увеличение (≥1) и сдвиг по X, % ширины экрана
  */
-export function backgroundShift(index, count) {
-  const offset = backgroundOffset(index, count)
+export function backgroundLayout({
+  viewportWidth,
+  viewportHeight,
+  imageWidth,
+  imageHeight,
+  offset = 0,
+}) {
+  const vw = Number(viewportWidth)
+  const vh = Number(viewportHeight)
+  const iw = Number(imageWidth)
+  const ih = Number(imageHeight)
+  const position = Number.isFinite(Number(offset)) ? Number(offset) : 0
 
-  // `offset === 0` возвращаем отдельно: `-0` — валидный JavaScript, но в CSS-строку
-  // попадёт `-0.00%`, а сравнения в тестах (`Object.is`) на нём спотыкаются.
-  return offset === 0 ? 0 : -offset * BACKGROUND_PARALLAX_PERCENT
+  if (!(vw > 0) || !(vh > 0) || !(iw > 0) || !(ih > 0)) {
+    return {
+      scale: BACKGROUND_FALLBACK_SCALE,
+      shift: normalizeZero(-position * BACKGROUND_SHIFT_MIN),
+    }
+  }
+
+  // Ширина картинки во вьюпорте после `cover`: она обязана закрыть экран целиком, поэтому
+  // берём максимум из «по ширине» и «по высоте».
+  const coverWidth = Math.max(vw, (vh * iw) / ih)
+
+  // Свободный запас по горизонтали (на каждую сторону) и сдвиг, который из него следует.
+  const slack = Math.max(0, (coverWidth - vw) / 2)
+  const slackShift = ((slack * BACKGROUND_SLACK_USAGE) / vw) * 100
+  const amplitude = Math.min(BACKGROUND_SHIFT_MAX, Math.max(BACKGROUND_SHIFT_MIN, slackShift))
+
+  // Увеличение ровно такое, чтобы запаса хватило на амплитуду (и никогда меньше единицы).
+  const scale = Math.max(1, (vw * (1 + (2 * amplitude) / 100)) / coverWidth)
+
+  return {
+    scale: Number(scale.toFixed(4)),
+    // Знак минус — направление параллакса: вкладки уходят влево, «дальний план» едет за
+    // ними (окно обзора смещается вправо по картинке).
+    shift: Number(normalizeZero(-position * amplitude).toFixed(3)),
+  }
 }
 
 /** Имя CSS-перехода для смены раздела: входящая страница приходит со стороны свайпа. */

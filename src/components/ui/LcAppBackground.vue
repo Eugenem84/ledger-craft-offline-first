@@ -9,30 +9,53 @@
 //     (см. README рядом с папкой и ТЗ в `docs/UI.md` §7);
 //   • при переключении профиля картинка меняется кроссфейдом (ключ по URL);
 //   • при свайпе по вкладкам она едет: вкладки идут в одну сторону, «дальний план»
-//     отстаёт (`shift` от +8% до -8% ширины);
+//     отстаёт. Амплитуду и увеличение считает `backgroundLayout()` от реальных пропорций
+//     картинки: у квадрата запас до ±16 % ширины экрана, у кадра ровно 9:20 запаса нет и
+//     картинка чуть увеличивается (иначе ехать некуда);
 //   • файла нет — ничего не рисуется, фон остаётся чёрным, как раньше.
 //
-// Компонент намеренно «глупый»: URL считает `services/backgroundAssets.js`, сдвиг —
+// Компонент намеренно «глупый»: URL считает `services/backgroundAssets.js`, арифметику —
 // `utils/tabSwipe.js`, а «стеклянный» вид поверхностей включает класс `.lc-has-bg`
-// в `layouts/MainLayout.vue`. Здесь только разметка и CSS.
-import { computed } from 'vue'
-
-/**
- * Запас по размеру картинки под параллакс: изображение шире вьюпорта на 25%, поэтому
- * сдвиг ±8% (и даже ±12%) не оголяет край. Отсюда же требование к ТЗ картинки —
- * «сюжет в центральных 80% ширины, по 10% с боков — расходный материал».
- */
-const PARALLAX_RESERVE = 1.25
+// в `layouts/MainLayout.vue`. Здесь только замер картинки, разметка и CSS.
+import { computed, ref } from 'vue'
+import { useQuasar } from 'quasar'
+import { backgroundLayout } from 'src/utils/tabSwipe.js'
 
 const props = defineProps({
   /** URL картинки активного профиля; пусто — фон не рисуется. */
   url: { type: String, default: '' },
-  /** Сдвиг картинки для текущей вкладки, % ширины (см. `backgroundShift`). */
-  shift: { type: Number, default: 0 },
+  /** Положение активной вкладки: -1 первая, 0 середина, +1 последняя. */
+  offset: { type: Number, default: 0 },
 })
 
+const $q = useQuasar()
+
+/**
+ * Натуральный размер картинки — из `@load`. Без него неизвестен запас для параллакса:
+ * у квадрата он больше, чем нужно, у кадра ровно 9:20 — нулевой (см. `backgroundLayout`).
+ */
+const natural = ref(null)
+
+function onImageLoad(event) {
+  const image = event?.target
+  if (!image) return
+
+  natural.value = { width: image.naturalWidth, height: image.naturalHeight }
+}
+
+/** Увеличение и сдвиг: от вьюпорта (реагирует на поворот экрана) и пропорций картинки. */
+const layout = computed(() =>
+  backgroundLayout({
+    viewportWidth: $q.screen.width,
+    viewportHeight: $q.screen.height,
+    imageWidth: natural.value?.width,
+    imageHeight: natural.value?.height,
+    offset: props.offset,
+  }),
+)
+
 const imageStyle = computed(() => ({
-  transform: `translate3d(${Number(props.shift).toFixed(2)}%, 0, 0) scale(${PARALLAX_RESERVE})`,
+  transform: `translate3d(${layout.value.shift}%, 0, 0) scale(${layout.value.scale})`,
 }))
 </script>
 
@@ -45,7 +68,14 @@ const imageStyle = computed(() => ({
   -->
   <div v-if="url" class="lc-appbg" aria-hidden="true">
     <Transition name="lc-appbg-fade" appear>
-      <img :key="url" class="lc-appbg__image" :src="url" :style="imageStyle" alt="" />
+      <img
+        :key="url"
+        class="lc-appbg__image"
+        :src="url"
+        :style="imageStyle"
+        alt=""
+        @load="onImageLoad"
+      />
     </Transition>
   </div>
 </template>

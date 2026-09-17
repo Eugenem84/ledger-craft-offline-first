@@ -22,11 +22,14 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import {
-  BACKGROUND_PARALLAX_PERCENT,
+  BACKGROUND_FALLBACK_SCALE,
+  BACKGROUND_SHIFT_MAX,
+  BACKGROUND_SHIFT_MIN,
+  BACKGROUND_SLACK_USAGE,
   SWIPE_EDGE_GUARD,
   SWIPE_MAX_DRIFT_Y,
+  backgroundLayout,
   backgroundOffset,
-  backgroundShift,
   isEdgeGesture,
   resolveSwipe,
   resolveSwipeTarget,
@@ -238,17 +241,74 @@ describe('фон: параллакс по вкладкам', () => {
     expect(backgroundOffset(1, 3)).toBe(0)
   })
 
-  it('картинка едет в сторону, противоположную движению вкладок', () => {
-    // «Дальний план» отстаёт: вкладки уходят влево, фон едет за ними, но меньше.
-    expect(backgroundShift(0, 5)).toBe(BACKGROUND_PARALLAX_PERCENT)
-    expect(backgroundShift(4, 5)).toBe(-BACKGROUND_PARALLAX_PERCENT)
-    expect(backgroundShift(2, 5)).toBe(0)
-  })
-
   it('одна вкладка (или неизвестный индекс) — фон стоит', () => {
     expect(backgroundOffset(0, 1)).toBe(0)
-    expect(backgroundShift(-1, 5)).toBe(0)
-    expect(backgroundShift(9, 5)).toBe(0)
+    expect(backgroundOffset(-1, 5)).toBe(0)
+    expect(backgroundOffset(9, 5)).toBe(0)
+  })
+})
+
+describe('фон: раскладка под реальные пропорции картинки', () => {
+  /** Обычный портретный телефон (360×800 CSS px). */
+  const viewport = { viewportWidth: 360, viewportHeight: 800 }
+  const at = (offset, image = { imageWidth: 1024, imageHeight: 1024 }) =>
+    backgroundLayout({ ...viewport, ...image, offset })
+
+  it('квадрат: запас свой, увеличения нет, амплитуда на пределе', () => {
+    // `cover` тянет квадрат по высоте (800px при экране 360px) — лишняя ширина и есть запас
+    // под параллакс, увеличивать картинку не нужно (иначе теряем резкость и композицию).
+    expect(at(-1).scale).toBe(1)
+    expect(at(1).scale).toBe(1)
+    // Знак: на первой вкладке картинка сдвинута вправо, окно обзора — у её левого края.
+    expect(at(-1).shift).toBe(BACKGROUND_SHIFT_MAX)
+    expect(at(1).shift).toBe(-BACKGROUND_SHIFT_MAX)
+    // Сдвиг 16% экрана (58px) намного меньше запаса (220px) — край не оголится.
+    const slack = (800 - 360) / 2
+    expect((BACKGROUND_SHIFT_MAX / 100) * 360).toBeLessThan(slack)
+  })
+
+  it('кадр ровно 9:20: запаса нет — картинка чуть увеличивается', () => {
+    const ratio = { imageWidth: 1440, imageHeight: 3200 }
+    const left = at(-1, ratio)
+    const right = at(1, ratio)
+
+    // coverWidth = 360 (экран), нужно 360 + 2×8% → scale ≈ 1.16.
+    expect(left.scale).toBeCloseTo(1.16, 2)
+    expect(left.shift).toBe(BACKGROUND_SHIFT_MIN)
+    expect(right.shift).toBe(-BACKGROUND_SHIFT_MIN)
+  })
+
+  it('промежуточный случай: амплитуда = доля запаса, а не предел', () => {
+    // Кадр чуть шире экранного 9:20: запаса хватает на 10% ширины экрана.
+    const layout = at(1, { imageWidth: 600, imageHeight: 1000 })
+    const coverWidth = 800 * 0.6
+
+    expect(((coverWidth - 360) / 2 / 360) * 100 * BACKGROUND_SLACK_USAGE).toBeCloseTo(10, 5)
+    expect(layout.shift).toBe(-10)
+    expect(layout.scale).toBe(1)
+  })
+
+  it('середина списка и мусорные данные не ломают раскладку', () => {
+    expect(at(0).shift).toBe(0)
+
+    const unknown = backgroundLayout({ ...viewport, offset: 1 })
+    expect(unknown.scale).toBe(BACKGROUND_FALLBACK_SCALE)
+    expect(unknown.shift).toBe(-BACKGROUND_SHIFT_MIN)
+
+    const broken = backgroundLayout({ viewportWidth: 0, viewportHeight: 0, offset: -1 })
+    expect(broken.scale).toBe(BACKGROUND_FALLBACK_SCALE)
+    expect(broken.shift).toBe(BACKGROUND_SHIFT_MIN)
+
+    const nanOffset = at(Number.NaN)
+    expect(Number.isFinite(nanOffset.scale)).toBe(true)
+    expect(nanOffset.shift).toBe(0)
+  })
+
+  it('очень широкий кадр (панорама): амплитуда всё равно ограничена', () => {
+    const wide = at(-1, { imageWidth: 6000, imageHeight: 1000 })
+
+    expect(wide.scale).toBe(1)
+    expect(wide.shift).toBe(BACKGROUND_SHIFT_MAX)
   })
 })
 
@@ -268,11 +328,15 @@ describe('фон: картинка специализации', () => {
     expect(resolveBackgroundUrl({ preset_key: 'space' })).toBeNull()
   })
 
-  it('пока файлов нет — фон не включается (приложение выглядит как раньше)', () => {
-    // `src/assets/backgrounds/` содержит только README: сборщик даёт пустую карту, а
-    // значит `.lc-has-bg` не появится и поверхности останутся сплошными.
-    expect(hasBackgrounds()).toBe(false)
+  it('файл картинки подхватывается сборкой, а пропуски — не ошибка', () => {
+    // `src/assets/backgrounds/bike.webp` — картинка владельца (17.09.2026). Сборщик отдаёт
+    // её URL профилю `bike`; для остальных ниш файлов пока нет, и это нормально: фон просто
+    // остаётся чёрным, а `.lc-has-bg` — сплошным (иначе пропуск выглядел бы дефектом).
+    expect(hasBackgrounds()).toBe(true)
+    expect(resolveBackgroundUrl({ preset_key: 'bike' })).toContain('bike')
+    expect(resolveBackgroundUrl({ preset_key: ' BIKE ' })).toContain('bike')
     expect(resolveBackgroundUrl({ preset_key: 'auto' })).toBeNull()
+    expect(resolveBackgroundUrl(null)).toBeNull()
     expect(backgroundUrl('')).toBeNull()
   })
 })
@@ -345,7 +409,7 @@ describe('каркас: свайп подключён и учтён контра
 
   it('фон — слой под контентом, который не перехватывает касания', () => {
     expect(layout).toContain(
-      '<LcAppBackground :url="appBackgroundUrl" :shift="backgroundShiftPercent" />',
+      '<LcAppBackground :url="appBackgroundUrl" :offset="backgroundPosition" />',
     )
     expect(background).toContain('z-index: -1')
     expect(background).toContain('pointer-events: none')
@@ -353,6 +417,15 @@ describe('каркас: свайп подключён и учтён контра
     // Движения фона: параллакс при листании и кроссфейд при смене профиля.
     expect(background).toContain('translate3d(')
     expect(background).toContain('lc-appbg-fade-enter-active')
+  })
+
+  it('амплитуда параллакса считается от пропорций картинки, а не задана жёстко', () => {
+    // Квадрат (как у владельца) отдаёт свой запас, кадр ровно 9:20 увеличивается. Жёсткие
+    // «scale(1.25) и ±8%» либо прятали запас квадрата, либо мылили картинку.
+    expect(background).toContain('backgroundLayout({')
+    expect(background).toContain('@load="onImageLoad"')
+    expect(background).toContain('viewportWidth: $q.screen.width')
+    expect(background).toContain('imageWidth: natural.value?.width')
   })
 
   it('«стеклянные» поверхности включаются только вместе с картинкой', () => {

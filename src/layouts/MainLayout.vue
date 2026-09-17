@@ -29,7 +29,7 @@ import { getPreset } from 'src/domain/presets/index.js'
 import { refreshTemplates } from 'src/services/presetService.js'
 import { resolveBackgroundUrl } from 'src/services/backgroundAssets.js'
 import {
-  backgroundShift,
+  backgroundOffset,
   isEdgeGesture,
   resolveSwipe,
   swipeTransitionName,
@@ -125,7 +125,8 @@ const appBackgroundUrl = computed(() => resolveBackgroundUrl(store.getSelectedSp
 const hasBackground = computed(() => appBackgroundUrl.value !== null)
 
 /** Сдвиг картинки для активной вкладки (параллакс при листании). */
-const backgroundShiftPercent = computed(() => backgroundShift(tabIndex.value, tabs.value.length))
+/** Положение активной вкладки в «полосе» фона: -1 первая, 0 середина, +1 последняя. */
+const backgroundPosition = computed(() => backgroundOffset(tabIndex.value, tabs.value.length))
 
 /**
  * Жест «израсходован». Директива `v-touch-swipe` зовёт обработчик на каждом движении
@@ -199,7 +200,7 @@ watch(
   <q-layout view="lHh Lpr lFf" :class="{ 'lc-has-bg': hasBackground }">
     <!-- Фон активного профиля. Лежит под контентом (слой `fixed` + `z-index: -1`),
          меняется кроссфейдом при смене профиля и едет при листании разделов. -->
-    <LcAppBackground :url="appBackgroundUrl" :shift="backgroundShiftPercent" />
+    <LcAppBackground :url="appBackgroundUrl" :offset="backgroundPosition" />
 
     <!-- Шапка: переключатель рабочего профиля (10.8). Акцент профиля — в `primary`. -->
     <q-header class="lc-appbar">
