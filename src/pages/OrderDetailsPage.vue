@@ -22,6 +22,11 @@ import OrderServicesPanel from 'src/components/order/OrderServicesPanel.vue'
 import OrderStoreProductDialog from 'src/components/order/dialogs/OrderStoreProductDialog.vue'
 import { useOrderDraftStore } from 'src/stores/useOrderDraftStore.js'
 import { shareLinkErrorView } from 'src/utils/shareLinkError.js'
+// Правка владельца 17.09.2026: отчёт клиенту — либо ссылкой (сервер, задача 9.4),
+// либо текстом целиком (работает офлайн, внизу подпись ledgerCraft.ru). Формат
+// выбирается в настройках («Ещё»), см. `utils/reportSettings.js`.
+import { isReportTextMode } from 'src/utils/reportSettings.js'
+import { buildOrderReportText } from 'src/utils/reportText.js'
 // Ошибки экрана — в постоянный буфер (`logger.error` → `utils/errorLog.js`): без этого
 // они жили только в консоли, и отчёт мастера «Сообщить об ошибке» приходил без причины
 // (дефект разбора отчёта №2, 14.09.2026: «ордер не удаляется» без текста ошибки).
@@ -69,7 +74,11 @@ const showModelDialog = ref(false)
 const showStoreProductDialog = ref(false)
 const deleteConfirmPage = ref(null)
 
-const notify = (type, message) => $q.notify({ type, message })
+// Правка владельца 17.09.2026: уведомления в карточке заказа появляются **внизу**.
+// Раньше уведомление о копировании отчёта «выскакивало» сверху и перекрывало шапку
+// с номером и статусом заказа; позиция задана явно, чтобы она не зависела от
+// значения по умолчанию у Quasar.
+const notify = (type, message) => $q.notify({ type, message, position: 'bottom' })
 
 // Добавлять позиции можно и в режиме просмотра: первое же действие включает правку.
 // Так «+» работает всегда, а данные всё равно уезжают в БД только по «Сохранить».
@@ -202,11 +211,21 @@ const handleDelete = () => {
   )
 }
 
-const handleShare = async () => {
-  // Ссылку выдаёт сервер (задача 9.4): причину неудачи («не синхронизирован»,
-  // «нет интернета», «нужен вход», «не найден») объясняет чистая функция,
-  // поэтому здесь только показ уведомления — без «угадывания» по статусу.
-  isLoading.value = true
+/** Текстовый отчёт: собирается на устройстве, поэтому работает и без сети. */
+const copyClientReportText = async () => {
+  const text = buildOrderReportText(draft.clientReport)
+
+  try {
+    await navigator.clipboard.writeText(text)
+    notify('positive', 'Текст отчёта скопирован')
+  } catch (err) {
+    logger.error('[Order] Не удалось скопировать текст отчёта:', err)
+    notify('negative', 'Не удалось скопировать отчёт')
+  }
+}
+
+/** Публичная ссылка: её выдаёт сервер, причины отказа объясняет `shareLinkErrorView`. */
+const copyClientReportLink = async () => {
   try {
     const url = await draft.generateShareLink()
     await navigator.clipboard.writeText(url)
@@ -215,6 +234,21 @@ const handleShare = async () => {
     logger.error('[Order] Не удалось создать share-ссылку:', err)
     const view = shareLinkErrorView(err)
     notify(view.level, view.message)
+  }
+}
+
+const handleShare = async () => {
+  // Правка владельца 17.09.2026: формат отчёта выбирается в настройках — публичная
+  // ссылка (задача 9.4) или весь отчёт текстом для мессенджера. Причины неудачи для
+  // ссылки объясняет чистая функция `shareLinkErrorView`; текст к серверу не ходит.
+  isLoading.value = true
+
+  try {
+    if (isReportTextMode()) {
+      await copyClientReportText()
+    } else {
+      await copyClientReportLink()
+    }
   } finally {
     isLoading.value = false
   }

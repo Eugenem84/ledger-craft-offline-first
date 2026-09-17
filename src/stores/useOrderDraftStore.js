@@ -30,6 +30,7 @@ import * as modelsRepo from 'src/repositories/modelsRepo.js'
 import { apiClient } from 'src/services/api.js'
 import { logger } from 'src/utils/logger'
 import { ORDER_NOT_SYNCED } from 'src/utils/shareLinkError.js'
+import { ORDER_STATUSES } from 'src/utils/analytics.js'
 import { normalizeQuantity, normalizeQuantityInput } from 'src/utils/quantity.js'
 import { useOrdersStore } from 'src/stores/useOrdersStore.js'
 import { useModelsStore } from 'src/stores/useModelsStore.js'
@@ -94,6 +95,33 @@ export const useOrderDraftStore = defineStore('orderDraft', {
     isNewOrder: state => !state.order?.id,
     /** Номер для шапки: серверный id, а у ещё не синхронизированного — локальный. */
     orderNumber: state => state.order?.server_id || state.order?.id || null,
+    /**
+     * Данные текстового отчёта клиенту (правка владельца 17.09.2026): то, что чистая
+     * функция `utils/reportText.buildOrderReportText` превращает в готовое сообщение.
+     *
+     * Стор отдаёт **только значения**. Клиента, модель, номер заказа и оплату в отчёт не
+     * кладём: клиент и сам знает свой телефон, имя и объект, номер заказа ему не нужен, а
+     * про оплату мастер скажет словами — правка владельца требует минимума текста
+     * («уместиться даже в одно SMS»). Дату стор тоже не хранит — иначе закешированный
+     * геттер показывал бы время открытия заказа, а не отправки отчёта.
+     */
+    clientReport() {
+      const statusLabel = ORDER_STATUSES.find(item => item.value === this.status)?.label || ''
+      const line = source => ({
+        name: source.name,
+        quantity: lineQuantity(source),
+        unitPrice: Number(source.price || 0),
+      })
+
+      return {
+        statusLabel,
+        services: this.services.map(line),
+        materials: this.materials.map(line),
+        products: this.products.map(line),
+        total: this.totalAmount,
+        comments: this.comments,
+      }
+    },
     servicesTotal: state =>
       state.services.reduce(
         (sum, service) => sum + Number(service.price || 0) * lineQuantity(service),

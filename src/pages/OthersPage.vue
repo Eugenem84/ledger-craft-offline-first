@@ -11,6 +11,16 @@ import { useAuthStore } from 'src/stores/useAuthStore.js'
 import { useSpecializationsStore } from 'src/stores/useSpecializationsStore.js'
 import { useUpdateStore } from 'src/stores/useUpdateStore.js'
 import { devModeEnabled, setDevMode } from 'src/utils/devMode.js'
+// Формат отчёта клиенту (правка владельца 17.09.2026): ссылка на отчёт или текст
+// целиком. Это настройка устройства (не профиля), поэтому хранится в `localStorage`.
+import {
+  REPORT_FORMAT_LINK,
+  REPORT_FORMAT_TEXT,
+  REPORT_FORMAT_LABELS,
+  REPORT_FORMAT_HINTS,
+  getReportFormat,
+  setReportFormat,
+} from 'src/utils/reportSettings.js'
 import { PRESETS } from 'src/domain/presets/index.js'
 import { resolveFeatures, FEATURE_LABELS, FEATURE_HINTS } from 'src/domain/features.js'
 // Обратная связь (Фаза 14, задача 14.5): очередь отчётов «Сообщить об ошибке».
@@ -37,6 +47,21 @@ const devMode = computed({
   get: () => devModeEnabled.value,
   set: value => setDevMode(value),
 })
+
+/**
+ * Формат отчёта клиенту: выбор пишется в storage (как `devMode`) и читается карточкой
+ * заказа (`OrderDetailsPage.handleShare`). Переключатель оформлен тем же «сегментом»,
+ * что масштаб периода в аналитике и фильтр склада (`.lc-seg`).
+ */
+const reportFormat = computed({
+  get: () => getReportFormat(),
+  set: value => setReportFormat(value),
+})
+
+const reportFormatOptions = [
+  { label: REPORT_FORMAT_LABELS[REPORT_FORMAT_LINK], value: REPORT_FORMAT_LINK },
+  { label: REPORT_FORMAT_LABELS[REPORT_FORMAT_TEXT], value: REPORT_FORMAT_TEXT },
+]
 
 const $q = useQuasar()
 const router = useRouter()
@@ -436,6 +461,32 @@ const confirmRestore = () => {
 
         <div v-if="!activeSpecialization" class="text-caption lc-mute">
           Нет активного профиля — сначала добавьте специализацию.
+        </div>
+      </div>
+    </LcSectionCard>
+
+    <!-- Отчёты клиентам (правка владельца 17.09.2026): кнопка «поделиться» в карточке
+         заказа копирует либо публичную ссылку (её выдаёт сервер), либо весь отчёт
+         текстом — его вставляют в мессенджер как есть, внизу подпись `ledgerCraft.ru`.
+         Текстовый отчёт собирается на устройстве, поэтому работает и без сети. -->
+    <LcSectionCard title="отчёты клиентам" icon="share">
+      <div class="q-gutter-y-sm">
+        <div class="text-caption lc-mute">
+          Что копирует кнопка «поделиться» в карточке заказа.
+        </div>
+
+        <q-btn-toggle
+          v-model="reportFormat"
+          class="lc-seg full-width"
+          spread
+          dense
+          no-caps
+          unelevated
+          :options="reportFormatOptions"
+        />
+
+        <div class="text-caption lc-mute">
+          <b>{{ REPORT_FORMAT_LABELS[reportFormat] }}</b> — {{ REPORT_FORMAT_HINTS[reportFormat] }}
         </div>
       </div>
     </LcSectionCard>

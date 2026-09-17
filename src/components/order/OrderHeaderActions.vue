@@ -131,7 +131,7 @@ const paidOptions = [{ label: 'оплачено', value: true, icon: 'paid' }]
         :loading="busy"
         @click="emit('share')"
       >
-        <q-tooltip class="text-caption">скопировать ссылку на отчёт</q-tooltip>
+        <q-tooltip class="text-caption">скопировать отчёт клиенту</q-tooltip>
       </q-btn>
 
       <q-btn flat round dense icon="more_vert" color="secondary">
