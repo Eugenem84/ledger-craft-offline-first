@@ -281,10 +281,22 @@ watch(
         страницы, уходящая просто гаснет: `transform` на странице сломал бы
         `position: fixed` у плавающей кнопки, а её и так переносит в `body` (см. `LcFab`).
         При пустом `transitionName` CSS-перехода нет — раздел меняется мгновенно.
+
+        ⚠️ Анимируется **обёртка** (`div.lc-view`), а не сама страница. `<Transition>`
+        умеет ровно одного ребёнка с одним корневым элементом, а страницы каркаса
+        собираются как SFC (у `CatalogPage` диалоги лежат рядом с `q-page`).
+        Живой прогон 17.09.2026: фрагмент-корень не падал при входе, но при уходе со
+        страницы Vue вешал leave-классы на якорный текстовый узел фрагмента
+        (`el.classList` у текстового узла нет) — приложение умирало, экран чернел.
+        Обёртка с `:key` (без ключа Vue переиспользует тот же `div` и перехода не будет)
+        делает анимацию безопасной для любой страницы — одиночный корень остаётся
+        требованием стиля (`test/swipe-navigation.test.js` следит за этим).
       -->
-      <router-view v-slot="{ Component }">
+      <router-view v-slot="{ Component, route: currentRoute }">
         <Transition :name="transitionName" mode="out-in">
-          <component :is="Component" />
+          <div :key="currentRoute.path" class="lc-view">
+            <component :is="Component" />
+          </div>
         </Transition>
       </router-view>
     </q-page-container>

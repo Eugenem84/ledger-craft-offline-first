@@ -41,9 +41,87 @@ import {
   resolveBackgroundUrl,
 } from 'src/services/backgroundAssets.js'
 import { PRESET_KEYS } from 'src/domain/presets/index.js'
+import routes from 'src/router/routes.js'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const read = (relative) => readFileSync(path.join(root, relative), 'utf8')
+
+/** Пустые (void) элементы HTML: закрывающего тега у них нет. */
+const VOID_TAGS = new Set([
+  'area',
+  'base',
+  'br',
+  'col',
+  'embed',
+  'hr',
+  'img',
+  'input',
+  'link',
+  'meta',
+  'source',
+  'track',
+  'wbr',
+])
+
+/**
+ * Верхнеуровневые элементы шаблона SFC.
+ *
+ * Нужен, чтобы поймать фрагмент-корень: `<Transition>` умеет ровно одного ребёнка с
+ * одним корневым элементом, а страница с диалогами «рядом» с `q-page` — это фрагмент.
+ * Парсер нарочно простой (без DOM): сканируем теги, считаем вложенность, учитываем
+ * комментарии и кавычки в атрибутах.
+ *
+ * @param {string} source содержимое `.vue`
+ * @returns {string[]} имена тегов верхнего уровня
+ */
+function templateRoots(source) {
+  const start = source.indexOf('<template>')
+  const end = source.lastIndexOf('</template>')
+  const html = source.slice(start + '<template>'.length, end).replace(/<!--[\s\S]*?-->/g, '')
+  const roots = []
+  let depth = 0
+  let i = 0
+
+  while (i < html.length) {
+    const lt = html.indexOf('<', i)
+    if (lt === -1) break
+
+    // Конец тега ищем с учётом кавычек: `:hint="a > b"` внутри атрибута не должен
+    // обрывать разбор.
+    let j = lt + 1
+    let quote = ''
+
+    while (j < html.length) {
+      const char = html[j]
+
+      if (quote !== '') {
+        if (char === quote) quote = ''
+      } else if (char === '"' || char === "'") {
+        quote = char
+      } else if (char === '>') {
+        break
+      }
+
+      j += 1
+    }
+
+    const tag = html.slice(lt + 1, j)
+    const closing = tag.startsWith('/')
+    const name = (closing ? tag.slice(1) : tag).match(/^[A-Za-z][\w.-]*/)?.[0] ?? ''
+    const selfClosing = tag.endsWith('/') || VOID_TAGS.has(name.toLowerCase())
+
+    if (closing) {
+      depth = Math.max(0, depth - 1)
+    } else {
+      if (depth === 0 && name !== '') roots.push(name)
+      if (!selfClosing) depth += 1
+    }
+
+    i = j + 1
+  }
+
+  return roots
+}
 
 /** Вкладки в том порядке, в каком их рисует таббар (см. `MainLayout.tabs`). */
 const TABS = [
@@ -53,6 +131,27 @@ const TABS = [
   { name: 'analytic', to: '/analytic' },
   { name: 'other', to: '/other' },
 ]
+
+/** Страницы, которые рендерятся внутри `MainLayout` (по реальному `routes.js`). */
+function collectLayoutPages(list, found = []) {
+  for (const route of list || []) {
+    const component = typeof route.component === 'function' ? String(route.component) : ''
+
+    if (component.includes('layouts/MainLayout.vue')) {
+      for (const child of route.children || []) {
+        found.push(
+          String(child.component)
+            .replace(/^.*pages\//, 'src/pages/')
+            .replace(/['")].*$/, ''),
+        )
+      }
+    }
+
+    if (route.children) collectLayoutPages(route.children, found)
+  }
+
+  return found
+}
 
 describe('свайп: порядок вкладок и направление', () => {
   it('индекс вкладки берётся из таббара, а не из routes.js', () => {
@@ -228,9 +327,12 @@ describe('каркас: свайп подключён и учтён контра
     expect(layout).toContain("target.closest('.q-dialog, .q-menu')")
   })
 
-  it('переход — `mode="out-in"`: страницы не накладываются', () => {
+  it('переход — `mode="out-in"` по обёртке, а не по странице', () => {
     expect(layout).toContain('<Transition :name="transitionName" mode="out-in">')
-    expect(layout).toContain('<router-view v-slot="{ Component }">')
+    expect(layout).toContain('<router-view v-slot="{ Component, route: currentRoute }">')
+    // Обёртка с ключом: без неё переход зависел бы от того, сколько корней у страницы
+    // (без ключа Vue переиспользует тот же `div` и анимации не будет вовсе).
+    expect(layout).toContain('<div :key="currentRoute.path" class="lc-view">')
     expect(css).toContain('.lc-swipe-next-enter-from')
     expect(css).toContain('.lc-swipe-prev-enter-from')
     expect(css).toContain('.lc-swipe-next-leave-active')
@@ -270,5 +372,57 @@ describe('каркас: свайп подключён и учтён контра
     expect(assets).toContain('eager: true')
     // Не через `public/`: отсутствующий файл давал бы 404 и пустой фон на первом кадре.
     expect(assets).not.toContain('public/backgrounds')
+  })
+})
+
+describe('каркас: у страницы раздела один корневой элемент', () => {
+  // `<Transition>` (в каркасе — переход между разделами) умеет ровно одного ребёнка с
+  // ОДНИМ корневым элементом. У фрагмент-корня своего элемента нет: при уходе со страницы
+  // Vue вешает leave-классы на якорный текстовый узел фрагмента, у которого нет
+  // `classList`, — исключение убивает приложение.
+  //
+  // Живой прогон 17.09.2026 (сразу после выката бандла 1.14.2.260917-1458): «на телефоне
+  // свайпы работают нормально только "заказ" и "склад", а когда перелистываю на каталог,
+  // то обратно уже чёрный экран и всё ни туда ни сюда». Причина — `CatalogPage.vue`:
+  // восемь корней (`q-page` + три `LcDialogShell` + четыре диалога рядом). Тест ловит это
+  // до живого прогона: он идёт по `routes.js` и требует у каждой страницы каркаса ровно
+  // один корень.
+  const pages = collectLayoutPages(routes)
+
+  it('страницы каркаса найдены (защита от «пустого» теста)', () => {
+    expect(pages.length).toBeGreaterThan(2)
+  })
+
+  it.each(pages)('%s: один корневой элемент (`q-page`)', (file) => {
+    const roots = templateRoots(read(file))
+
+    expect(
+      roots,
+      `${file}: корневых элементов — ${roots.length} (${roots.join(', ')}). Каркас анимирует ` +
+        'раздел через `<Transition>`, а он умеет ровно один корневой элемент: диалоги и ' +
+        'прочие блоки должны лежать ВНУТРИ `<q-page>` — иначе Vue уронит приложение при ' +
+        'уходе со страницы (у фрагмент-корня нет своего элемента).',
+    ).toEqual(['q-page'])
+  })
+
+  it('парсер шаблонов различает один корень и фрагмент (защита от «пустого» теста)', () => {
+    // Иначе сломанный парсер говорил бы «всё хорошо» на любой странице.
+    expect(templateRoots('<template>\n  <q-page>\n  </q-page>\n</template>')).toEqual(['q-page'])
+
+    expect(
+      templateRoots('<template>\n  <q-page>\n  </q-page>\n  <LcDialogShell />\n</template>'),
+    ).toEqual(['q-page', 'LcDialogShell'])
+
+    // Кавычки с `>` внутри атрибута и комментарии разбор не ломают.
+    expect(
+      templateRoots(
+        '<template>\n  <!-- <foo /> -->\n  <q-page :hint="a > b">\n  </q-page>\n</template>',
+      ),
+    ).toEqual(['q-page'])
+
+    // Void-элемент внутри не считается корнем и не портит вложенность.
+    expect(templateRoots('<template>\n  <q-page>\n    <br>\n  </q-page>\n</template>')).toEqual([
+      'q-page',
+    ])
   })
 })

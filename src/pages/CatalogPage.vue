@@ -321,9 +321,12 @@ const openNewServiceCategoryDialog = () => {
       :label="fabLabel()"
       @click="tab === 'clients' ? openNewClientDialog() : openNewServiceDialog()"
     />
-  </q-page>
-
-  <!-- Карточки выбранных записей: просмотр → правка → удаление. -->
+  <!-- Карточки выбранных записей: просмотр → правка → удаление.
+       ⚠️ Диалоги живут **внутри** `q-page`, а не рядом с ним: у страницы обязан быть
+       один корневой элемент — каркас анимирует её через `<Transition>` (`docs/UI.md` §4).
+       У фрагмент-корня своего элемента нет: при уходе со страницы Vue вешает leave-классы
+       на якорный текстовый узел (у него нет `classList`) — приложение падает.
+       Живой прогон 17.09.2026: «после каталога чёрный экран и всё ни туда ни сюда». -->
   <LcDialogShell
     v-model="showClientsDetails"
     :title="editClientMode ? 'Клиент — правка' : 'Клиент'"
@@ -494,6 +497,7 @@ const openNewServiceCategoryDialog = () => {
   <NewClientDialogPage ref="newClientDialog" />
   <NewServiceDialogPage ref="newServiceDialog" />
   <NewServiceCategoryDialogPage ref="newServiceCategoryDialog" />
+  </q-page>
 </template>
 
 <style scoped>
