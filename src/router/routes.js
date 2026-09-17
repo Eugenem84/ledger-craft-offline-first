@@ -14,7 +14,11 @@ const routes = [
         component: () => import('pages/AnalyticPage.vue'),
         meta: { feature: 'analytics' },
       },
-      { path: 'other', component: () => import('pages/OthersPage.vue') },
+      // Настройки — больше не раздел, а модальное окно поверх каркаса (правка владельца
+      // 17.09.2026: вкладка «ещё» убрана, кнопка-шестерёнка открывает `SettingsDialog`).
+      // Старый путь оставлен редиректом: ссылки/история прошлых версий не должны упираться
+      // в «страница не найдена».
+      { path: 'other', redirect: '/orders' },
       { path: 'catalog', component: () => import('pages/CatalogPage.vue') },
     ],
   },

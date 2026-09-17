@@ -12,8 +12,10 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const read = relative => readFileSync(path.join(root, relative), 'utf8')
 
 describe('14.5 UI «Сообщить об ошибке»', () => {
-  it('в «Ещё» есть раздел поддержки с кнопкой и счётчиком очереди', () => {
-    const page = read('src/pages/OthersPage.vue')
+  it('в настройках есть вкладка поддержки с кнопкой и счётчиком очереди', () => {
+    // Настройки — модальное окно (`components/settings/SettingsDialog.vue`), вкладка
+    // «поддержка»: страницы «ещё» больше нет (правка владельца 17.09.2026).
+    const page = read('src/components/settings/SettingsDialog.vue')
 
     expect(page).toContain('Сообщить об ошибке')
     expect(page).toContain('openFeedback')

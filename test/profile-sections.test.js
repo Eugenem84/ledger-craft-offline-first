@@ -77,16 +77,18 @@ describe('10.3 Доработка: пользователь сам настра�
 })
 
 describe('10.3 Доработка UI: тумблеры разделов и каталог без старта из пресета', () => {
-  const others = read('src/pages/OthersPage.vue')
+  // Разделы профиля живут во вкладке «разделы профиля» окна настроек: страница «ещё»
+  // убрана правкой владельца 17.09.2026 (`components/settings/SettingsDialog.vue`).
+  const settings = read('src/components/settings/SettingsDialog.vue')
   const catalog = read('src/pages/CatalogPage.vue')
 
-  it('в «Ещё» разделы включаются тумблерами, а не показываются read-only', () => {
-    expect(others).toContain('setFeature')
-    expect(others).toContain('FEATURE_HINTS')
-    expect(others).toMatch(/v-for="\(label, flag\) in FEATURE_LABELS"/)
-    expect(others).toMatch(/<q-toggle[\s\S]{0,200}:model-value="activeFeatures\[flag\]/)
-    expect(others).toContain('@update:model-value="value => setFeature(flag, value)"')
-    expect(others).not.toContain("activeFeatures[flag] ? 'включено' : 'скрыто'")
+  it('в настройках разделы включаются тумблерами, а не показываются read-only', () => {
+    expect(settings).toContain('setDraftFeature')
+    expect(settings).toContain('FEATURE_HINTS')
+    expect(settings).toMatch(/v-for="\(label, flag\) in FEATURE_LABELS"/)
+    expect(settings).toMatch(/<q-toggle[\s\S]{0,200}:model-value="draftFeatures\[flag\]/)
+    expect(settings).toContain('@update:model-value="value => setDraftFeature(flag, value)"')
+    expect(settings).not.toContain("draftFeatures[flag] ? 'включено' : 'скрыто'")
   })
 
   it('в каталоге нет старта из шаблона', () => {

@@ -1,6 +1,5 @@
 <script setup>
 import { onMounted, ref, watch } from 'vue'
-import { useRouter } from 'vue-router'
 import { useQuasar } from 'quasar'
 import DeleteConfirmPage from 'pages/dialogs/DeleteConfirmPage.vue'
 import NewClientDialogPage from 'pages/dialogs/NewClientDialogPage.vue'
@@ -21,9 +20,11 @@ import { logger } from 'src/utils/logger'
 // Фаза 10: лексикон ниши (10.1) и активный рабочий профиль (смена профиля — 10.8).
 import { useSpecializationsStore } from 'stores/useSpecializationsStore.js'
 import { useLexicon } from 'src/domain/lexicon.js'
+// Настройки — модальное окно каркаса (`components/settings/SettingsDialog.vue`); раньше здесь
+// был переход на страницу `/other`, которой больше нет (правка владельца 17.09.2026).
+import { openSettings } from 'src/utils/settingsDialog.js'
 
 const $q = useQuasar()
-const router = useRouter()
 const { t } = useLexicon()
 
 const clientsStore = useClientsStore()
@@ -218,7 +219,8 @@ const openNewServiceCategoryDialog = () => {
         <q-tab-panel name="services" class="q-pa-none">
           <!-- Старт каталога из шаблона (10.4) убран: профиль создаётся из пресета и сразу
                получает готовый каталог (Фаза 12, 12.1), повторное применение пресета —
-               легаси-путь. Осталась ссылка в управление профилями, где ниша и создаётся. -->
+               легаси-путь. Осталась ссылка в настройки, где ниша и создаётся (окно настроек
+               открывается поверх каталога, раздел не меняется — 17.09.2026). -->
           <div class="row items-center lc-pad q-gutter-x-sm">
             <q-btn
               flat
@@ -227,7 +229,7 @@ const openNewServiceCategoryDialog = () => {
               color="grey-5"
               icon="tune"
               label="Управление профилями"
-              @click="router.push('/other')"
+              @click="openSettings('specialization')"
             />
           </div>
 

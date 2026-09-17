@@ -123,13 +123,18 @@ function templateRoots(source) {
   return roots
 }
 
-/** Вкладки в том порядке, в каком их рисует таббар (см. `MainLayout.tabs`). */
+/**
+ * Вкладки в том порядке, в каком их рисует таббар (см. `MainLayout.tabs`).
+ *
+ * Настроек здесь нет намеренно (правка владельца 17.09.2026: «сделать невозможным свапать
+ * на настройки»): в таббаре это узкая кнопка-шестерёнка, открывающая модальное окно, а не
+ * раздел, — поэтому свайп до настроек не доезжает.
+ */
 const TABS = [
   { name: 'orders', to: '/orders' },
   { name: 'store', to: '/store' },
   { name: 'catalog', to: '/catalog' },
   { name: 'analytic', to: '/analytic' },
-  { name: 'other', to: '/other' },
 ]
 
 /** Страницы, которые рендерятся внутри `MainLayout` (по реальному `routes.js`). */
@@ -139,6 +144,10 @@ function collectLayoutPages(list, found = []) {
 
     if (component.includes('layouts/MainLayout.vue')) {
       for (const child of route.children || []) {
+        // Редиректы (`{ path: 'other', redirect: '/orders' }`) страниц не рендерят: их
+        // пропускаем, иначе в список попадает строка `undefined` и чтение файла падает.
+        if (typeof child.component !== 'function') continue
+
         found.push(
           String(child.component)
             .replace(/^.*pages\//, 'src/pages/')
@@ -177,7 +186,18 @@ describe('свайп: порядок вкладок и направление', 
 
   it('на краях списка свайп ничего не делает (без «заворачивания»)', () => {
     expect(resolveSwipeTarget(TABS, '/orders', 'right')).toBeNull()
-    expect(resolveSwipeTarget(TABS, '/other', 'left')).toBeNull()
+    // «Последняя вкладка + свайп влево» — ровно тот жест, которым раньше открывались
+    // настройки: теперь настроек в вкладках нет, и жест не делает ничего.
+    expect(resolveSwipeTarget(TABS, '/analytic', 'left')).toBeNull()
+    expect(tabIndexByPath(TABS, '/other')).toBe(-1)
+  })
+
+  it('настройки — не раздел: старый путь /other оставлен редиректом', () => {
+    // Иначе после OTA-обновления старая ссылка вела бы на «страница не найдена».
+    const other = (routes[0].children || []).find(child => child.path === 'other')
+
+    expect(other?.redirect).toBe('/orders')
+    expect(other?.component).toBeUndefined()
   })
 
   it('вне вкладок (карточка заказа) и на одной вкладке свайпа нет', () => {
@@ -445,6 +465,26 @@ describe('каркас: свайп подключён и учтён контра
     // `q-dialog` рендерится внутри страницы: без проверки жест увёл бы раздел под открытым
     // диалогом, а Quasar закрывает диалог при смене маршрута — форма потерялась бы.
     expect(layout).toContain("target.closest('.q-dialog, .q-menu')")
+  })
+
+  it('настройки — узкая кнопка-шестерёнка, а не вкладка (и не цель свайпа)', () => {
+    // Правка владельца 17.09.2026: «сменить название, лучше без названия просто шестерёнку»,
+    // «сделать уже кнопку, чтоб случайно не тыкать на нее», «сделать невозможным свапать на
+    // настройки». Настройки — модальное окно, а не маршрут: промахнуться некуда, свайп до
+    // них не доезжает, а открыть их можно и из шапки, и из таббара.
+    expect(layout).toContain('class="lc-tabbar__settings"')
+    expect(layout).toContain('icon="settings"')
+    expect(layout).toContain('@click="openSettings()"')
+    expect(layout).toContain('<SettingsDialog v-model="settingsOpen"')
+    expect(layout).toContain("openSettings('specialization')")
+
+    // Ни подписи «ещё», ни вкладки-настроек в таббаре нет.
+    expect(layout).not.toContain("to: '/other'")
+    expect(layout).not.toContain('more_horiz')
+
+    // Кнопка **уже** равных вкладок (`class="col"` у соседей) — фиксированная ширина.
+    expect(css).toContain('.lc-tabbar__settings {')
+    expect(css).toMatch(/\.lc-tabbar__settings\s*\{[^}]*flex: 0 0 52px/)
   })
 
   it('переход — `mode="out-in"` по обёртке, а не по странице', () => {

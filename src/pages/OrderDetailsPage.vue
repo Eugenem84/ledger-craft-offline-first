@@ -25,7 +25,7 @@ import { shareLinkErrorView } from 'src/utils/shareLinkError.js'
 // Правка владельца 17.09.2026: отчёт клиенту — либо ссылкой (сервер, задача 9.4),
 // либо текстом целиком (работает офлайн, внизу подпись ledgerCraft.ru). Формат
 // выбирается в настройках («Ещё»), см. `utils/reportSettings.js`.
-import { isReportTextMode } from 'src/utils/reportSettings.js'
+import { getReportContent, isReportTextMode } from 'src/utils/reportSettings.js'
 import { buildOrderReportText } from 'src/utils/reportText.js'
 // Ошибки экрана — в постоянный буфер (`logger.error` → `utils/errorLog.js`): без этого
 // они жили только в консоли, и отчёт мастера «Сообщить об ошибке» приходил без причины
@@ -213,7 +213,9 @@ const handleDelete = () => {
 
 /** Текстовый отчёт: собирается на устройстве, поэтому работает и без сети. */
 const copyClientReportText = async () => {
-  const text = buildOrderReportText(draft.clientReport)
+  // Состав отчёта — настройка устройства (вкладка «отчёты» в настройках): что печатать,
+  // кроме базовых строк, решает мастер (`utils/reportSettings.js`).
+  const text = buildOrderReportText(draft.clientReport, { content: getReportContent() })
 
   try {
     await navigator.clipboard.writeText(text)

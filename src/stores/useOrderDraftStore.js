@@ -96,14 +96,18 @@ export const useOrderDraftStore = defineStore('orderDraft', {
     /** Номер для шапки: серверный id, а у ещё не синхронизированного — локальный. */
     orderNumber: state => state.order?.server_id || state.order?.id || null,
     /**
-     * Данные текстового отчёта клиенту (правка владельца 17.09.2026): то, что чистая
-     * функция `utils/reportText.buildOrderReportText` превращает в готовое сообщение.
+     * Данные текстового отчёта клиенту (правка владельца 17.09.2026; переработка настроек
+     * 17.09.2026): то, что чистая функция `utils/reportText.buildOrderReportText`
+     * превращает в готовое сообщение.
      *
-     * Стор отдаёт **только значения**. Клиента, модель, номер заказа и оплату в отчёт не
-     * кладём: клиент и сам знает свой телефон, имя и объект, номер заказа ему не нужен, а
-     * про оплату мастер скажет словами — правка владельца требует минимума текста
-     * («уместиться даже в одно SMS»). Дату стор тоже не хранит — иначе закешированный
-     * геттер показывал бы время открытия заказа, а не отправки отчёта.
+     * Стор отдаёт **все** значения, а печатать их или нет, решает состав отчёта
+     * (`utils/reportSettings.js`, вкладка «отчёты»): имя клиента, телефон, модель,
+     * раздельные итоги за работы и за запчасти. По умолчанию ничего из этого не выводится —
+     * отчёт остаётся минимальным («уместиться даже в одно SMS»).
+     *
+     * Пустого клиента не отдаём: в сторе у него подпись «выберите клиента», и она не должна
+     * попасть в сообщение клиенту. Дату стор тоже не хранит — иначе закешированный геттер
+     * показывал бы время открытия заказа, а не отправки отчёта.
      */
     clientReport() {
       const statusLabel = ORDER_STATUSES.find(item => item.value === this.status)?.label || ''
@@ -112,12 +116,19 @@ export const useOrderDraftStore = defineStore('orderDraft', {
         quantity: lineQuantity(source),
         unitPrice: Number(source.price || 0),
       })
+      const client = this.client?.id
+        ? { name: this.client.name || '', phone: this.client.phone || '' }
+        : null
 
       return {
         statusLabel,
+        client,
+        model: this.model?.id ? this.model.name || '' : '',
         services: this.services.map(line),
         materials: this.materials.map(line),
         products: this.products.map(line),
+        servicesTotal: this.servicesTotal,
+        partsTotal: this.materialsTotal + this.productsTotal,
         total: this.totalAmount,
         comments: this.comments,
       }

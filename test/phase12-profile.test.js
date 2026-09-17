@@ -79,8 +79,10 @@ describe('12.1/12.2 Создание профиля только из досту
   })
 })
 
-describe('12.1/12.2 UI «Ещё»: выбор профиля, без переименования и смены пресета', () => {
-  const page = read('src/pages/OthersPage.vue')
+describe('12.1/12.2 UI настроек: выбор профиля, без переименования и смены пресета', () => {
+  // Настройки — модальное окно (`components/settings/SettingsDialog.vue`), вкладка
+  // «специализация»: раздела «ещё» больше нет (правка владельца 17.09.2026).
+  const page = read('src/components/settings/SettingsDialog.vue')
 
   it('нет свободного ввода названия и переименования', () => {
     expect(page).not.toMatch(/newProfileName|renameProfile|profileName/)

@@ -90,7 +90,6 @@ src/
 │   ├── StorePage.vue             # склад
 │   ├── CatalogPage.vue           # каталог товаров/работ
 │   ├── AnalyticPage.vue          # аналитика
-│   ├── OthersPage.vue            # «другие» (настройки сервисов и т.п.)
 │   ├── LoginPage.vue             # вход/разблокировка по PIN (7.4)
 │   ├── RegisterPage.vue          # регистрация + выбор специализаций (10.5)
 │   ├── ErrorNotFound.vue
@@ -119,7 +118,7 @@ src/
 /store                 → StorePage                (склад)   meta: { feature: 'store' }
 /catalog               → CatalogPage              (каталог)
 /analytic              → AnalyticPage             (аналитика) meta: { feature: 'analytics' }
-/other                 → OthersPage               (другие)
+/other                 → redirect /orders        (настройки — модальное окно, 17.09.2026)
 /register              → RegisterPage             (регистрация, публичный; 10.5)
 /:catchAll(.*)*        → ErrorNotFound
 ```
@@ -150,7 +149,8 @@ Rollup выносит его в отдельный чанк: в браузере
 Бэкап (задача 4.4): на Android `backupService.createBackup()` выгружает БД через
 `exportToJson('full')` и кладёт JSON в документы устройства (при недоступности публичной
 папки — в приватную папку приложения), автоматически раз в сутки при старте; в браузере
-скачивается дамп `.sqlite`. Кнопка «Создать бэкап» — в `OthersPage.vue`.
+скачивается дамп `.sqlite`. Кнопка «Создать бэкап» — в настройках, вкладка «данные и
+синхронизация» (`src/components/settings/SettingsDialog.vue`).
 
 Восстановление (задача 11.9) — `restoreBackup()`: читает выбранный JSON, сверяет версию схемы
 с `SCHEMA_VERSION` и импортирует через нативный адаптер (`SQLiteConnection.importFromJson`,
@@ -354,7 +354,8 @@ return id;
   (`src/database/queries/orders.js`), а не снапшот `orders.total_amount` (задача 14.20):
   снапшот писался только при сохранении заказа из карточки и расходился с ней после прихода
   строк с сервера/второго устройства.
-- **StorePage / CatalogPage / OthersPage** — работают через сторы и репозитории.
+- **StorePage / CatalogPage** — работают через сторы и репозитории (настройки — модальное окно
+  каркаса, `src/components/settings/SettingsDialog.vue`, правка владельца 17.09.2026).
   `StorePage` показывает товары категории с колонками «остаток / закупка / продажа / посл. прод.»:
   `quantity` берётся из `product_stocks`, `buy_price` — из `buy_product_prices`,
   `last_sale_price` — из `sales_products_prices` (задача 9.3; раньше `product.quantity`
@@ -466,8 +467,11 @@ return id;
 меняет — меняется только представление. Статус: сделано (лексикон, пресеты, онбординг,
 переключатель профиля, акцент, видимость вкладок, поля профиля, `equipment_identifier`).
 
-**Что уже есть в UI.** Единственное место, где специализация видна пользователю, — селект
-«Выберите специализацию» в `pages/OthersPage.vue` (пишет в `useSpecializationsStore.selectedId`).
+**Что уже есть в UI.** Специализация видна пользователю в двух местах: переключатель профиля в
+шапке (`layouts/MainLayout.vue`) и селект «Переключить профиль» во вкладке «специализация» окна
+настроек (`components/settings/SettingsDialog.vue`, правка владельца 17.09.2026 — раздел «ещё»
+стал модальным окном). Оба пишут в `useSpecializationsStore.selectedId` (в окне настроек — по
+кнопке «Сохранить»).
 От него зависят: список заказов (`useOrdersStore` → `ordersRepo.getBySpecializationId`), клиенты
 (`useClientsStore.load(specializationId)` → `clientsRepo.getBySpecializationId`), каталог
 (`useCategoriesStore.load(specializationId)` → `categoriesRepo.getBySpecializationId`; работы — по
@@ -492,8 +496,9 @@ return id;
 - **Видимость вкладок** (10.3; доработка) — флаги профиля (`features`): состав вкладок
   (`MainLayout.vue`) и блоков заказа (`модель техники`, `share-ссылка`, `товар со склада`,
   `идентификатор объекта`); прямые переходы по URL ведут на доступный раздел, а не на пустой
-  экран. Пользователь настраивает разделы сам: тумблеры в карточке «разделы профиля»
-  (`OthersPage.vue`, экшен стора `setFeatures`) пишут тот же JSON, что при создании профиля,
+  экран. Пользователь настраивает разделы сам: тумблеры во вкладке «разделы профиля» окна
+  настроек (`components/settings/SettingsDialog.vue`, экшен стора `setFeatures` — пишется по кнопке
+  «Сохранить») пишут тот же JSON, что при создании профиля,
   поэтому выбор уезжает синком как обычная правка. Пояснения к флагам — `FEATURE_HINTS`
   (`src/domain/features.js`).
 - **Переключатель профиля в шапке** (10.8) — вместо спрятанного селекта в «Другие»; там же
@@ -522,16 +527,18 @@ return id;
 
 - **Профили только из списка** (12.1/12.2) — `useSpecializationsStore.createFromPreset(presetKey)`:
   профиль создаётся сразу с `preset_key`/`accent`/`features`/`template_version` и материализованным
-  каталогом (как `onboardLocal` + `applyPreset`). В «Ещё» нет свободного ввода названия,
-  переименования и блока «шаблон специализации»; изменить `name`/`preset_key` у готового профиля
-  нельзя. ⚠️ попутно починен `specializationsRepo.update` (слияние с текущей строкой БД).
+  каталогом (как `onboardLocal` + `applyPreset`). В настройках (вкладка «специализация») нет
+  свободного ввода названия, переименования и блока «шаблон специализации»; изменить
+  `name`/`preset_key` у готового профиля нельзя. ⚠️ попутно починен
+  `specializationsRepo.update` (слияние с текущей строкой БД).
 - **Карточка заказа** (12.3) — `OrderHeaderActions.vue` показывает статус и оплату ровно одним
   органом управления (`q-btn-toggle` + кнопка «оплачено»), без дублирующих чипов сверху; чип статуса
   остался в списке заказов (`OrdersPage.vue`). Моментальная запись статуса/оплаты в просмотре
   сохранена — это быстрый рабочий сценарий, общий «Сохранить» относится к позициям.
 - **Режим разработчика** (12.4/12.5; доработка) — `components/dev/DeveloperPanel.vue` подключается
   динамическим импортом (ленивый чанк) и показывается только при включённом тумблере «разработка»
-  в «Ещё» (`src/utils/devMode.js`, флаг хранится в `localStorage` и переживает перезапуск).
+  во вкладке «разработка» окна настроек (`src/utils/devMode.js`; флаг пишется по кнопке
+  «Сохранить», лежит в `localStorage` и переживает перезапуск).
   Панель **доступна и в боевой сборке**: на телефоне нет консоли, а логи иногда нужно снять.
   Внутри — вкладки: «логи» (буфер `logger`, фильтр по уровню, копирование и выгрузка в файл
   `services/logExport.js`), «диагностика» (окружение `API_URL`/`USE_MOCK`/платформа/версия/аккаунт,
@@ -656,7 +663,7 @@ return id;
 | миграция `030_create_feedback_reports_table.js` + `src/database/queries/feedback.js` + `src/repositories/feedbackRepo.js` | локальная очередь отчётов (`pending`/`sending`/`sent`/`failed`, `attempts`, `last_error`) — по образцу `operations`/`operationsRepo` (3.3); **не** таблица синка, в `TABLE_ORDER` не входит |
 | `src/utils/feedbackView.js` | чистые функции: `buildFeedbackReport`, `canSubmitFeedback`, `feedbackStatusView`; единственное место, где собирается payload контракта (§3 в `docs/FEEDBACK.md`) — данных мастерской там нет по построению |
 | `src/services/feedbackService.js` | `submit()` (локально → пробует уйти → офлайн остаётся `pending`) и `flush()` (досылает вместе с синком; 401/422 → `failed`, сеть/429 → `pending`) |
-| `src/pages/dialogs/FeedbackDialogPage.vue` + кнопка в `pages/OthersPage.vue` | тип, текст, «приложить диагностику», «копировать текст в буфер» (аварийный путь), состояние отправки |
+| `src/pages/dialogs/FeedbackDialogPage.vue` + кнопка во вкладке «поддержка» (`components/settings/SettingsDialog.vue`) | тип, текст, «приложить диагностику», «копировать текст в буфер» (аварийный путь), состояние отправки |
 
 Вне репозитория (инбокс, который читает агент): `npm run feedback:pull` →
 `feedback/INBOX.md` + `feedback/inbox/*.md`; разбор — `feedback/DECISIONS.md`. Сырые отчёты и
@@ -684,7 +691,7 @@ return id;
 | ~~`src/boot/liveUpdate.js`~~ | **удалён в 1.10.** В сборке 1.9 OTA-инициализация жила boot-файлом и `await`-ила вызовы плагина: Quasar ждёт boot-файлы перед монтированием, поэтому молчащий плагин давал **чёрный экран**. Теперь инициализация — `useUpdateStore.bind()` (после монтирования), а boot-цепочка осталась как в рабочей 1.8 |
 | `src/services/updateService.js` | нормализация `release.bundle`, `bundleAvailable`/`bundleReady`/`pendingBundle`, `downloadAndApplyBundle({reload})`, `restartNow`, `consumeAppliedBundle`, `canApplyBundle`; «позже» для бандла — отдельный ключ хранилища |
 | `src/utils/appUpdateView.js` | чистая логика: `parseBundleVersion`, `isBundleUpdateAvailable`, новые виды чипа (`ota`, `ota_ready`) и тексты статуса |
-| `src/components/UpdateDialog.vue` / `UpdateBanner.vue` / `src/pages/OthersPage.vue` | «обновление без установки», прогресс, «Перезапустить сейчас», разовое «обновление N применено», строка «обновление веб-слоя: N» |
+| `src/components/UpdateDialog.vue` / `UpdateBanner.vue` / `src/components/settings/SettingsDialog.vue` | «обновление без установки», прогресс, «Перезапустить сейчас», разовое «обновление N применено», строка «обновление веб-слоя: N» (вкладка «обновление») |
 | `scripts/release-web.sh` + `npm run release:web` | сборка UI (`quasar build -m capacitor -T android --skip-pkg`), zip содержимого `www`, sha256 (в манифест уходит **hex** — его сравнивает плагин; base64 печатается справочно), те же защиты контура, что у `release-apk.sh` |
 
 Правила, которые важно не нарушать:

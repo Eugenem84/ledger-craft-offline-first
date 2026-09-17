@@ -234,7 +234,9 @@ describe('12.5 Очередь операций: listAll видит и in-flight'
 })
 
 describe('12.4/12.5 UI: настройки и dev-панель', () => {
-  const page = read('src/pages/OthersPage.vue')
+  // Настройки — модальное окно с вкладками (правка владельца 17.09.2026): страницы «ещё»
+  // больше нет, пользовательские настройки живут в `components/settings/SettingsDialog.vue`.
+  const page = read('src/components/settings/SettingsDialog.vue')
   const panel = read('src/components/dev/DeveloperPanel.vue')
 
   it('в пользовательских настройках нет очистки/удаления локальной БД', () => {
@@ -251,11 +253,13 @@ describe('12.4/12.5 UI: настройки и dev-панель', () => {
   })
 
   it('режим разработчика включается тумблером, панель грузится лениво и по флагу', () => {
-    expect(page).toContain('devMode')
-    expect(page).toContain('<q-toggle v-model="devMode"')
+    // Тумблер пишет черновик окна настроек: в storage флаг уходит по «Сохранить»
+    // (правка владельца 17.09.2026 — «Сохранить»/«Отмена» вместо мгновенных записей).
+    expect(page).toContain('draftDevMode')
+    expect(page).toContain('<q-toggle v-model="draftDevMode"')
     expect(page).toContain("import('src/components/dev/DeveloperPanel.vue')")
     expect(page).not.toMatch(/import\s+DeveloperPanel\s+from/)
-    expect(page).toContain('<component :is="DeveloperPanel" v-if="devMode" />')
+    expect(page).toContain('<component :is="DeveloperPanel" v-if="draftDevMode" />')
   })
 
   it('добавление специализации — кнопкой с диалогом-селектором, а не селектором на странице', () => {

@@ -37,6 +37,12 @@ import {
 } from 'src/utils/tabSwipe.js'
 import SyncStatusBar from 'src/components/SyncStatusBar.vue'
 import LcAppBackground from 'src/components/ui/LcAppBackground.vue'
+import SettingsDialog from 'src/components/settings/SettingsDialog.vue'
+import {
+  openSettings,
+  settingsDialogOpen,
+  settingsDialogTab,
+} from 'src/utils/settingsDialog.js'
 import { useUpdateStore } from 'src/stores/useUpdateStore.js'
 
 const store = useSpecializationsStore()
@@ -85,10 +91,37 @@ const tabs = computed(() => {
     items.push({ name: 'analytic', to: '/analytic', label: 'аналитика', icon: 'insights' })
   }
 
-  items.push({ name: 'other', to: '/other', label: 'ещё', icon: 'more_horiz' })
-
   return items
 })
+
+/**
+ * Настройки — НЕ вкладка (правка владельца 17.09.2026: «сменить название, лучше без
+ * названия просто шестерёнку» и «сделать невозможным свапать на настройки»). В `tabs`
+ * их нет, поэтому вкладок ровно столько, сколько разделов, и свайп до настроек не
+ * доезжает; в таббаре живёт **узкая** кнопка-шестерёнка — по ней сложнее промахнуться,
+ * чем по широкой вкладке. Открывает `SettingsDialog` — модальное окно на 90 % экрана.
+ *
+ * Само состояние окна живёт в `utils/settingsDialog.js`: открыть настройки нужно и с
+ * других экранов (ссылка «Управление профилями» в каталоге), а не только из таббара.
+ */
+const settingsOpen = computed({
+  get: () => settingsDialogOpen.value,
+  set: value => {
+    settingsDialogOpen.value = value
+  },
+})
+const settingsTab = settingsDialogTab
+
+/**
+ * После «Сохранить» в настройках набор вкладок мог измениться (профиль/разделы) —
+ * уходим на всегда доступный раздел, как и при переключении профиля в шапке.
+ */
+const onSettingsSaved = ({ profileChanged }) => {
+  if (!profileChanged) return
+
+  const feature = route.meta?.feature
+  if (feature && !isEnabled(feature)) router.replace('/orders')
+}
 
 // Далее — свайп и фон. Всё, что можно посчитать без Vue/Quasar, живёт в
 // `utils/tabSwipe.js` (там же объяснение, почему порядок вкладок — это порядок
@@ -237,9 +270,9 @@ watch(
 
             <q-separator dark />
 
-            <q-item v-close-popup clickable @click="router.push('/other')">
+            <q-item v-close-popup clickable @click="openSettings('specialization')">
               <q-item-section avatar><q-icon name="settings" /></q-item-section>
-              <q-item-section>Управление профилями</q-item-section>
+              <q-item-section>Профиль и настройки</q-item-section>
             </q-item>
           </q-list>
         </q-btn-dropdown>
@@ -322,8 +355,32 @@ watch(
           :icon="item.icon"
           class="col"
         />
+
+        <!-- Настройки: узкая кнопка-шестерёнка без подписи (правка владельца 17.09.2026 —
+             «лучше без названия просто шестерёнку», «сделать уже кнопку, чтоб случайно не
+             тыкать»). Это не вкладка и не маршрут: открывается модальное окно
+             `SettingsDialog`, поэтому свайпом на настройки не попасть, а промахнуться по
+             узкой кнопке сложнее, чем по широкой вкладке. -->
+        <q-btn
+          class="lc-tabbar__settings"
+          flat
+          dense
+          round
+          icon="settings"
+          aria-label="настройки"
+          @click="openSettings()"
+        >
+          <q-tooltip anchor="top middle" self="bottom middle" class="text-caption">
+            настройки
+          </q-tooltip>
+        </q-btn>
       </q-tabs>
     </q-footer>
+
+    <!-- Окно настроек: модальное, на 90 % экрана, рендерится один раз поверх страниц —
+         поэтому открывается из любого места приложения (шапка и таббар) и не зависит от
+         текущего раздела. -->
+    <SettingsDialog v-model="settingsOpen" :initial-tab="settingsTab" @saved="onSettingsSaved" />
   </q-layout>
 </template>
 
