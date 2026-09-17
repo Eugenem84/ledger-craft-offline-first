@@ -12,6 +12,12 @@
 //     живёт в `primary` (runtime `setCssVar`) и виден в бейдже профиля;
 //   • `view="lHh Lpr lFf"` (в исходнике был лишний пробел в конце);
 //   • таббар получил safe-area для Android (`env(safe-area-inset-bottom)`).
+//
+// Правка владельца 17.09.2026: разделы можно листать свайпом (жест + короткий переход,
+// решение — `utils/tabSwipe.js`), а под интерфейсом живёт картинка-фон активной
+// специализации (`components/ui/LcAppBackground.vue`), которая едет при листании.
+// Поверхности остаются сплошными, пока картинки нет: «стеклянный» вид включается
+// классом `.lc-has-bg` только при наличии файла (см. `app.scss`).
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { setCssVar } from 'quasar'
@@ -21,7 +27,16 @@ import { useLexicon } from 'src/domain/lexicon.js'
 import { resolveAccent } from 'src/domain/theme.js'
 import { getPreset } from 'src/domain/presets/index.js'
 import { refreshTemplates } from 'src/services/presetService.js'
+import { resolveBackgroundUrl } from 'src/services/backgroundAssets.js'
+import {
+  backgroundShift,
+  isEdgeGesture,
+  resolveSwipe,
+  swipeTransitionName,
+  tabIndexByPath,
+} from 'src/utils/tabSwipe.js'
 import SyncStatusBar from 'src/components/SyncStatusBar.vue'
+import LcAppBackground from 'src/components/ui/LcAppBackground.vue'
 import { useUpdateStore } from 'src/stores/useUpdateStore.js'
 
 const store = useSpecializationsStore()
@@ -42,25 +57,18 @@ const appVersion = computed(() => updateStore.currentVersionShort)
 /** Активная вкладка = текущий путь (подсветку ведёт `q-route-tab`). */
 const tab = ref(route.path)
 
-watch(
-  () => route.path,
-  path => {
-    tab.value = path
-  }
-)
-
 /** Профили для переключателя (архивированные скрыты). */
 const profileOptions = computed(() =>
-  store.activeItems.map(item => ({
+  store.activeItems.map((item) => ({
     value: item.id,
     label: item.name,
     icon: getPreset(item.preset_key)?.icon || 'person',
-  }))
+  })),
 )
 
 const activeSpecialization = computed(() => store.getSelectedSpecialization)
 const activeIcon = computed(
-  () => store.activePreset?.icon || (activeSpecialization.value ? 'person' : 'tune')
+  () => store.activePreset?.icon || (activeSpecialization.value ? 'person' : 'tune'),
 )
 
 /** Нижняя навигация: набор и подписи зависят от пресета (10.1/10.3). */
@@ -81,6 +89,85 @@ const tabs = computed(() => {
 
   return items
 })
+
+// Далее — свайп и фон. Всё, что можно посчитать без Vue/Quasar, живёт в
+// `utils/tabSwipe.js` (там же объяснение, почему порядок вкладок — это порядок
+// таббара, а не `routes.js`); здесь — состояние каркаса и подписка на жест.
+
+/** Индекс активной вкладки в `tabs` (-1 — текущий путь не вкладка). */
+const tabIndex = computed(() => tabIndexByPath(tabs.value, route.path))
+
+/** Индекс до перехода: по нему понятно, с какой стороны входит новая страница. */
+const previousTabIndex = ref(tabIndex.value)
+
+/** Имя CSS-перехода (`lc-swipe-next` / `lc-swipe-prev`); пусто — перехода нет. */
+const transitionName = ref('')
+
+// Сторону перехода считаем по индексу вкладки: и свайп, и тап по таббару через две
+// вкладки дают одинаковую анимацию (входящая страница приходит со стороны движения).
+// Индекс прошлого пути держим в `previousTabIndex`, потому что к моменту `watch`
+// `route.path` уже указывает на новый раздел.
+watch(
+  () => route.path,
+  (path) => {
+    const next = tabIndexByPath(tabs.value, path)
+
+    transitionName.value = swipeTransitionName(previousTabIndex.value, next)
+    previousTabIndex.value = next
+    tab.value = path
+  },
+)
+
+/** URL картинки-фона активного профиля; `null` — фон остаётся чёрным, как раньше. */
+const appBackgroundUrl = computed(() => resolveBackgroundUrl(store.getSelectedSpecialization))
+
+/** Есть ли картинка: только тогда поверхности становятся полупрозрачными (`.lc-has-bg`). */
+const hasBackground = computed(() => appBackgroundUrl.value !== null)
+
+/** Сдвиг картинки для активной вкладки (параллакс при листании). */
+const backgroundShiftPercent = computed(() => backgroundShift(tabIndex.value, tabs.value.length))
+
+/**
+ * Жест «израсходован». Директива `v-touch-swipe` зовёт обработчик на каждом движении
+ * пальца, поэтому один свайп = один переход: взвели на касании — сняли после перехода.
+ */
+const swipeArmed = ref(false)
+
+/** Координата начала жеста: у краёв экрана жест принадлежит системе, а не нам. */
+const swipeStartX = ref(Number.NaN)
+
+/**
+ * Начало касания. Кроме «системных» краёв проверяем, не касается ли палец открытого
+ * окна: `q-dialog` рендерится внутри страницы, и без этой проверки свайп по подложке
+ * увёл бы раздел под открытым диалогом (а заполненная форма потерялась бы — Quasar
+ * закрывает диалог при смене маршрута).
+ */
+function onSwipeStart(evt) {
+  swipeArmed.value = false
+
+  const target = evt?.target
+  if (typeof target?.closest === 'function' && target.closest('.q-dialog, .q-menu') != null) return
+
+  const touch = evt?.touches?.[0]
+  swipeArmed.value = true
+  swipeStartX.value = touch ? touch.clientX : Number.NaN
+}
+
+/** Конец касания — свайп «разряжен», следующее движение не переключает раздел. */
+function onSwipeEnd() {
+  swipeArmed.value = false
+}
+
+/** Свайп по контенту: переходим на соседний раздел (порядок — как в таббаре). */
+function onSwipe(info) {
+  if (isEdgeGesture(swipeStartX.value, window.innerWidth)) return
+
+  const target = resolveSwipe(info, tabs.value, route.path, swipeArmed.value)
+  if (target === null) return
+
+  swipeArmed.value = false
+  void router.push(target)
+}
 
 onMounted(() => {
   store.load()
@@ -103,15 +190,19 @@ async function selectProfile(id) {
 // фон и тему не трогаем (тёмная тема, следим за контрастом).
 watch(
   () => resolveAccent(activeSpecialization.value),
-  accent => setCssVar('primary', accent),
-  { immediate: true }
+  (accent) => setCssVar('primary', accent),
+  { immediate: true },
 )
 </script>
 
 <template>
-  <q-layout view="lHh Lpr lFf">
+  <q-layout view="lHh Lpr lFf" :class="{ 'lc-has-bg': hasBackground }">
+    <!-- Фон активного профиля. Лежит под контентом (слой `fixed` + `z-index: -1`),
+         меняется кроссфейдом при смене профиля и едет при листании разделов. -->
+    <LcAppBackground :url="appBackgroundUrl" :shift="backgroundShiftPercent" />
+
     <!-- Шапка: переключатель рабочего профиля (10.8). Акцент профиля — в `primary`. -->
-    <q-header class="lc-appbar bg-black">
+    <q-header class="lc-appbar">
       <q-toolbar class="q-py-none" dense>
         <q-btn-dropdown
           v-if="store.activeItems.length"
@@ -165,8 +256,37 @@ watch(
       </q-toolbar>
     </q-header>
 
-    <q-page-container>
-      <router-view />
+    <!--
+      Свайп по разделам (правка владельца 17.09.2026).
+
+      • `v-touch-swipe:0.25:24.horizontal` — жест распознаёт Quasar: порог по скорости
+        0.25 px/мс (быстрее дефолтных 0.06) и 24px хода до решения, только горизонталь.
+        Заметно строже дефолта специально: на длинном списке дефолт принимал за свайп
+        диагональную прокрутку, и раздел менялся при скролле.
+      • `@touchstart`/`@touchend` — свои: директива зовёт обработчик на каждом движении
+        пальца, поэтому «один свайп = один переход» и координата начала жеста считаются
+        здесь (см. `onSwipeStart`).
+      • `lc-viewport` — клип по горизонтали: входящая страница стартует за краем экрана.
+    -->
+    <q-page-container
+      class="lc-viewport"
+      v-touch-swipe:0.25:24.horizontal="onSwipe"
+      @touchstart.passive="onSwipeStart"
+      @touchend="onSwipeEnd"
+      @touchcancel="onSwipeEnd"
+    >
+      <!--
+        `mode="out-in"` — страницы не накладываются друг на друга (иначе контейнер
+        на кадр становится вдвое выше и список «прыгает»). Слайд только у входящей
+        страницы, уходящая просто гаснет: `transform` на странице сломал бы
+        `position: fixed` у плавающей кнопки, а её и так переносит в `body` (см. `LcFab`).
+        При пустом `transitionName` CSS-перехода нет — раздел меняется мгновенно.
+      -->
+      <router-view v-slot="{ Component }">
+        <Transition :name="transitionName" mode="out-in">
+          <component :is="Component" />
+        </Transition>
+      </router-view>
     </q-page-container>
 
     <!-- Нижняя навигация: разделы приходят из `tabs` (состав — флаги пресета). -->
@@ -195,7 +315,10 @@ watch(
 </template>
 
 <style scoped>
+/* Фон шапки — токен (а не класс `bg-black`): при наличии фоновой картинки шапка
+   становится полупрозрачной («стекло»), см. `.lc-has-bg` в `app.scss`. */
 .lc-appbar {
+  background: var(--lc-chrome);
   border-bottom: 1px solid var(--lc-border);
 }
 
@@ -212,4 +335,3 @@ watch(
   font-variant-numeric: tabular-nums;
 }
 </style>
-
