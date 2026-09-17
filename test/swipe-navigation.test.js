@@ -354,8 +354,13 @@ describe('фон: ТЗ картинок совпадает с именами ф�
 
   it('в ТЗ есть размер, вес, формат и требования к яркости', () => {
     const readme = read('src/assets/backgrounds/README.md')
+    const spec = read('docs/UI.md')
 
-    expect(readme).toContain('1440 × 3200')
+    // Размеры: квадрат — предпочтительный кадр (запас под параллакс), поэтому в README
+    // описан он; «портретный» вариант 1440 × 3200 живёт в полном ТЗ (`docs/UI.md` §7).
+    expect(readme).toContain('1024 × 1024')
+    expect(readme).toContain('2048 × 2048')
+    expect(spec).toContain('1440 × 3200')
     expect(readme).toContain('300 КБ')
     expect(readme).toContain('sRGB')
     expect(readme).toContain('WebP')
