@@ -28,7 +28,7 @@ const gradle = read('src-capacitor/android/gradle.properties')
 /** Бандл манифеста: для правил клиента важны `version`, `url` и `minNativeVersionCode`. */
 const bundle = version => ({
   version,
-  url: `https://dev.medovf2h.beget.tech/api/download-bundle?version=${version}`,
+  url: `https://ledgercraft.dev.medovf2h.beget.tech/api/download-bundle?version=${version}`,
   minNativeVersionCode: 15,
 })
 
