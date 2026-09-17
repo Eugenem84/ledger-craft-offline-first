@@ -246,85 +246,81 @@ describe('фон: параллакс по вкладкам', () => {
   })
 })
 
-describe('фон: картинка ровно по ширине экрана, движение — по свободному месту', () => {
+describe('фон: заполняет экран и едет по горизонтали', () => {
   /** Обычный портретный телефон (360×800 CSS px). */
   const viewport = { viewportWidth: 360, viewportHeight: 800 }
   const at = (offset, image = { imageWidth: 1024, imageHeight: 1024 }) =>
     backgroundLayout({ ...viewport, ...image, offset })
 
-  it('квадрат (кадр владельца): видно всю ширину, ход — по полосе сверху/снизу', () => {
-    // Высота полосы = 360 px при экране 800 px: свободного места по 220 px сверху и снизу.
+  it('квадрат (кадр владельца): экран заполнен, бока — запас, ход заметный', () => {
+    // `cover` тянет квадрат по высоте: 800×800 px при экране 360×800 → по 220 px запаса с боков.
     const left = at(-1)
     const right = at(1)
 
     expect(left.scale).toBe(1)
-    expect(left.shiftX).toBe(0)
-    // Ход 12 % высоты экрана = 96 px; это меньше свободного места (220 px), край не оголится.
-    expect(left.shiftY).toBe((BACKGROUND_SHIFT_MAX / 100) * 800)
-    expect(right.shiftY).toBe(-((BACKGROUND_SHIFT_MAX / 100) * 800))
-    expect((BACKGROUND_SHIFT_MAX / 100) * 800).toBeLessThan((800 - 360) / 2)
+    // Первая вкладка — картинка сдвинута вправо (окно обзора у её левого края), последняя — влево.
+    const amplitude = (BACKGROUND_SHIFT_MAX / 100) * 360
+
+    expect(left.shiftX).toBeCloseTo(amplitude, 2)
+    expect(right.shiftX).toBeCloseTo(-amplitude, 2)
+    // Ход 86 px меньше запаса (220 px) — край картинки не оголится.
+    expect(Math.abs(left.shiftX)).toBeLessThan(220)
   })
 
-  it('по бокам не обрезается никогда: увеличения нет ни у одного кадра', () => {
-    // Это и есть обещание владельцу: «не от края до края / обрезается слева и справа» больше
-    // невозможно — картинка всегда ровно по ширине экрана.
+  it('экран всегда покрыт целиком и сдвиг никогда не выходит за запас', () => {
     const images = [
       { imageWidth: 1024, imageHeight: 1024 },
       { imageWidth: 1440, imageHeight: 3200 },
+      { imageWidth: 1080, imageHeight: 2160 },
       { imageWidth: 4000, imageHeight: 1000 },
-      { imageWidth: 1080, imageHeight: 1080 },
       { imageWidth: 300, imageHeight: 2000 },
     ]
 
     for (const image of images) {
-      const layout = at(-1, image)
+      const { scale, shiftX } = at(-1, image)
+      const coverScale = Math.max(360 / image.imageWidth, 800 / image.imageHeight)
+      const renderedWidth = image.imageWidth * coverScale * scale
+      const renderedHeight = image.imageHeight * coverScale * scale
+      const label = `${image.imageWidth}×${image.imageHeight}`
 
-      expect(layout.scale, `${image.imageWidth}×${image.imageHeight}`).toBe(1)
-      expect(layout.shiftX).toBe(0)
+      // Заполнение: картинка закрывает экран по обеим сторонам…
+      expect(renderedWidth, label).toBeGreaterThanOrEqual(360)
+      expect(renderedHeight, label).toBeGreaterThanOrEqual(800)
+      // …а сдвиг не выходит за её ширину — край кадра не оголяется ни на одной вкладке.
+      expect(Math.abs(shiftX), label).toBeLessThanOrEqual((renderedWidth - 360) / 2 + 0.01)
     }
   })
 
-  it('кадр ровно в пропорциях экрана: свободного места нет — фон стоит', () => {
-    // 1440×3200 = 9:20 = пропорции экрана: по бокам и так ничего не режется, а увеличивать
-    // нельзя (увеличение = обрезка по бокам), поэтому хода нет. Каким должен быть кадр, чтобы
-    // параллакс был, — в ТЗ (`docs/UI.md` §7).
+  it('кадр ровно в пропорциях экрана: своего запаса нет — картинка чуть увеличивается', () => {
+    // 1440×3200 = пропорции экрана: увеличение ×1.2 даёт по 36 px запаса с каждой стороны,
+    // ровно на столько фон и едет (без него движения не было бы вовсе).
     const layout = at(-1, { imageWidth: 1440, imageHeight: 3200 })
 
-    expect(layout).toEqual({ scale: 1, shiftX: 0, shiftY: 0 })
+    expect(layout.scale).toBeCloseTo(1.2, 3)
+    expect(layout.shiftX).toBe(36)
   })
 
-  it('кадр чуть выше экрана: запас — его скрытые верх и низ', () => {
-    // 1080×2160 = 9:18: полоса 720 px при экране 800 px → свободного места по 40 px,
-    // ход = 40 × 0.6 = 24 px (≈3 % высоты экрана).
-    const layout = at(1, { imageWidth: 1080, imageHeight: 2160 })
+  it('промежуточный кадр: ход — доля собственного запаса', () => {
+    // 1024×1600 (2:3): под `cover` ширина 512 px при экране 360 px → запас по 76 px на сторону,
+    // ход = 76 × 0.8 = 61 px. Значение между минимумом и пределом — значит, берётся доля запаса.
+    const layout = at(-1, { imageWidth: 1024, imageHeight: 1600 })
 
     expect(layout.scale).toBe(1)
-    expect(layout.shiftY).toBe(-24)
-    // Ход — доля свободного места (`BACKGROUND_SLACK_USAGE`), а не всё место целиком:
-    // остаток гарантирует, что край картинки не вылезет в кадр.
-    expect(Math.abs(layout.shiftY)).toBeCloseTo(40 * BACKGROUND_SLACK_USAGE, 5)
-    expect(Math.abs(layout.shiftY)).toBeLessThan(40)
+    expect(Math.abs(layout.shiftX)).toBeCloseTo(76 * BACKGROUND_SLACK_USAGE, 0)
   })
 
-  it('очень широкий кадр: ход ограничен пределом, а не запасом', () => {
-    const wide = at(-1, { imageWidth: 4000, imageHeight: 1000 })
-
-    // Свободного места 355 px → 26 % высоты, но больше предела (12 %) не берём.
-    expect(wide.shiftY).toBe((BACKGROUND_SHIFT_MAX / 100) * 800)
-  })
-
-  it('середина списка и мусорные данные не ломают раскладку', () => {
-    expect(at(0).shiftY).toBe(0)
+  it('середина списка — без сдвига, мусорные данные не ломают раскладку', () => {
+    expect(at(0).shiftX).toBe(0)
 
     const unknown = backgroundLayout({ ...viewport, offset: 1 })
-    expect(unknown).toEqual({ scale: 1, shiftX: 0, shiftY: 0 })
+    expect(unknown).toEqual({ scale: 1, shiftX: 0 })
 
     const broken = backgroundLayout({ viewportWidth: 0, viewportHeight: 0, offset: -1 })
-    expect(broken).toEqual({ scale: 1, shiftX: 0, shiftY: 0 })
+    expect(broken).toEqual({ scale: 1, shiftX: 0 })
 
     const nanOffset = at(Number.NaN)
     expect(Number.isFinite(nanOffset.scale)).toBe(true)
-    expect(nanOffset.shiftY).toBe(0)
+    expect(nanOffset.shiftX).toBe(0)
   })
 })
 
@@ -378,9 +374,10 @@ describe('фон: ТЗ картинок совпадает с именами ф�
     expect(readme).toContain('sRGB')
     expect(readme).toContain('WebP')
 
-    // Полное ТЗ: те же размеры и главное обещание — по бокам картинка не обрезается.
+    // Полное ТЗ: те же размеры и главное правило — фон заполняет экран и едет по горизонтали.
     expect(spec).toContain('1024 × 1024')
-    expect(spec).toContain('по бокам не обрезается')
+    expect(spec).toContain('заполняет экран целиком')
+    expect(spec).toContain('едет по горизонтали')
   })
 })
 
@@ -435,11 +432,9 @@ describe('каркас: свайп подключён и учтён контра
     )
     expect(background).toContain('z-index: -1')
     expect(background).toContain('pointer-events: none')
-    // Ширина ровно по экрану, высота — по пропорциям кадра: по бокам не обрезается.
-    expect(background).toContain('width: 100%')
-    expect(background).toContain('height: auto')
-    // `object-fit: cover` — ровно то, что обрезало бока квадратного кадра, в стилях его нет.
-    expect(background).not.toMatch(/^\s*object-fit:/m)
+    // Картинка заполняет экран целиком, а «лишняя» ширина кадра — запас для хода по горизонтали.
+    expect(background).toContain('object-fit: cover')
+    expect(background).toContain('height: 100%')
     // Движения фона: параллакс при листании и кроссфейд при смене профиля.
     expect(background).toContain('translate3d(')
     expect(background).toContain('lc-appbg-fade-enter-active')
