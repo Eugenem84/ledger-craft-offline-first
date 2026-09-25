@@ -22,6 +22,38 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
 
+            <!-- Ссылки из писем → приложение (подтверждение почты и сброс пароля).
+                 Веб-версии приложения нет, поэтому письма ведут на https-bridge
+                 бэкенда, а он открывает приложение. Две дороги:
+
+                   1) Android App Links (https + autoVerify): если домен верифицирован
+                      через `public/.well-known/assetlinks.json` (отпечаток ключа
+                      подписи), Android открывает приложение прямо по https-ссылке из
+                      письма, без браузера. Верификация — по каждому host отдельно,
+                      поэтому prod-домен (задача 11.12) добавляется сюда своим
+                      intent-filter'ом, когда появится.
+                   2) Своя схема `ledgercraft://`: фолбэк для debug-сборок и пока
+                      верификация домена не прошла — bridge-страница бэкенда
+                      (`resources/views/app-link.blade.php`) уводит сюда.
+
+                 Обе ссылки разбирает `src/boot/deepLinks.js` (см. `src/domain/deepLinks.js`). -->
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data
+                    android:scheme="https"
+                    android:host="ledgercraft.dev.medovf2h.beget.tech"
+                    android:pathPrefix="/app" />
+            </intent-filter>
+
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="ledgercraft" />
+            </intent-filter>
+
         </activity>
 
         <provider

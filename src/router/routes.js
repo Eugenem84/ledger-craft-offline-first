@@ -49,6 +49,25 @@ const routes = [
     meta: { hideFooter: true, requiredAuth: false },
   },
 
+  // Восстановление пароля и подтверждение почты (Фаза 16). Веб-версии нет, поэтому
+  // письмо открывает приложение deep link'ом (`src/boot/deepLinks.js`), а эти
+  // маршруты публичны: пароль можно сменить и с нового телефона, где нет сессии.
+  {
+    path: '/forgot-password',
+    component: () => import('pages/ForgotPasswordPage.vue'),
+    meta: { hideFooter: true, requiredAuth: false },
+  },
+  {
+    path: '/reset-password',
+    component: () => import('pages/ResetPasswordPage.vue'),
+    meta: { hideFooter: true, requiredAuth: false },
+  },
+  {
+    path: '/verify-email',
+    component: () => import('pages/VerifyEmailPage.vue'),
+    meta: { hideFooter: true, requiredAuth: false },
+  },
+
   // Always leave this as last one,
   // but you can also remove it
   {

@@ -57,6 +57,14 @@ export const useAuthStore = defineStore('auth', {
     hasPin: state => Boolean(state.pinHash),
     /** Заперто: вход выполнен, PIN установлен, но ещё не введён. */
     isLocked: state => Boolean(state.token) && Boolean(state.pinHash) && !state.unlocked,
+    /**
+     * Почта подтверждена (Фаза 16, мягкая верификация).
+     *
+     * `email_verified_at` приезжает в объекте пользователя при входе/регистрации и
+     * после `fetchMe()`. Неподтверждённый адрес **не блокирует** работу и синк —
+     * приложение только показывает баннер и предлагает отправить письмо повторно.
+     */
+    isEmailVerified: state => Boolean(state.user?.email_verified_at),
     userName: state => state.user?.name || state.user?.email || 'пользователь',
   },
 
@@ -111,6 +119,63 @@ export const useAuthStore = defineStore('auth', {
         throw err
       } finally {
         this.loading = false
+      }
+    },
+
+    /**
+     * Запрос письма для сброса пароля (Фаза 16).
+     *
+     * Письмо формирует сервер (`ResetPasswordNotification`): ссылка ведёт на
+     * https-bridge бэкенда, откуда открывается приложение. Ответ различает
+     * «адрес не зарегистрирован» (404) — экран показывает это отдельно.
+     */
+    async requestPasswordReset(email) {
+      const { data } = await apiClient.post('/forgot-password', { email })
+
+      return data
+    },
+
+    /** Новый пароль по токену из письма (токен и email пришли по deep link). */
+    async resetPassword({ token, email, password, passwordConfirmation }) {
+      const { data } = await apiClient.post('/reset-password', {
+        token,
+        email,
+        password,
+        password_confirmation: passwordConfirmation,
+      })
+
+      return data
+    },
+
+    /** Повторная отправка письма с ссылкой подтверждения (мягкая верификация). */
+    async resendVerificationEmail() {
+      const { data } = await apiClient.post('/email/verification-notification')
+
+      return data
+    },
+
+    /**
+     * Перечитывает профиль с сервера (`GET /me`).
+     *
+     * Нужен после подтверждения почты: приложение открылось по ссылке, адрес уже
+     * подтверждён, и баннер «подтвердите почту» должен погаснуть без перезахода.
+     * Ошибку не бросаем: офлайн — нормальное состояние приложения.
+     */
+    async fetchMe() {
+      if (!this.token) return null
+
+      try {
+        const { data } = await apiClient.get('/me')
+
+        this.user = data || null
+
+        if (this.user) storage.trySetItem(USER_KEY, JSON.stringify(this.user))
+
+        return this.user
+      } catch (err) {
+        logger.warn('[Auth] Не удалось обновить профиль:', err?.message || err)
+
+        return this.user
       }
     },
 

@@ -48,6 +48,7 @@ export default defineConfig((/* ctx */) => {
       // создавал **вторую** инстанцию Pinia: Vue предупреждал «App already provides property
       // with key "Symbol(pinia)"», а `useStore()` из разных мест мог попадать в разные инстанции.
       'auth', // после db: читает сессию и связывает 401 с auth-стором (7.4)
+      'deepLinks', // после auth: ссылки из писем открывают экраны сброса/подтверждения
       'updateCheck', // после auth: фоновая проверка версии приложения (13.8)
     ],
 

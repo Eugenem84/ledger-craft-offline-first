@@ -11,6 +11,7 @@ src/
 ├── boot/
 │   ├── axios.js                  # дефолтный axios Quasar ($axios/$api) — приложением не используется
 │   ├── db.js                     # инициализация БД, миграции, вызов syncService.sync()
+│   ├── deepLinks.js              # ссылки из писем → экраны сброса/подтверждения (Фаза 16)
 │   └── pinia.js                  # подключение Pinia
 ├── services/
 │   ├── api.js                    # axios-клиент: baseURL, X-Sync-ID, send()/fetchUpdates()
@@ -62,7 +63,8 @@ src/
 │   ├── presets/                  # пресеты ниш: bike, aquarium, hvac, auto + index.js (10.4)
 │   ├── presetApply.js            # идемпотентная материализация пресета через репозитории (10.4)
 │   ├── features.js               # флаги видимости вкладок/блоков + useFeatures() (10.3)
-│   └── theme.js                  # выбор акцентного цвета профиля (10.2)
+│   ├── theme.js                  # выбор акцентного цвета профиля (10.2)
+│   └── deepLinks.js              # разбор ссылок из писем: URL → маршрут + query (Фаза 16)
 ├── stores/                       # Pinia: useOrdersStore, useOrderDraftStore (черновик заказа, 8.1/8.2),
 │                                 #   useClientsStore, useCategoriesStore, useServicesStore,
 │                                 #   useProductCategoriesStore, useProductsStore,
@@ -92,6 +94,9 @@ src/
 │   ├── AnalyticPage.vue          # аналитика
 │   ├── LoginPage.vue             # вход/разблокировка по PIN (7.4)
 │   ├── RegisterPage.vue          # регистрация + выбор специализаций (10.5)
+│   ├── ForgotPasswordPage.vue    # восстановление пароля: запрос письма (Фаза 16)
+│   ├── ResetPasswordPage.vue     # новый пароль по токену из письма (Фаза 16)
+│   ├── VerifyEmailPage.vue       # подтверждение почты (Фаза 16)
 │   ├── ErrorNotFound.vue
 │   └── dialogs/                  # NewClientDialogPage, ProductDialogPage,
 │                                 #   ArrivalProductDialogPage, EditArrivalDialogPage (правка прихода),
@@ -739,4 +744,37 @@ return id;
 Тесты фазы: `test/update-view.test.js` (21), `test/update-service.test.js` (27),
 `test/update-version.test.js` (7), `test/update-store.test.js` (4), `test/live-update-bridge.test.js` (3);
 `src/utils/liveUpdate.js` подменяется в тестах целиком (`vi.mock`), как и сетевой слой.
+
+## 13. Регистрация и восстановление пароля по почте (Фаза 16) — реализовано
+
+Почта закрывает две задачи: подтверждение адреса при регистрации и возврат доступа, если пароль
+забыт. **Клиент — Android-приложение, веб-версии пока нет**, поэтому письмо не может вести на
+страницу SPA: ссылка ведёт на https-адрес бэкенда (`/app/reset`, `/app/verified`,
+`/email/verify/{id}/{hash}`), а тот открывает приложение (Android App Links или схема
+`ledgercraft://`).
+
+- **Разбор ссылок** — `src/domain/deepLinks.js` (чистая функция `parseDeepLink`, без Vue/Quasar/
+  Capacitor) + boot-файл `src/boot/deepLinks.js`: `App.getLaunchUrl()` (холодный старт) и
+  `App.addListener('appUrlOpen')` (тёплый старт). Boot ничего не ждёт на входе (импорт плагина и
+  вызовы — в фоне под `withTimeout`): `await` в boot-файле держит монтирование (дефект 1.9/1.10,
+  чёрный экран). Навигация — после `router.isReady()`, чтобы не гоняться со стартовым маршрутом.
+- **Экраны** — `/forgot-password`, `/reset-password`, `/verify-email`; все **публичные**
+  (`meta.requiredAuth: false`): пароль меняют и с нового телефона, где нет сессии. Рендерятся на
+  общем каркасе `AuthShell` (он же даёт `QLayout`, см. `test/pages-layout.test.js`).
+- **Стор** (`useAuthStore`): `requestPasswordReset`, `resetPassword`, `resendVerificationEmail`,
+  `fetchMe` (перечитывает профиль после подтверждения) и геттер `isEmailVerified`
+  (`user.email_verified_at`).
+- **Сообщения бэкенда** — `src/utils/apiMessage.js`: ошибки валидации Laravel английские, наши
+  контроллеры отвечают по-русски; переводится и то, и другое.
+- **Мягкая верификация**: пока адрес не подтверждён, вход/работа/синк доступны. В шапке
+  (`MainLayout`) висит баннер «Почта не подтверждена» с кнопкой «Подтвердить», а `RegisterPage`
+  после создания аккаунта показывает уведомление о письме.
+- **Нативное изменение**: `AndroidManifest.xml` получил два intent-filter'а (https `autoVerify` и
+  схема `ledgercraft`), домен верифицируется статикой бэкенда `public/.well-known/assetlinks.json`
+  (отпечаток release-ключа). Поэтому обновление доезжает **APK**, а не OTA-бандлом
+  (`APP_VERSION_CODE`).
+
+Тесты фазы: `test/deep-links.test.js` (9), `test/api-message.test.js` (7) и дополнения
+`test/auth-store.test.js` (5). Серверная сторона — `PasswordResetTest`, `EmailVerificationTest`,
+`AppLinkTest` в бэкенде.
 

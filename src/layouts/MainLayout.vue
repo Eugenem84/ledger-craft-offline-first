@@ -44,6 +44,7 @@ import {
   settingsDialogTab,
 } from 'src/utils/settingsDialog.js'
 import { useUpdateStore } from 'src/stores/useUpdateStore.js'
+import { useAuthStore } from 'src/stores/useAuthStore.js'
 
 const store = useSpecializationsStore()
 const router = useRouter()
@@ -51,6 +52,8 @@ const route = useRoute()
 const { isEnabled } = useFeatures()
 const { t } = useLexicon()
 const updateStore = useUpdateStore()
+// Мягкая верификация почты (Фаза 16): адрес и статус подтверждения — в auth-сторе.
+const auth = useAuthStore()
 
 /**
  * Версия приложения в шапке (правка владельца 15.09.2026): мелко и серым, чтобы
@@ -288,6 +291,27 @@ watch(
 
         <div class="lc-eyebrow lc-hide-sm q-ml-sm">Ledger Craft</div>
       </q-toolbar>
+
+      <!--
+        Мягкая верификация почты (Фаза 16): адрес не подтверждён — работа и синк
+        НЕ блокируются (приложение офлайн-первое), но напоминаем, что без
+        подтверждённого адреса пароль не восстановить. Гаснет сама после перехода
+        по ссылке из письма (`VerifyEmailPage` обновляет профиль через `fetchMe`).
+      -->
+      <q-banner v-if="auth.user && !auth.isEmailVerified" dense class="lc-verify-banner">
+        <template v-slot:avatar><q-icon name="mark_email_unread" /></template>
+        Почта не подтверждена — пароль не восстановить.
+
+        <template v-slot:action>
+          <q-btn
+            flat
+            dense
+            no-caps
+            label="Подтвердить"
+            @click="router.push('/verify-email')"
+          />
+        </template>
+      </q-banner>
     </q-header>
 
     <!--
@@ -403,5 +427,20 @@ watch(
   letter-spacing: 0.02em;
   color: var(--lc-text-mute);
   font-variant-numeric: tabular-nums;
+}
+
+/* Баннер неподтверждённой почты (Фаза 16): спокойный янтарный — это напоминание, а
+   не ошибка. Цвета — токены `--lc-warn*`, чтобы совпадать со статусом «в ожидании». */
+.lc-verify-banner {
+  min-height: unset;
+  padding: 4px 12px;
+  background: var(--lc-warn-soft);
+  border-top: 1px solid var(--lc-warn-line);
+  color: var(--lc-text);
+  font-size: 13px;
+}
+
+.lc-verify-banner .q-icon {
+  color: var(--lc-warn);
 }
 </style>

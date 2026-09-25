@@ -12,6 +12,7 @@
 // их не вернул (старая версия) — создаём локально и отдаём синку.
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
+import { useQuasar } from 'quasar'
 import { useAuthStore } from 'src/stores/useAuthStore.js'
 import { useSpecializationsStore } from 'src/stores/useSpecializationsStore.js'
 import { PRESETS } from 'src/domain/presets/index.js'
@@ -24,6 +25,7 @@ import AuthShell from 'src/components/ui/AuthShell.vue'
 const auth = useAuthStore()
 const specializationsStore = useSpecializationsStore()
 const router = useRouter()
+const $q = useQuasar()
 
 const name = ref('')
 const email = ref('')
@@ -107,6 +109,16 @@ async function submit() {
     syncService
       .sync({ force: true })
       .catch(err => logger.warn('[Register] Синк после регистрации не удался:', err?.message))
+
+    // Верификация почты мягкая (Фаза 16): в приложение пускаем сразу, но напоминаем
+    // про письмо — без подтверждённого адреса пароль не восстановить. Пока адрес не
+    // подтверждён, в шапке висит баннер с повторной отправкой.
+    $q.notify({
+      color: 'positive',
+      icon: 'mark_email_read',
+      message: 'Аккаунт создан. Отправили письмо для подтверждения почты — проверьте «Спам», если его не видно.',
+      timeout: 8000,
+    })
 
     await router.replace('/orders')
   } catch {

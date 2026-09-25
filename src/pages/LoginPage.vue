@@ -201,6 +201,16 @@ async function signOut() {
         flat
         no-caps
         color="grey-6"
+        label="Забыли пароль?"
+        class="full-width"
+        @click="router.push('/forgot-password')"
+      />
+
+      <q-btn
+        type="button"
+        flat
+        no-caps
+        color="grey-6"
         label="Нет аккаунта? Зарегистрироваться"
         class="full-width"
         @click="router.push('/register')"
