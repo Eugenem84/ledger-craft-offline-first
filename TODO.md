@@ -3714,3 +3714,36 @@ TODO — FE `—` (этот коммит) (см. `git log`).
       → ⚠️ владельцу: на телефон правка приедет только с новым OTA-бандлом веб-слоя
       (`RELEASE_SERVER=ledgercraft-home npm run release:web -- --channel dev --notes "…"`), APK не нужен
 
+
+- [x] **20.13** [FE+BE] (P1) Выкат на dev: регистрация с почтой (Фаза 16) + 8 новых специализаций
+      → цель: dev-контур получает «нормальную регистрацию» — подтверждение почты и восстановление
+      пароля по ссылке из письма (Фаза 16) — и расширенный реестр ниш (10.4: `electric`/`plumbing`/
+      `appliance`/`phone`/`computer`/`furniture`/`windows`/`cleaning`), причём и в клиенте, и на сервере
+      → **клиент:** закоммичены реестр ниш и правки после прогона (20.10/20.12/13.18) и запушены в origin;
+      APK **1.16 (versionCode 17)** и OTA-бандл **1.16.1.260926-1238** собраны и опубликованы на dev
+      (`RELEASE_SERVER=ledgercraft-home RELEASE_API_URL=https://ledgercraft.dev.medovf2h.beget.tech/api
+      npm run release:android -- --channel dev --with-bundle`). APK: 25 609 348 байт, sha256
+      `a26e58f6b42bc62dfed05b2eb73452a64a6190a5175b8de43dd3dff89b8a3190`, подписан; бандл: 1 200 816 байт,
+      sha256 `0c768a380272083261fe159f614dcbdbdcd33e488e20bd3101dd322709b92fef`, `minNativeVersionCode 17`;
+      в `gradle.properties` поднят `APP_BUNDLE_BUILD=1`
+      → **бэкенд:** запушены коммиты `98bc1c1` (Фаза 16 BE) и `d5a7554` (сид 12 пресетов). На контуре
+      серверный локальный commit `029ea71` (лимиты против подбора пароля) перебазирован на новую origin:
+      конфликт в `routes/api.php` разрешён в пользу именованных лимитеров Фазы 16
+      (`throttle:login/register/verification/password-reset`), правка легаси `LoginController`
+      (`ThrottlesLogins`, 5 попыток / 5 мин) сохранена — коммит стал `c03f48a`. Затем
+      `migrate --force` (нечего применять), `db:seed --class=SpecializationTemplateSeeder` →
+      в `specialization_templates` **12** записей, `config:clear` + `route:clear`
+      → проверено: `/api/app-version` → `versionCode 17 / 1.16`, `signed:true`, объект `bundle`;
+      `download-apk?versionCode=17` и `download-bundle?version=1.16.1.260926-1238` → 200 с размерами
+      из манифеста; `/.well-known/assetlinks.json` отдаётся (Android App Links); bridge-страницы
+      `/app/reset` и `/app/verified` → 200; роуты `forgot-password`/`reset-password`/
+      `email/verification-notification` на месте; `npm test` — 587 тестов (62 файла), `npm run lint` — 0,
+      `php artisan test` — 137 passed
+      → серверный commit `029ea71`/`c03f48a` с домашнего сервера в origin не пушится (нет
+      GitHub-креденшелов) — принесён в origin с машины разработчика
+      (`git fetch homesrv … ; git push origin …:master`), история контура и origin снова линейна;
+      перед rebase на контуре снята ветка `deploy-backup-*`
+      → ⚠️ владельцу: приложение на APK ≤ 1.15 сначала предложит нативное обновление до 1.16 (в нём
+      deep link'и для писем — AndroidManifest OTA не привозит), после чего «обновление без установки»
+      `1.16.1.260926-1238`; на APK 1.16 бандл встанет сразу
+
