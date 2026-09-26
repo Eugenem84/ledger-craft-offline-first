@@ -76,7 +76,7 @@ src/
 │   ├── SyncStatusBar.vue         # индикатор сети/синка (6.2)
 │   ├── ui/                       # общие элементы дизайн-системы (см. docs/UI.md):
 │   │                             #   LcPageHeader, LcSectionCard, LcStatusChip, LcEmptyState,
-│   │                             #   LcFab, LcDialogShell, LcQuantityStepper, AuthShell
+│   │                             #   LcFab, LcDialogShell, LcQuantitySelect, LcWheelPicker, AuthShell
 │   ├── store/                    # вкладка «движение товаров» (15.09.2026): StoreHistoryPanel
 │   │                             #   (фильтр + список движений профиля) и StockMovementsList
 │   │                             #   (строки «+ приход / − расход», общие с карточкой товара)
@@ -665,7 +665,10 @@ return id;
 | Файл | Роль |
 |---|---|
 | `src/utils/errorLog.js` | **постоянный** буфер ошибок: кольцо на 100 записей `warn`/`error`, переживает перезапуск, пишется и в проде — в отличие от буфера `utils/logger.js`, который живёт только в dev или при включённом «режиме разработчика» (12.5) |
+| `src/utils/haptics.js` | виброотклик (`@capacitor/haptics`, динамический импорт; в браузере/тестах — тихий no-op): `tickHaptic` — короткий щелчок «на деление» (карусель количества, смена раздела, тумблеры), `selectionHaptic` — лёгкий удар, `warningHaptic` — «внимание» (подтверждение удаления), `successHaptic`/`errorHaptic` — «мелодии» уведомлений; у щелчка есть минимальный интервал (26.09.2026) |
+| `src/utils/wheelPicker.js` | чистая математика «карусели» количества: `clampWheelValue`, `wheelIndex`, `wheelValueAt`, `wheelValueFromScroll` (позиция скролла → ближайшее число), `wheelValues`; без Vue/DOM — регресс `test/wheel-picker.test.js` (26.09.2026) |
 | `src/boot/errorLog.js` | глобальные перехватчики: `window.onerror`, `window.onunhandledrejection`, `app.config.errorHandler` (Vue) |
+| `src/boot/haptics.js` | вибро на уведомления одним правилом: подменяет `$q.notify` (сохраняя `setDefaults`/`registerType`) и по типу выбирает отклик — `positive` → успех, `warning` → внимание, `negative` → ошибка; стоит вторым в boot-цепочке (26.09.2026) |
 | миграция `030_create_feedback_reports_table.js` + `src/database/queries/feedback.js` + `src/repositories/feedbackRepo.js` | локальная очередь отчётов (`pending`/`sending`/`sent`/`failed`, `attempts`, `last_error`) — по образцу `operations`/`operationsRepo` (3.3); **не** таблица синка, в `TABLE_ORDER` не входит |
 | `src/utils/feedbackView.js` | чистые функции: `buildFeedbackReport`, `canSubmitFeedback`, `feedbackStatusView`; единственное место, где собирается payload контракта (§3 в `docs/FEEDBACK.md`) — данных мастерской там нет по построению |
 | `src/services/feedbackService.js` | `submit()` (локально → пробует уйти → офлайн остаётся `pending`) и `flush()` (досылает вместе с синком; 401/422 → `failed`, сеть/429 → `pending`) |

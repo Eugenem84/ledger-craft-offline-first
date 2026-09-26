@@ -80,15 +80,15 @@ describe('карточка заказа: себестоимости нет, да
     }
   })
 
-  it('диалог материала: поле «Закупка» убрано, количество — шагомером ≥ 1', () => {
+  it('диалог материала: поле «Закупка» убрано, количество выбирают из списка ≥ 1', () => {
     const dialog = codeOf(read('src/components/order/dialogs/OrderMaterialDialog.vue'))
 
     expect(dialog).not.toContain('Закупка')
     expect(dialog).not.toContain('buyPrice')
-    // Количество задаётся шагомером «‹ N ›» (правка владельца 15.09.2026): явные
-    // стрелки влево/вправо вместо системных «вверх/вниз» у числового поля.
+    // Количество выбирают из выпадающего списка (правка владельца 26.09.2026):
+    // стрелок «‹ N ›» больше нет.
     expect(dialog).toContain('label="Количество"')
-    expect(dialog).toContain('<LcQuantityStepper')
+    expect(dialog).toContain('<LcQuantitySelect')
     expect(dialog).not.toContain('inputmode="numeric"')
     expect(dialog).toContain("emit('submit', { name, price, amount })")
   })

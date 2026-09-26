@@ -4,11 +4,11 @@
 // иначе компонент сообщает `invalid` — страница показывает предупреждение.
 // Оболочка — общая `LcDialogShell`.
 //
-// Правка владельца (15.09.2026): количество задаётся шагомером «‹ N ›» — явными
-// стрелками влево/вправо, а не системными «вверх/вниз» у числового поля.
+// Правка владельца (26.09.2026): количество выбирают из списка — тап по полю,
+// стрелок «‹ N ›» больше нет.
 import { ref, watch } from 'vue'
 import LcDialogShell from 'src/components/ui/LcDialogShell.vue'
-import LcQuantityStepper from 'src/components/ui/LcQuantityStepper.vue'
+import LcQuantitySelect from 'src/components/ui/LcQuantitySelect.vue'
 
 const props = defineProps({
   modelValue: { type: Boolean, default: false },
@@ -68,7 +68,7 @@ const submit = () => {
         </div>
         <div class="col">
           <div class="text-caption lc-mute q-mb-xs">Количество</div>
-          <LcQuantityStepper v-model="form.amount" label="Количество" />
+          <LcQuantitySelect v-model="form.amount" label="Количество" />
         </div>
       </div>
     </div>

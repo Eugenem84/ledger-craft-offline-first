@@ -226,8 +226,7 @@ body {
 
 // Форма кнопки — «пилюля», как у чипов статусов и сегментированных переключателей:
 // кнопка, чип и тумблер остаются одним визуальным элементом (правка владельца
-// 15.09.2026). Круглые иконочные кнопки (`round`) остаются круглыми, а кнопки-стрелки
-// шагомера количества (`border-radius: 0`) переопределяют это ниже.
+// 15.09.2026). Круглые иконочные кнопки (`round`) остаются круглыми.
 .q-btn:not(.q-btn--round) {
   border-radius: 999px;
 }
@@ -710,78 +709,147 @@ body {
   text-align: center;
 }
 
-// Колонка количества со «шагомером» (`LcQuantityStepper`): «‹ N ›» (32 + 32 + 32 + 2px
-// рамки) шире текста «× 3», поэтому под неё отдаём чуть больше места. Модификатор
-// ставят и на строку заголовка, иначе подпись «кол-во» разъезжается с колонкой.
-.lc-col-qty--stepper {
-  flex: 0 0 98px;
-}
-
 .lc-col-del {
   flex: 0 0 36px;
   display: flex;
   justify-content: flex-end;
 }
 
-// --- Шагомер количества («‹ 1 ›») ------------------------------------------
+// --- Выбор количества из списка («N ▾») ------------------------------------
 //
-// Правка владельца (15.09.2026): количество меняют **явными стрелками влево/вправо**,
-// а не системными «вверх/вниз» у `input[type=number]` — на телефоне по ним почти
-// не попасть. Стрелки и значение живут в одной «таблетке», чтобы не разъезжаться
-// в узкой колонке строки позиции.
+// Правка владельца (26.09.2026): стрелки «‹ N ›» занимали почти 100px и в узкой
+// строке позиции заказа выдавливали название. Теперь поле — компактная «таблетка»
+// с числом и кареткой: тап открывает список (`LcQuantitySelect`), а «своё число»
+// внизу списка принимает любое целое ≥ 1.
 
-.lc-stepper {
+.lc-qty {
   display: inline-flex;
   align-items: center;
-  border: 1px solid var(--lc-border-strong);
-  border-radius: 999px;
-  background: var(--lc-surface-2);
-  overflow: hidden;
+  max-width: 100%;
 }
 
-.lc-stepper--full {
+.lc-qty--full {
   display: flex;
   width: 100%;
 }
 
-.lc-stepper__btn.q-btn {
-  min-width: 32px;
-  min-height: 32px;
-  border-radius: 0;
-  color: var(--lc-accent);
-}
-
-.lc-stepper__btn.q-btn .q-focus-helper {
-  border-radius: 0;
-}
-
-// Поле значения: без рамки и фона (рамку держит сама «таблетка»), цифры —
-// системные стрелки «вверх/вниз» не рисуем даже если браузер их умеет.
-.lc-stepper__value {
-  flex: 1 1 auto;
-  width: 32px;
-  min-width: 32px;
-  border: 0;
-  outline: none;
-  background: transparent;
+// Само поле-«таблетка»: минимум `--lc-tap` по ширине — это цель для пальца,
+// а не для курсора.
+.lc-qty__field {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
+  min-width: var(--lc-tap);
+  min-height: 36px;
+  padding: 0 4px;
+  border: 1px solid var(--lc-border-strong);
+  border-radius: 999px;
+  background: var(--lc-surface-2);
   color: var(--lc-text);
-  font: inherit;
+  cursor: pointer;
+  user-select: none;
+}
+
+.lc-qty--full .lc-qty__field {
+  width: 100%;
+}
+
+.lc-qty__field:focus-visible {
+  outline: 2px solid var(--lc-accent);
+  outline-offset: 1px;
+}
+
+.lc-qty__field:active {
+  border-color: var(--lc-accent);
+}
+
+.lc-qty__field--disabled {
+  color: var(--lc-text-mute);
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.lc-qty__value {
   font-weight: 700;
   font-variant-numeric: tabular-nums;
-  text-align: center;
-  padding: 0;
-  appearance: textfield;
-  -moz-appearance: textfield;
+  line-height: 1;
 }
 
-.lc-stepper__value:disabled {
+.lc-qty__caret {
   color: var(--lc-text-mute);
 }
 
-.lc-stepper__value::-webkit-outer-spin-button,
-.lc-stepper__value::-webkit-inner-spin-button {
-  appearance: none;
-  margin: 0;
+.lc-qty__field--disabled .lc-qty__caret {
+  color: inherit;
+}
+
+// Карусель чисел (`LcWheelPicker`): окно шириной с поле, строки — по `--lc-wheel-row`.
+// Высота окна приходит из компонента (число видимых строк × высота строки).
+.lc-qty__menu {
+  min-width: 96px;
+}
+
+.lc-wheel {
+  position: relative;
+  --lc-wheel-row: 36px;
+}
+
+.lc-wheel__scroller {
+  height: 100%;
+  overflow-y: auto;
+  // Родная «доводка» строки к центру — тот же эффект, что у системного пикера.
+  scroll-snap-type: y mandatory;
+  // Прокрутка карусели не должна «протекать» в меню и страницу.
+  overscroll-behavior: contain;
+  touch-action: pan-y;
+  scrollbar-width: none;
+  // Крайние строки «уезжают в туман». Маска, а не градиент: не зависит от цвета фона
+  // меню (в тёмной теме он свой). Префиксная версия нужна WebView до Chrome 120.
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    transparent 0,
+    #000 var(--lc-wheel-row),
+    #000 calc(100% - var(--lc-wheel-row)),
+    transparent 100%
+  );
+  mask-image: linear-gradient(
+    to bottom,
+    transparent 0,
+    #000 var(--lc-wheel-row),
+    #000 calc(100% - var(--lc-wheel-row)),
+    transparent 100%
+  );
+}
+
+.lc-wheel__scroller::-webkit-scrollbar {
+  display: none;
+}
+
+.lc-wheel__row {
+  height: var(--lc-wheel-row);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  scroll-snap-align: center;
+  color: var(--lc-text-mute);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  transition: color 0.15s ease;
+}
+
+.lc-wheel__row--active {
+  color: var(--lc-accent);
+}
+
+// «Окно» выбора: рамки сверху и снизу от строки, стоящей в центре.
+.lc-wheel__band {
+  position: absolute;
+  left: 0;
+  right: 0;
+  pointer-events: none;
+  border-top: 1px solid var(--lc-border-strong);
+  border-bottom: 1px solid var(--lc-border-strong);
 }
 
 // --- KPI-плитки (аналитика) -------------------------------------------------

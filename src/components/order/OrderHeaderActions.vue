@@ -24,6 +24,7 @@
 // инлайн-цветов (см. `docs/UI.md`).
 import { computed } from 'vue'
 import { ORDER_STATUSES, ORDER_STATUS_ICONS } from 'src/utils/analytics.js'
+import { tickHaptic } from 'src/utils/haptics.js'
 
 // Пропсы читаются и в шаблоне, и в скрипте (`statusModifier` ниже — по `status`).
 const props = defineProps({
@@ -79,6 +80,27 @@ const statusModifier = computed(() => {
  * как у чипа «оплачено» в списке заказов (`OrdersPage.vue`).
  */
 const paidOptions = [{ label: 'оплачено', value: true, icon: 'paid' }]
+
+/**
+ * Переключение статуса и оплаты — короткий вибро-щелчок (правка владельца 26.09.2026):
+ * «тумблер щёлкнул» слышно пальцем даже когда экран под ладонью. Повтор того же
+ * значения (клик по активному сегменту) молчит — это не переключение.
+ */
+const setStatus = value => {
+  if (value === props.status) return
+
+  tickHaptic()
+  emit('update:status', value)
+}
+
+const setPaid = value => {
+  const next = value === true
+
+  if (next === props.paid) return
+
+  tickHaptic()
+  emit('update:paid', next)
+}
 </script>
 
 <template>
@@ -174,7 +196,7 @@ const paidOptions = [{ label: 'оплачено', value: true, icon: 'paid' }]
         no-caps
         unelevated
         :options="statusOptions"
-        @update:model-value="value => emit('update:status', value)"
+        @update:model-value="setStatus"
       />
 
       <q-btn-toggle
@@ -186,7 +208,7 @@ const paidOptions = [{ label: 'оплачено', value: true, icon: 'paid' }]
         unelevated
         clearable
         :options="paidOptions"
-        @update:model-value="value => emit('update:paid', value === true)"
+        @update:model-value="setPaid"
       />
     </div>
   </div>

@@ -59,12 +59,12 @@ describe('склад: вкладки «товары» и «движение то
     expect(list).toContain('formatDayLabel')
   })
 
-  it('диалог правки прихода: количество шагомером, у синхронизированного — заблокировано', () => {
+  it('диалог правки прихода: количество из списка, у синхронизированного — заблокировано', () => {
     const dialog = read('src/pages/dialogs/EditArrivalDialogPage.vue')
 
     expect(dialog).toContain('useProductsStore')
     expect(dialog).toContain('updateArrival(')
-    expect(dialog).toContain('<LcQuantityStepper')
+    expect(dialog).toContain('<LcQuantitySelect')
     expect(dialog).toContain('const quantityEditable = computed(() => !current.value?.synced)')
     expect(dialog).toContain(':disable="!quantityEditable"')
     expect(dialog).toContain('label="Цена закупки, р"')

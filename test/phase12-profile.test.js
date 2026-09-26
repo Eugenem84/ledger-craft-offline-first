@@ -116,8 +116,10 @@ describe('12.3 Карточка заказа: статус и оплата — �
     // Правка живого прогона: «оплачено» стало таким же `q-btn-toggle` (одна опция +
     // `clearable`), поэтому в шапке ровно два тумблера и нет кнопки с `@click`.
     expect(header.match(/<q-btn-toggle\s/g)).toHaveLength(2)
-    expect(header).toContain('@update:model-value="value => emit(\'update:status\', value)"')
-    expect(header).toContain('@update:model-value="value => emit(\'update:paid\', value === true)"')
+    // Правка владельца 26.09.2026: переключение идёт через свои обработчики — они
+    // добавляют вибро-щелчок и молчат, если выбран тот же сегмент.
+    expect(header).toContain('@update:model-value="setStatus"')
+    expect(header).toContain('@update:model-value="setPaid"')
     expect(header).not.toContain("@click=\"emit('update:paid'")
   })
 

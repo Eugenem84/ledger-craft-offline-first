@@ -474,9 +474,11 @@ describe('каркас: свайп подключён и учтён контра
     // них не доезжает, а открыть их можно и из шапки, и из таббара.
     expect(layout).toContain('class="lc-tabbar__settings"')
     expect(layout).toContain('icon="settings"')
-    expect(layout).toContain('@click="openSettings()"')
+    // Правка владельца 26.09.2026: открытие настроек и смена раздела отмечаются вибро,
+    // поэтому вызов идёт через обёртку `openSettingsWithHaptic`.
+    expect(layout).toContain('@click="openSettingsWithHaptic()"')
     expect(layout).toContain('<SettingsDialog v-model="settingsOpen"')
-    expect(layout).toContain("openSettings('specialization')")
+    expect(layout).toContain("openSettingsWithHaptic('specialization')")
 
     // Ни подписи «ещё», ни вкладки-настроек в таббаре нет.
     expect(layout).not.toContain("to: '/other'")

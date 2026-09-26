@@ -16,7 +16,7 @@ import { computed, ref } from 'vue'
 import { useQuasar } from 'quasar'
 import { useProductsStore } from 'src/stores/useProductsStore.js'
 import LcDialogShell from 'src/components/ui/LcDialogShell.vue'
-import LcQuantityStepper from 'src/components/ui/LcQuantityStepper.vue'
+import LcQuantitySelect from 'src/components/ui/LcQuantitySelect.vue'
 import { formatDayLabel } from 'src/utils/formatDate.js'
 
 const $q = useQuasar()
@@ -106,7 +106,7 @@ defineExpose({ open })
     <div class="q-gutter-y-md">
       <div>
         <div class="text-caption lc-mute q-mb-xs">Количество</div>
-        <LcQuantityStepper
+        <LcQuantitySelect
           v-model="quantity"
           label="Количество прихода"
           :disable="!quantityEditable"

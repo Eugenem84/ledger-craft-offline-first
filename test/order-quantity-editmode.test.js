@@ -1,13 +1,14 @@
 // test/order-quantity-editmode.test.js
 //
 // Правило правки позиций заказа: количество работ и товаров меняется **только** в
-// режиме правки («Редактировать»). Простой просмотр — чтение: шагомер количества
+// режиме правки («Редактировать»). Простой просмотр — чтение: поле количества
 // не рендерится вовсе.
 //
-// Плюс правило 14.19: количество задаётся явным шагомером (не «двойным тапом»), а
+// Плюс правило 14.19: количество задаётся явным органом (не «двойным тапом»), а
 // диалог «товар со склада» закрывается по «Добавить», как остальные диалоги заказа.
-// Правка владельца 15.09.2026: у шагомера **явные стрелки влево/вправо** — системные
-// «вверх/вниз» у `input[type=number]` на телефоне не попадают по пальцу.
+// Правка владельца 26.09.2026: количество выбирают из выпадающего списка по тапу
+// (`LcQuantitySelect`) — стрелки «‹ N ›» убраны, они занимали почти 100px и
+// выдавливали название позиции.
 //
 // Тесты структурные — как `order-tabs.test.js` и `pages-layout.test.js`: проверяем
 // контракт компонентов (`editMode`, `v-if`/`:disable`), чтобы «просмотр вдруг снова
@@ -20,15 +21,15 @@ import { describe, expect, it } from 'vitest'
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const read = relative => readFileSync(path.join(root, relative), 'utf8')
 
-/** Компоненты с шагомером количества (стрелки влево/вправо). */
-const STEPPER_USERS = [
+/** Компоненты, где количество выбирают из списка (`LcQuantitySelect`). */
+const QUANTITY_USERS = [
   'src/components/order/OrderServicesPanel.vue',
   'src/components/order/OrderServicesBlock.vue',
   'src/components/order/OrderMaterialsEditor.vue',
   'src/components/order/OrderProductsEditor.vue',
   'src/components/order/dialogs/OrderStoreProductDialog.vue',
   'src/components/order/dialogs/OrderMaterialDialog.vue',
-  // Приход товара — тоже количество, поэтому и здесь шагомер, а не числовое поле.
+  // Приход товара — тоже количество, поэтому и здесь список, а не числовое поле.
   'src/pages/dialogs/ArrivalProductDialogPage.vue',
 ]
 
@@ -43,10 +44,10 @@ describe('14.19 количество работ/товаров — только 
     expect(panel).toContain("emit('add', { service })")
   })
 
-  it('список работ в заказе: шагомер количества рендерится только при правке', () => {
+  it('список работ в заказе: поле количества рендерится только при правке', () => {
     const block = read('src/components/order/OrderServicesBlock.vue')
 
-    expect(block).toMatch(/<LcQuantityStepper\s+v-if="props\.editMode"/)
+    expect(block).toMatch(/<LcQuantitySelect\s+v-if="props\.editMode"/)
     expect(block).toContain("emit('update-line', { index, field: 'quantity', value })")
   })
 
@@ -68,7 +69,7 @@ describe('14.19 количество работ/товаров — только 
     expect(tag).toContain(':chosen="services"')
   })
 
-  it('диалог «товар со склада»: количество шагомером, окно закрывается по «Добавить»', () => {
+  it('диалог «товар со склада»: количество из списка, окно закрывается по «Добавить»', () => {
     const dialog = read('src/components/order/dialogs/OrderStoreProductDialog.vue')
 
     expect(dialog).toContain("emit('submit', { amount:")
@@ -79,22 +80,22 @@ describe('14.19 количество работ/товаров — только 
     expect(dialog).toContain(':disable="!props.selectedProduct"')
   })
 
-  it('количество меняют стрелками влево/вправо, а не системными «вверх/вниз»', () => {
-    for (const file of STEPPER_USERS) {
+  it('количество выбирают из списка по тапу — стрелок влево/вправо нет', () => {
+    for (const file of QUANTITY_USERS) {
       const source = read(file)
 
-      expect(source, file).toContain('<LcQuantityStepper')
+      expect(source, file).toContain('<LcQuantitySelect')
       // Числового поля количества с системными стрелками больше нет.
       expect(source, file).not.toContain('inputmode="numeric"')
     }
 
-    // Правило «целое ≥ 1» и обе стрелки живут в самом шагомере.
-    const stepper = read('src/components/ui/LcQuantityStepper.vue')
+    // Правило «целое ≥ 1», список чисел и виброотклик живут в самом компоненте.
+    const select = read('src/components/ui/LcQuantitySelect.vue')
 
-    expect(stepper).toContain('min: { type: Number, default: 1 }')
-    expect(stepper).toContain('inputmode="numeric"')
-    expect(stepper).toContain('icon="chevron_left"')
-    expect(stepper).toContain('icon="chevron_right"')
-    expect(stepper).toContain('normalizeQuantity')
+    expect(select).toContain('min: { type: Number, default: 1 }')
+    expect(select).not.toContain('chevron_left')
+    expect(select).not.toContain('chevron_right')
+    expect(select).toContain('normalizeQuantity')
+    expect(select).toContain('<LcWheelPicker')
   })
 })

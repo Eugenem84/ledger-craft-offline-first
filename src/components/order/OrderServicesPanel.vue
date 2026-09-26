@@ -1,16 +1,16 @@
 <script setup>
-// Задача 14.19: количество работы задаётся маленьким шагомером «‹ N ›» — но только у той
+// Задача 14.19: количество работы выбирают из маленького списка — но только у той
 // работы, которая **уже выбрана в заказ**: «подкачать колесо» ×4 это одна строка с
 // количеством 4 (на сервере связка дедуплицируется по паре заказ+работа, поэтому
 // «несколько одинаковых» — это количество, а не несколько строк).
 //
-// Правка владельца (15.09.2026): количество меняют явными стрелками влево/вправо
-// (`LcQuantityStepper`), а не системными «вверх/вниз» у `input[type=number]`.
+// Правка владельца (26.09.2026): стрелки «‹ N ›» убраны — тап по полю открывает
+// список чисел (`LcQuantitySelect`).
 //
-// ⚠️ В простом просмотре заказа (`editMode = false`) количество не меняется: шагомер
+// ⚠️ В простом просмотре заказа (`editMode = false`) количество не меняется: поле
 // показывается только в режиме правки, в просмотре — «× N».
 import { computed } from 'vue'
-import LcQuantityStepper from 'src/components/ui/LcQuantityStepper.vue'
+import LcQuantitySelect from 'src/components/ui/LcQuantitySelect.vue'
 import { useLexicon } from 'src/domain/lexicon.js'
 import { normalizeQuantity } from 'src/utils/quantity.js'
 
@@ -94,7 +94,7 @@ const hint = computed(() =>
     <div class="lc-linerow lc-linerow--head">
       <div class="lc-col-name">{{ t('service') }}</div>
       <div class="lc-col-num">цена</div>
-      <div class="lc-col-qty lc-col-qty--stepper">кол-во</div>
+      <div class="lc-col-qty">кол-во</div>
       <div class="lc-col-del"></div>
     </div>
 
@@ -119,13 +119,9 @@ const hint = computed(() =>
       <div class="lc-col-num lc-money">{{ service.price }} р</div>
 
       <!-- Количество — только у выбранной работы и только в режиме правки.
-           Клик по шагомеру не должен «выбирать» работу (см. `@click.stop`). -->
-      <div
-        class="lc-col-qty"
-        :class="{ 'lc-col-qty--stepper': isChosen(service) && props.editMode }"
-        @click.stop
-      >
-        <LcQuantityStepper
+           Клик по полю количества не должен «выбирать» работу (см. `@click.stop`). -->
+      <div class="lc-col-qty" @click.stop>
+        <LcQuantitySelect
           v-if="isChosen(service) && props.editMode"
           :model-value="chosenLine(service).quantity"
           :label="`количество: ${t('service')}`"

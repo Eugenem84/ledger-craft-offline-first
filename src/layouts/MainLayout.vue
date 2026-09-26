@@ -35,6 +35,7 @@ import {
   swipeTransitionName,
   tabIndexByPath,
 } from 'src/utils/tabSwipe.js'
+import { tickHaptic } from 'src/utils/haptics.js'
 import SyncStatusBar from 'src/components/SyncStatusBar.vue'
 import LcAppBackground from 'src/components/ui/LcAppBackground.vue'
 import SettingsDialog from 'src/components/settings/SettingsDialog.vue'
@@ -153,6 +154,22 @@ watch(
     tab.value = path
   },
 )
+
+// Смена раздела — короткий «щелчок» (правка владельца 26.09.2026: «при смене вкладок туда-сюда
+// характерные щелчки вибро»). Слушаем индекс вкладки, а не тап: тогда отклик одинаков и при
+// тапе по таббару, и при свайпе. Переходы в карточку заказа и обратно (индекс `-1`) молчат —
+// это не смена раздела.
+watch(tabIndex, (next, previous) => {
+  if (previous < 0 || next < 0 || next === previous) return
+
+  tickHaptic()
+})
+
+/** Настройки — модальное окно, а не раздел: открытие тоже отмечаем щелчком. */
+function openSettingsWithHaptic(tab) {
+  tickHaptic()
+  openSettings(tab)
+}
 
 /** URL картинки-фона активного профиля; `null` — фон остаётся чёрным, как раньше. */
 const appBackgroundUrl = computed(() => resolveBackgroundUrl(store.getSelectedSpecialization))
@@ -273,7 +290,7 @@ watch(
 
             <q-separator dark />
 
-            <q-item v-close-popup clickable @click="openSettings('specialization')">
+            <q-item v-close-popup clickable @click="openSettingsWithHaptic('specialization')">
               <q-item-section avatar><q-icon name="settings" /></q-item-section>
               <q-item-section>Профиль и настройки</q-item-section>
             </q-item>
@@ -392,7 +409,7 @@ watch(
           round
           icon="settings"
           aria-label="настройки"
-          @click="openSettings()"
+          @click="openSettingsWithHaptic()"
         >
           <q-tooltip anchor="top middle" self="bottom middle" class="text-caption">
             настройки

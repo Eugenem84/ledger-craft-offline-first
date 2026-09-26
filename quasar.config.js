@@ -41,6 +41,7 @@ export default defineConfig((/* ctx */) => {
     // https://v2.quasar.dev/quasar-cli-vite/boot-files
     boot: [
       'errorLog', // первым: перехватчики ошибок пишут в постоянный буфер (14.1)
+      'haptics', // вторым: подменяет `$q.notify` — вибро по типу уведомления (26.09.2026)
       'axios',
       'db',
       // Pinia (стор) ставится самим Quasar из `src/stores/index.js` — см. сгенерированный
