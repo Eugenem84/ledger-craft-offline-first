@@ -3864,4 +3864,34 @@ TODO — FE `—` (этот коммит) (см. `git log`).
 > `/api/app-version` отдаёт новый бандл; APK не менялся (миграций нет, правки только в веб-слое).
 > → ⚠️ осталось по задаче: два красных подтверждения в UI (`DeveloperPanel.vue`) и «сначала бэкап».
 
+---
+
+> **26.09.2026: удаление аккаунта вместе со всеми данными (Фаза 17, задача 17.6).** Раньше в приложении
+> не было кнопки удаления аккаунта, а серверная ручка `DELETE /api/delete-account` (с 3.10) фактически
+> ничего не удаляла у пользователя с данными: `AuthController::deleteAccount()` только отзывал токены и
+> звал `$user->delete()`, полагаясь на каскады. Каскадов нет у части внешних ключей (`orders.user_id` →
+> `users`, `clients`/`equipment_models` → `specializations`, `products` → `product_categories`,
+> `incoming_products` → `products`) → PostgreSQL `23503`; синкаемые таблицы на soft-delete → строки
+> оставались; `sync_tombstones.user_id`/`feedback_reports.user_id` — без FK и оставались «хвостом».
+> → BE: чистка явная (`DB::table()` — hard delete мимо soft-delete), порядок «дети → родители», в одной
+> транзакции и только по владельцу: строки заказов → склад-дети → заказы/товары/категории товаров/работы/
+> категории → клиенты/модели → профили + tombstones + отчёты → токены и сбросы пароля → пользователь.
+> Тест `tests/Feature/AccountDeletionTest.php` (2, PostgreSQL) — аккаунт с данными по ВСЕМ таблицам синка
+> удаляется целиком, старый токен → 401, данные второго аккаунта целы; `php artisan test` — **139 passed**.
+> → FE: `useAuthStore.deleteAccount()` (`DELETE /delete-account` → `syncService.fullReset()` → сброс
+> `auth_owner_id` и сессии; офлайн — ничего не трогаем), в «Настройки → аккаунт» блок «удаление аккаунта»
+> с подтверждением вводом слова `УДАЛИТЬ`; тесты `auth-store` (+2), `settings-dialog` (+1); `npm test` —
+> **606 (65 файлов)**, lint 0, SPA-сборка ok.
+> → выкат на dev **26.09.2026**:
+>   • BE — `git pull` на `ledgercraft-home:/opt/projects/ledgercraft/backend` (коммит `aef3d09`),
+>     `migrate --force` (нечего), `config:clear`, `route:clear`; живая проверка: `register` → `me=200`
+>     → `delete=200` → `me=401` → `login=401` (временный аккаунт удалён сам собой);
+>   • FE — OTA-бандл **1.17.4.260926-1413** — 1 205 418 байт, sha256
+>     `78caf6363ea426c5cb30e0249d356bca8bbf1cc01467b23900f12017cb98401d`, `minNativeVersionCode 18`.
+>     `/api/app-version` отдаёт новый бандл; APK не менялся.
+> → ⚠️ владельцу: удаление аккаунта стирает данные безвозвратно и требует интернета (данные удаляет
+> сервер). На APK ≤ 1.16 кнопка появится только после нативного обновления до 1.17 (бандл требует
+> `minNativeVersionCode 18`).
+
+
 
