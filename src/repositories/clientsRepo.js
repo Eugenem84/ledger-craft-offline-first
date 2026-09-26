@@ -154,6 +154,14 @@ export async function remove(id) {
   await dbAdapter.execute(queries.delete, [id]);
 }
 
+/**
+ * Полностью очищает справочник клиентов (задача 14.18).
+ * Идёт до `specializations` и после `orders` (заказы ссылаются на клиентов).
+ */
+export async function clearAll() {
+  await dbAdapter.execute('DELETE FROM clients')
+}
+
 export async function applyServerRecord(record) {
   // Ищем локальную запись по server_id (id сервера)
   const existing = await dbAdapter.query(`

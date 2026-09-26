@@ -243,6 +243,18 @@ export async function remove(id) {
   });
 }
 
+/**
+ * Полностью очищает таблицу заказов (задача 14.18).
+ *
+ * ⚠️ Вызывать только после строк заказа (`order_service`, `order_product`, `materials`):
+ * на Android SQLite открыт с `PRAGMA foreign_keys = ON`, и `DELETE FROM orders` при
+ * живых строках падает `FOREIGN KEY constraint failed`. Порядок задаёт
+ * `syncService.fullReset()`, сюда приходят уже очищенные дети.
+ */
+export async function clearAll() {
+  await dbAdapter.execute('DELETE FROM orders');
+}
+
 export async function applyServerRecord(record) {
   const existing = await dbAdapter.query(`
     SELECT * FROM orders WHERE server_id = ?

@@ -57,6 +57,38 @@ const TABLE_ORDER = [
   'materials',
 ];
 
+// Порядок полного сброса локальной БД — строго «дети → родители» (задача 14.18).
+//
+// ⚠️ `TABLE_ORDER` выше для удаления НЕ годится: он описывает синк («родитель →
+// ребёнок»), а на устройстве SQLite открыт с `PRAGMA foreign_keys = ON`
+// (Android-плагин: `setForeignKeyConstraintsEnabled(true)`). `DELETE FROM orders`
+// при живых строках `order_service`/`materials` и `DELETE FROM specializations`
+// при живых `equipment_models`/`orders` падают `FOREIGN KEY constraint failed`.
+// Симптом на живом прогоне: смена аккаунта показывала данные прежнего (сброс
+// падал на первой же таблице, ошибку глотал `useAuthStore`).
+const FULL_RESET_ORDER = [
+  // Строки заказов: ссылаются на `orders`, `services`, `products`.
+  'order_service',
+  'order_product',
+  'materials',
+  'sales_products_prices',
+  // Склад: дети товара.
+  'incoming_products',
+  'buy_product_prices',
+  'product_stocks',
+  // Заказ: FK на `clients` и `specializations` (строки уже удалены выше).
+  'orders',
+  // Каталог: работа → категория, товар → категория товаров.
+  'services',
+  'products',
+  'categories',
+  'product_categories',
+  // Справочники-родители: модели и клиенты держат FK на специализации.
+  'equipment_models',
+  'clients',
+  'specializations',
+];
+
 // Паузы после сбоев доступности (backoff): 5с → 15с → 60с → 5мин (дальше — кап).
 // Защищают от «бесконечного цикла отправки одного батча» (задача 3.7).
 const RETRY_DELAYS_MS = [5000, 15000, 60000, 300000];
@@ -1486,14 +1518,35 @@ class SyncService {
     logger.log(`[Sync] Применено удаление с сервера: ${table}`, record);
   }
 
+  /**
+   * Полный сброс локальной БД (задача 14.18): таблицы, очередь операций, очередь
+   * отчётов и курсоры синка. Нужен при смене аккаунта на устройстве (11.6) и для
+   * отладки («начать с сервера»).
+   *
+   * Удаляем по `FULL_RESET_ORDER` («дети → родители») — иначе на Android с
+   * `PRAGMA foreign_keys = ON` падает первая же таблица с детьми, и прежний
+   * аккаунт остаётся в базе. Всё идёт в одной транзакции: частично снесённая БД
+   * (например, справочники уже пусты, а заказы ещё живы) хуже, чем «сброс не удался».
+   */
   async fullReset() {
     logger.log('[Sync] Full reset started');
-    for (const table of Object.keys(this.repos)) {
-      const repo = this.repos[table];
-      if (typeof repo.clearAll === 'function') {
-        await repo.clearAll();
+
+    await dbAdapter.transaction(async () => {
+      for (const table of FULL_RESET_ORDER) {
+        const repo = this.repos[table];
+        const clearAll = repo?.clearAll;
+
+        if (typeof clearAll !== 'function') {
+          // Молча пропустить нельзя: таблица останется с данными прежнего аккаунта,
+          // а сброс будет выглядеть успешным. Это видно в консоли и тестах.
+          console.error(`[Sync] Полный сброс: у таблицы ${table} нет clearAll() — данные останутся!`);
+          continue;
+        }
+
+        await clearAll();
       }
-    }
+    });
+
     // Очередь операций — это outbox, а не сущность: в `this.repos` её нет, поэтому
     // чистим явно. Иначе после смены аккаунта старые операции уедут под новым токеном.
     await operationsRepo.clearAll();

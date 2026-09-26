@@ -109,6 +109,14 @@ async function removeLine(line) {
   await dbAdapter.execute('DELETE FROM order_service WHERE id = ?', [line.id])
 }
 
+/**
+ * Полностью очищает строки работ в заказах (задача 14.18).
+ * Идёт первой в `syncService.fullReset()`: `order_service` держит FK на `orders` и `services`.
+ */
+export async function clearAll() {
+  await dbAdapter.execute('DELETE FROM order_service')
+}
+
 export async function applyServerRecord(record) {
   // Находим локальный заказ по server_id из записи связи
   const orders = await dbAdapter.query(

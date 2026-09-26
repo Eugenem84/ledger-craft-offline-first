@@ -127,6 +127,14 @@ export async function remove(id) {
   await dbAdapter.execute(queries.delete, [id]);
 }
 
+/**
+ * Полностью очищает модели техники (задача 14.18).
+ * Идёт после `orders`, до `specializations` (`equipment_models.specialization_id` — FK).
+ */
+export async function clearAll() {
+  await dbAdapter.execute('DELETE FROM equipment_models')
+}
+
 export async function applyServerRecord(record) {
   const existing = await dbAdapter.query(queries.findByServerId, [record.id]);
 

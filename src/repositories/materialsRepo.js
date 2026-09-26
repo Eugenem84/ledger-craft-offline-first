@@ -91,6 +91,14 @@ export async function removeByOrderId(orderId) {
 }
 
 /**
+ * Полностью очищает ручные позиции заказов (задача 14.18).
+ * Идёт до `orders`: `materials.order_id` — внешний ключ на `orders(id)`.
+ */
+export async function clearAll() {
+  await dbAdapter.execute('DELETE FROM materials')
+}
+
+/**
  * Применяет запись с сервера: находит локальный заказ по server_id и создаёт/обновляет строку.
  */
 export async function applyServerRecord(record) {

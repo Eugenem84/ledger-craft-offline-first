@@ -304,18 +304,34 @@ export const useAuthStore = defineStore('auth', {
     async _resetLocalDataIfOwnerChanged(user) {
       const nextOwner = user?.id != null ? String(user.id) : null
       const previousOwner = storage.getItem(OWNER_KEY)
+      const ownerChanged = Boolean(previousOwner && nextOwner && previousOwner !== nextOwner)
 
-      if (previousOwner && nextOwner && previousOwner !== nextOwner) {
+      if (ownerChanged) {
+        // Смена владельца: данные прежнего аккаунта должны исчезнуть **до** того, как
+        // новый начнёт работать. Ошибку не глотаем: иначе в локальной БД остаются чужие
+        // заказы и клиенты, а вход выглядит успешным (дефект живого прогона).
         try {
           await syncService.fullReset()
-          logger.log(
-            `[Auth] Смена аккаунта (${previousOwner} → ${nextOwner}): локальные данные сброшены`
-          )
         } catch (err) {
-          logger.error('[Auth] Не удалось сбросить локальные данные при смене аккаунта:', err)
+          logger.error('[Auth] Не удалось сбросить данные прежнего аккаунта:', err)
+
+          // Не входим в новый аккаунт поверх чужих данных и не помечаем смену
+          // владельца завершённой: следующий вход повторит попытку сброса.
+          this.clearSession()
+
+          const failure = new Error('Не удалось очистить данные прежнего аккаунта — попробуйте ещё раз')
+          failure.code = 'LOCAL_RESET_FAILED'
+          throw failure
         }
+
+        logger.log(
+          `[Auth] Смена аккаунта (${previousOwner} → ${nextOwner}): локальные данные сброшены`
+        )
       }
 
+      // Владельца запоминаем только после успешного сброса — иначе неудачный сброс
+      // «закрепил» бы чужой набор данных за новым аккаунтом, и повторного сброса
+      // уже не случилось бы.
       if (nextOwner) storage.trySetItem(OWNER_KEY, nextOwner)
     },
 
@@ -323,6 +339,7 @@ export const useAuthStore = defineStore('auth', {
       const status = err?.response?.status
 
       if (status === 401) return 'Неверный email или пароль'
+      if (err?.code === 'LOCAL_RESET_FAILED') return err.message
       if (!err?.response) return 'Нет связи с сервером — для первого входа нужен интернет'
 
       return err?.response?.data?.message || 'Не удалось войти'
@@ -333,6 +350,7 @@ export const useAuthStore = defineStore('auth', {
       const status = err?.response?.status
       const data = err?.response?.data
 
+      if (err?.code === 'LOCAL_RESET_FAILED') return err.message
       if (!err?.response) return 'Нет связи с сервером — для регистрации нужен интернет'
       if (status === 422) {
         const firstError = data?.errors && Object.values(data.errors)[0]

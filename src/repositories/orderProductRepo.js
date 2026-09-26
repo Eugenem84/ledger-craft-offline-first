@@ -127,6 +127,14 @@ export async function removeByOrderId(orderId) {
 }
 
 /**
+ * Полностью очищает строки товаров в заказах (задача 14.18).
+ * Идёт до `orders` и `products` — логический ребёнок обоих.
+ */
+export async function clearAll() {
+  await dbAdapter.execute('DELETE FROM order_product')
+}
+
+/**
  * Применяет запись с сервера: находит локальные заказ/товар по server_id и создаёт/обновляет строку.
  */
 export async function applyServerRecord(record) {

@@ -110,6 +110,14 @@ export async function remove(id) {
   await dbAdapter.execute(queries.delete, [id]);
 }
 
+/**
+ * Полностью очищает категории товаров (задача 14.18).
+ * Идёт после `products`, до `specializations`.
+ */
+export async function clearAll() {
+  await dbAdapter.execute('DELETE FROM product_categories')
+}
+
 // Возвращаем applyServerRecord к простому виду. Он должен хранить серверные ID.
 export async function applyServerRecord(record) {
   const existing = await dbAdapter.queryOne(

@@ -113,6 +113,14 @@ export async function remove(id) {
   await dbAdapter.execute(queries.delete, [id]);
 }
 
+/**
+ * Полностью очищает категории работ (задача 14.18).
+ * Идёт после `services`, до `specializations`.
+ */
+export async function clearAll() {
+  await dbAdapter.execute('DELETE FROM categories')
+}
+
 export async function applyServerRecord(record) {
   const existing = await dbAdapter.query(`
     SELECT * FROM categories WHERE server_id = ?
