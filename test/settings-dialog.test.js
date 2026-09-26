@@ -149,6 +149,19 @@ describe('настройки применяются сразу — ни «Сох
     expect(dialog).toContain('newProfileDialogOpen.value = false')
     expect(dialog).toContain('restoreOpen.value = false')
   })
+
+  it('удаление аккаунта подтверждается вводом слова и требует сети', () => {
+    expect(dialog).toContain('label="Удалить аккаунт"')
+    expect(dialog).toContain('openDeleteAccount')
+    expect(dialog).toContain("const DELETE_ACCOUNT_WORD = 'УДАЛИТЬ'")
+    expect(dialog).toContain(':confirm-disable="!deleteAccountConfirmed"')
+    expect(dialog).toContain('await auth.deleteAccount()')
+    expect(dialog).toContain("await router.replace('/login')")
+
+    // Диалог — «временное» состояние окна: при повторном открытии настроек он закрыт, слово сброшено.
+    expect(dialog).toContain('deleteAccountOpen.value = false')
+    expect(dialog).toContain('deleteAccountWord.value = \'\'')
+  })
 })
 
 describe('состояние окна настроек живёт в `utils/settingsDialog.js`', () => {

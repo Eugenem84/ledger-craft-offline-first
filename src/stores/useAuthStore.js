@@ -192,6 +192,42 @@ export const useAuthStore = defineStore('auth', {
       this.clearSession()
     },
 
+    /**
+     * Удаление аккаунта (Фаза 17) — безвозвратно, вместе со всеми данными.
+     *
+     * Порядок принципиален: сначала удаляем на сервере (там каскадом/явно исчезают
+     * профили, заказы, клиенты, каталог, склад и «хвосты»), и только потом чистим
+     * устройство. Если сервер недоступен — ничего не удаляем: иначе на телефоне не
+     * осталось бы ничего, а аккаунт жил бы дальше.
+     *
+     * Ошибку бросаем дальше: экран настроек показывает текст из `this.error`.
+     */
+    async deleteAccount() {
+      this.loading = true
+      this.error = null
+
+      try {
+        await apiClient.delete('/delete-account')
+      } catch (err) {
+        this.error = this._deleteErrorText(err)
+        throw err
+      } finally {
+        this.loading = false
+      }
+
+      // Локальную копию убираем «best effort»: на сервере данных уже нет, и устройство
+      // не должно остаться с ними, даже если сброс БД почему-то не удался.
+      try {
+        await syncService.fullReset()
+      } catch (err) {
+        logger.error('[Auth] Аккаунт удалён на сервере, но локальный сброс не удался:', err)
+      }
+
+      // Владельца локальных данных тоже забываем: устройство снова «чистое».
+      storage.removeItem(OWNER_KEY)
+      this.clearSession()
+    },
+
     /** Локальная очистка сессии (без сети). */
     clearSession() {
       this.token = null
@@ -343,6 +379,16 @@ export const useAuthStore = defineStore('auth', {
       if (!err?.response) return 'Нет связи с сервером — для первого входа нужен интернет'
 
       return err?.response?.data?.message || 'Не удалось войти'
+    },
+
+    /** Текст ошибки удаления аккаунта: сервер — обязательный участник, офлайн не годится. */
+    _deleteErrorText(err) {
+      const status = err?.response?.status
+
+      if (status === 401) return 'Сессия истекла — войдите снова'
+      if (!err?.response) return 'Нужен интернет: удаление аккаунта выполняет сервер'
+
+      return err?.response?.data?.message || 'Не удалось удалить аккаунт'
     },
 
     /** Текст ошибки регистрации: занятый email и прочие 422 приходят как `errors`. */

@@ -8,6 +8,7 @@ import { createPinia, setActivePinia } from 'pinia'
 
 import { apiClient } from 'src/services/api.js'
 import storage from 'src/utils/storage.js'
+import syncService from 'src/services/syncService.js'
 import { useAuthStore } from 'src/stores/useAuthStore.js'
 
 function freshStore() {
@@ -195,5 +196,48 @@ describe('7.4 стор авторизации', () => {
 
     expect(result).toBeNull()
     expect(get).not.toHaveBeenCalled()
+  })
+
+  // Фаза 17: удаление аккаунта вместе с данными.
+
+  it('удаление аккаунта стирает данные на сервере, локально и забывает владельца', async () => {
+    vi.spyOn(apiClient, 'post').mockResolvedValue({
+      data: { access_token: 'tok-del', user: { id: 7, email: 'i@example.com' } },
+    })
+
+    const auth = freshStore()
+    await auth.login('i@example.com', 'secret')
+    expect(storage.getItem('auth_owner_id')).toBe('7')
+
+    const del = vi
+      .spyOn(apiClient, 'delete')
+      .mockResolvedValue({ data: { message: 'Аккаунт удалён' } })
+    const reset = vi.spyOn(syncService, 'fullReset').mockResolvedValue(undefined)
+
+    await auth.deleteAccount()
+
+    expect(del).toHaveBeenCalledWith('/delete-account')
+    expect(reset).toHaveBeenCalledTimes(1)
+    expect(auth.isAuthenticated).toBe(false)
+    expect(storage.getItem('auth_token')).toBeNull()
+    expect(storage.getItem('auth_owner_id')).toBeNull()
+  })
+
+  it('офлайн удаление аккаунта не выполняется и локальные данные целы', async () => {
+    vi.spyOn(apiClient, 'post').mockResolvedValue({
+      data: { access_token: 'tok-del-2', user: { id: 8, email: 'i@example.com' } },
+    })
+
+    const auth = freshStore()
+    await auth.login('i@example.com', 'secret')
+
+    vi.spyOn(apiClient, 'delete').mockRejectedValue(new Error('Network Error'))
+    const reset = vi.spyOn(syncService, 'fullReset').mockResolvedValue(undefined)
+
+    await expect(auth.deleteAccount()).rejects.toBeTruthy()
+
+    expect(reset).not.toHaveBeenCalled()
+    expect(auth.isAuthenticated).toBe(true)
+    expect(auth.error).toContain('интернет')
   })
 })

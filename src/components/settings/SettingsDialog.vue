@@ -165,6 +165,8 @@ const resetTemporaryUi = () => {
   newProfilePreset.value = null
   newProfileDialogOpen.value = false
   restoreOpen.value = false
+  deleteAccountOpen.value = false
+  deleteAccountWord.value = ''
 }
 
 /** Второстепенные данные окна: список профилей, дата бэкапа, очередь отчётов. */
@@ -408,6 +410,47 @@ const signOut = async () => {
   await auth.logout()
   close()
   await router.replace('/login')
+}
+
+// Удаление аккаунта — необратимо, поэтому подтверждается вводом слова (Фаза 17).
+// Требует сети: данные стирает сервер, и без ответа сервера мы ничего не трогаем.
+const DELETE_ACCOUNT_WORD = 'УДАЛИТЬ'
+const deleteAccountOpen = ref(false)
+const deleteAccountWord = ref('')
+const deleteAccountLoading = ref(false)
+const deleteAccountConfirmed = computed(
+  () => deleteAccountWord.value.trim().toUpperCase() === DELETE_ACCOUNT_WORD
+)
+
+const openDeleteAccount = () => {
+  if (!auth.isAuthenticated) {
+    notify('warning', 'Нужен вход в аккаунт')
+    return
+  }
+
+  deleteAccountWord.value = ''
+  deleteAccountOpen.value = true
+}
+
+const confirmDeleteAccount = async () => {
+  if (!deleteAccountConfirmed.value) return
+
+  deleteAccountLoading.value = true
+  // Синк держит соединение и очередь операций — на время удаления останавливаем.
+  SyncService.stopAutoSync()
+
+  try {
+    await auth.deleteAccount()
+    deleteAccountOpen.value = false
+    close()
+    notify('positive', 'Аккаунт удалён')
+    await router.replace('/login')
+  } catch (error) {
+    logger.error('[Settings] Не удалось удалить аккаунт:', error)
+    notify('negative', auth.error || 'Не удалось удалить аккаунт')
+  } finally {
+    deleteAccountLoading.value = false
+  }
 }
 
 // --- Открытие окна ------------------------------------------------------------
@@ -766,6 +809,25 @@ watch(
                   Локальные данные останутся на устройстве: после выхода их можно выгрузить и
                   синхронизировать под другим аккаунтом.
                 </div>
+
+                <q-separator dark class="q-my-sm" />
+
+                <div class="lc-eyebrow text-negative">удаление аккаунта</div>
+                <q-btn
+                  class="full-width"
+                  no-caps
+                  unelevated
+                  color="negative"
+                  icon="delete_forever"
+                  label="Удалить аккаунт"
+                  :disable="!auth.isAuthenticated"
+                  @click="openDeleteAccount"
+                />
+                <div class="text-caption lc-mute">
+                  Аккаунт и все данные (профили, заказы с позициями, клиенты, каталог, склад,
+                  отчёты) удаляются <b>навсегда</b> — и на сервере, и на этом устройстве.
+                  Восстановить их нельзя, отмена не предусмотрена. Нужен интернет.
+                </div>
               </div>
             </LcSectionCard>
           </q-tab-panel>
@@ -859,6 +921,40 @@ watch(
 
     <!-- «Сообщить об ошибке» (Фаза 14): форма и очередь последних отчётов. -->
     <FeedbackDialogPage ref="feedbackDialog" @changed="refreshFeedbackPending" />
+
+    <!-- Удаление аккаунта (Фаза 17): подтверждение вводом слова — действие необратимо. -->
+    <LcDialogShell
+      v-model="deleteAccountOpen"
+      title="Удалить аккаунт"
+      subtitle="безвозвратно, вместе со всеми данными"
+      confirm-label="Удалить навсегда"
+      confirm-color="negative"
+      :confirm-disable="!deleteAccountConfirmed"
+      :loading="deleteAccountLoading"
+      @confirm="confirmDeleteAccount"
+    >
+      <div class="q-gutter-y-sm">
+        <div class="text-caption lc-mute">
+          На сервере будут <b>безвозвратно</b> удалены аккаунт и все его данные: рабочие профили,
+          заказы с позициями, клиенты, каталог, склад, история и очередь. На этом устройстве
+          локальная база тоже будет очищена — войти придётся заново.
+        </div>
+        <div class="text-caption lc-mute">
+          Чтобы подтвердить, введите слово <b>{{ DELETE_ACCOUNT_WORD }}</b>:
+        </div>
+        <q-input
+          v-model="deleteAccountWord"
+          outlined
+          dense
+          autofocus
+          placeholder="УДАЛИТЬ"
+          :rules="[
+            value =>
+              value.trim().toUpperCase() === DELETE_ACCOUNT_WORD || 'Введите ' + DELETE_ACCOUNT_WORD,
+          ]"
+        />
+      </div>
+    </LcDialogShell>
 
     <DeleteConfirmPage ref="dangerConfirm" />
   </div>
