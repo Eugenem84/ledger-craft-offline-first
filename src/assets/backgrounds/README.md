@@ -10,6 +10,14 @@ src/assets/backgrounds/
   auto.webp        # Автосервис      (#ff7043)
   hvac.webp        # Климат          (#42a5f5)
   aquarium.webp    # Аквариумы       (#26c6da)
+  electric.webp    # Электрик        (#fbc02d)
+  plumbing.webp    # Сантехник       (#039be5)
+  appliance.webp   # Бытовая техника (#8e24aa)
+  phone.webp       # Телефоны и ноутбуки (#546e7a)
+  computer.webp    # Компьютерная помощь (#3949ab)
+  furniture.webp   # Мебель          (#8d6e63)
+  windows.webp     # Окна и двери    (#00acc1)
+  cleaning.webp    # Клининг         (#26a69a)
   default.webp     # необязательная: профиль без пресета
 ```
 

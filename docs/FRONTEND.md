@@ -60,7 +60,8 @@ src/
 │   └── feedbackRepo.js           # очередь отчётов об ошибке: pending/sending/sent/failed (Фаза 14)
 ├── domain/                       # Фаза 10: лексикон, пресеты, флаги, акцент (без UI-зависимостей)
 │   ├── lexicon.js                # словарь терминов по `preset_key` + useLexicon() (10.1)
-│   ├── presets/                  # пресеты ниш: bike, aquarium, hvac, auto + index.js (10.4)
+│   ├── presets/                  # пресеты ниш: bike, aquarium, hvac, auto, electric, plumbing,
+│   │                             #   appliance, phone, computer, furniture, windows, cleaning (10.4)
 │   ├── presetApply.js            # идемпотентная материализация пресета через репозитории (10.4)
 │   ├── features.js               # флаги видимости вкладок/блоков + useFeatures() (10.3)
 │   ├── theme.js                  # выбор акцентного цвета профиля (10.2)

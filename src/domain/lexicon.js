@@ -47,6 +47,48 @@ export const LEXICONS = Object.freeze({
     model: 'автомобиль',
     equipmentIdentifier: 'VIN / госномер',
   }),
+  // Расширение реестра ниш: массовые офлайн-мастера. Переопределены только слова,
+  // которые в нише звучат иначе; остальные берутся из `DEFAULT_LEXICON`.
+  electric: Object.freeze({
+    part: 'комплектующая',
+    model: 'объект',
+    equipmentIdentifier: 'адрес объекта',
+  }),
+  plumbing: Object.freeze({
+    part: 'деталь',
+    model: 'объект',
+    equipmentIdentifier: 'адрес объекта',
+  }),
+  appliance: Object.freeze({
+    part: 'запчасть',
+    model: 'прибор',
+    equipmentIdentifier: 'серийный номер',
+  }),
+  phone: Object.freeze({
+    part: 'запчасть',
+    model: 'устройство',
+    equipmentIdentifier: 'IMEI / серийный номер',
+  }),
+  computer: Object.freeze({
+    part: 'комплектующая',
+    model: 'устройство',
+    equipmentIdentifier: 'серийный номер',
+  }),
+  furniture: Object.freeze({
+    part: 'фурнитура',
+    model: 'предмет мебели',
+    equipmentIdentifier: 'номер заказа',
+  }),
+  windows: Object.freeze({
+    part: 'фурнитура',
+    model: 'изделие',
+    equipmentIdentifier: 'адрес объекта',
+  }),
+  cleaning: Object.freeze({
+    part: 'средство',
+    model: 'объект',
+    equipmentIdentifier: 'адрес объекта',
+  }),
 });
 
 /** Все ключи лексикона (удобно для тестов и для проверки «нет ли забытых слов»). */

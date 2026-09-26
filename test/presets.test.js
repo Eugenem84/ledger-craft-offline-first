@@ -11,8 +11,23 @@ import { DEFAULT_FEATURES } from 'src/domain/features.js'
 const KNOWN_FEATURES = Object.keys(DEFAULT_FEATURES)
 
 describe('10.4 Пресеты специализаций', () => {
-  it('четыре ниши v1 и уникальные ключи', () => {
-    expect(PRESET_KEYS).toEqual(['bike', 'aquarium', 'hvac', 'auto'])
+  it('ниши v1 + расширение реестра, ключи уникальны', () => {
+    // Порядок = порядок карточек в пикере; сначала четыре ниши v1 (D5), затем
+    // расширение реестра (массовые офлайн-мастера).
+    expect(PRESET_KEYS).toEqual([
+      'bike',
+      'aquarium',
+      'hvac',
+      'auto',
+      'electric',
+      'plumbing',
+      'appliance',
+      'phone',
+      'computer',
+      'furniture',
+      'windows',
+      'cleaning',
+    ])
     expect(new Set(PRESET_KEYS).size).toBe(PRESET_KEYS.length)
   })
 
@@ -101,7 +116,8 @@ describe('10.4 Пресеты специализаций', () => {
   it('presetOptions отдаёт только метаданные для пикера', () => {
     const options = presetOptions()
 
-    expect(options).toHaveLength(4)
+    expect(options).toHaveLength(PRESET_KEYS.length)
+    expect(options).toHaveLength(12)
     expect(options[0]).toEqual({
       key: 'bike',
       label: 'Ремонт велосипедов',
