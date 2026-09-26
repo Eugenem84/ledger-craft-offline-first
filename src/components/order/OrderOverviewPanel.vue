@@ -3,6 +3,7 @@
 // итоги и комментарий. Данные приходят пропсами, изменения уходят событиями
 // в `useOrderDraftStore` (страница — посредник).
 import { computed } from 'vue'
+import LcHint from 'src/components/ui/LcHint.vue'
 import OrderServicesBlock from 'src/components/order/OrderServicesBlock.vue'
 import OrderMaterialsBlock from 'src/components/order/OrderMaterialsBlock.vue'
 import OrderProductsBlock from 'src/components/order/OrderProductsBlock.vue'
@@ -47,16 +48,14 @@ const hasPositions = computed(
          что добавить позиции можно там же — правка включится автоматически. Подсказка
          нужна только **пустому** заказу: как только появились работы, материалы или
          товары, она мешает читать список (правка владельца 15.09.2026). -->
-    <div
+    <LcHint
       v-if="!props.editMode && !hasPositions"
-      class="row items-start no-wrap lc-pad-x q-pt-md q-gutter-x-xs text-caption lc-mute"
+      icon="info"
+      class="lc-pad-x q-pt-md"
     >
-      <q-icon name="info" size="14px" />
-      <span>
-        Добавить работы, материалы или товары можно на вкладках выше — правка включится сама,
-        а изменения сохранит кнопка «Сохранить».
-      </span>
-    </div>
+      Добавить работы, материалы или товары можно на вкладках выше — правка включится сама,
+      а изменения сохранит кнопка «Сохранить».
+    </LcHint>
 
     <OrderServicesBlock
       :services="props.services"

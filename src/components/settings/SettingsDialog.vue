@@ -33,6 +33,7 @@ import feedbackService from 'src/services/feedbackService.js'
 import { isNativePlatform } from 'src/utils/platform.js'
 import { logger } from 'src/utils/logger.js'
 import { devModeEnabled, setDevMode } from 'src/utils/devMode.js'
+import { hintsEnabled, setHints } from 'src/utils/hints.js'
 import {
   getReportContent,
   getReportFormat,
@@ -49,6 +50,7 @@ import { useUpdateStore } from 'src/stores/useUpdateStore.js'
 import DeleteConfirmPage from 'pages/dialogs/DeleteConfirmPage.vue'
 import FeedbackDialogPage from 'pages/dialogs/FeedbackDialogPage.vue'
 import LcDialogShell from 'src/components/ui/LcDialogShell.vue'
+import LcHint from 'src/components/ui/LcHint.vue'
 import LcSectionCard from 'src/components/ui/LcSectionCard.vue'
 import UpdateDialog from 'src/components/UpdateDialog.vue'
 import ReportSettingsPanel from 'src/components/settings/ReportSettingsPanel.vue'
@@ -62,6 +64,7 @@ const DeveloperPanel = defineAsyncComponent(() => import('src/components/dev/Dev
 const SETTINGS_TABS = [
   { name: 'specialization', label: 'специализация', icon: 'badge' },
   { name: 'sections', label: 'разделы профиля', icon: 'tune' },
+  { name: 'interface', label: 'интерфейс', icon: 'visibility' },
   { name: 'reports', label: 'отчеты', icon: 'share' },
   { name: 'updates', label: 'обновление', icon: 'system_update' },
   { name: 'data', label: 'данные и синхронизация', icon: 'cloud_sync' },
@@ -152,6 +155,15 @@ const reportContent = computed({
 const devMode = computed({
   get: () => devModeEnabled.value,
   set: value => setDevMode(value),
+})
+
+/**
+ * Подсказки интерфейса — настройка устройства (`localStorage`), по умолчанию выключены
+ * (правка владельца 26.09.2026). Тумблер пишет флаг сразу, как остальные настройки.
+ */
+const hints = computed({
+  get: () => hintsEnabled.value,
+  set: value => setHints(value),
 })
 
 // --- Открытие окна ------------------------------------------------------------
@@ -503,7 +515,7 @@ watch(
 
         <q-separator dark />
 
-        <!-- Вкладки настроек. Лентой со стрелками: на телефоне восемь подписей целиком не
+        <!-- Вкладки настроек. Лентой со стрелками: на телефоне девять подписей целиком не
              влезают, а подписи владелец просил именно такие. -->
         <q-tabs
           v-model="tab"
@@ -546,9 +558,7 @@ watch(
                   map-options
                   color="secondary"
                 />
-                <div class="text-caption lc-mute">
-                  Профиль переключается сразу — разделы ниже тоже.
-                </div>
+                <LcHint>Профиль переключается сразу — разделы ниже тоже.</LcHint>
 
                 <q-separator dark class="q-my-sm" />
 
@@ -562,9 +572,9 @@ watch(
                   label="Добавить ещё одну специализацию"
                   @click="openNewProfileDialog"
                 />
-                <div class="text-caption lc-mute">
+                <LcHint>
                   Выбрать можно только из доступных ниш — каталог и разделы появятся сразу.
-                </div>
+                </LcHint>
 
                 <q-btn
                   class="full-width"
@@ -577,9 +587,7 @@ watch(
                   :disable="!activeSpecialization"
                   @click="archiveProfile"
                 />
-                <div class="text-caption lc-mute">
-                  Профиль не удаляется: его история и заказы остаются на месте.
-                </div>
+                <LcHint>Профиль не удаляется: его история и заказы остаются на месте.</LcHint>
 
                 <template v-if="archivedItems.length">
                   <q-separator dark class="q-my-sm" />
@@ -609,10 +617,10 @@ watch(
           <q-tab-panel name="sections" class="q-pa-md">
             <LcSectionCard title="разделы профиля" icon="tune">
               <div class="q-gutter-y-sm">
-                <div class="text-caption lc-mute">
+                <LcHint>
                   Включите разделы, которые нужны этой специализации. Применяется сразу и
                   синхронизируется с сервером.
-                </div>
+                </LcHint>
 
                 <div
                   v-for="(label, flag) in FEATURE_LABELS"
@@ -621,7 +629,7 @@ watch(
                 >
                   <div class="col">
                     <div class="lc-muted">{{ label }}</div>
-                    <div class="text-caption lc-mute">{{ FEATURE_HINTS[flag] }}</div>
+                    <LcHint>{{ FEATURE_HINTS[flag] }}</LcHint>
                   </div>
                   <q-toggle
                     :model-value="activeFeatures[flag] !== false"
@@ -638,12 +646,28 @@ watch(
             </LcSectionCard>
           </q-tab-panel>
 
-          <!-- 3. Отчёты: формат (ссылка / текст) и состав с живым образцом. -->
+          <!-- 3. Интерфейс: подсказки приложения (по умолчанию выключены). -->
+          <q-tab-panel name="interface" class="q-pa-md">
+            <LcSectionCard title="интерфейс" icon="visibility">
+              <div class="row items-center no-wrap">
+                <div class="col">
+                  <div class="lc-muted">показывать подсказки</div>
+                  <div class="text-caption lc-mute">
+                    Пояснения под кнопками, в пустых списках и в настройках. По умолчанию
+                    выключены; включённые показываются уменьшенным шрифтом.
+                  </div>
+                </div>
+                <q-toggle v-model="hints" color="secondary" />
+              </div>
+            </LcSectionCard>
+          </q-tab-panel>
+
+          <!-- 4. Отчёты: формат (ссылка / текст) и состав с живым образцом. -->
           <q-tab-panel name="reports" class="q-pa-md">
             <ReportSettingsPanel v-model:format="reportFormat" v-model:content="reportContent" />
           </q-tab-panel>
 
-          <!-- 4. Обновление: своя версия, проверка, APK и OTA веб-слоя. -->
+          <!-- 5. Обновление: своя версия, проверка, APK и OTA веб-слоя. -->
           <q-tab-panel name="updates" class="q-pa-md">
             <LcSectionCard title="обновление приложения" icon="system_update">
               <div class="q-gutter-y-sm">
@@ -703,16 +727,16 @@ watch(
                   @click="startOtaUpdate"
                 />
 
-                <div class="text-caption lc-mute">
+                <LcHint>
                   Обновления без установки приходят с сервера мастерской: правки интерфейса и
                   логики применяются сами, данные и настройки сохраняются. Установка APK нужна
                   только когда меняется нативная часть приложения.
-                </div>
+                </LcHint>
               </div>
             </LcSectionCard>
           </q-tab-panel>
 
-          <!-- 5. Данные и синхронизация: ручной синк, бэкап, аварийное восстановление. -->
+          <!-- 6. Данные и синхронизация: ручной синк, бэкап, аварийное восстановление. -->
           <q-tab-panel name="data" class="q-pa-md">
             <LcSectionCard title="данные и синхронизация" icon="cloud_sync">
               <div class="q-gutter-y-sm">
@@ -755,15 +779,15 @@ watch(
                   </q-tooltip>
                 </q-btn>
                 <div class="text-caption lc-mute">Последний бэкап: {{ lastBackupAt }}</div>
-                <div class="text-caption lc-mute">
+                <LcHint>
                   Индикатор синхронизации живёт в шапке: цвет и значок показывают сеть, вход и
                   очередь неотправленного.
-                </div>
+                </LcHint>
               </div>
             </LcSectionCard>
           </q-tab-panel>
 
-          <!-- 6. Поддержка: «Сообщить об ошибке» и очередь отчётов. -->
+          <!-- 7. Поддержка: «Сообщить об ошибке» и очередь отчётов. -->
           <q-tab-panel name="support" class="q-pa-md">
             <LcSectionCard title="поддержка" icon="support_agent">
               <div class="q-gutter-y-sm">
@@ -776,10 +800,10 @@ watch(
                   label="Сообщить об ошибке"
                   @click="openFeedback"
                 />
-                <div class="text-caption lc-mute">
+                <LcHint>
                   К отчёту прикладывается диагностика: версия приложения, версия схемы, состояние
                   синхронизации и последние ошибки. Заказы, клиенты и суммы не отправляются.
-                </div>
+                </LcHint>
                 <div v-if="feedbackPending" class="text-caption lc-mute">
                   В очереди: {{ feedbackPending }} — уедет при появлении сети.
                 </div>
@@ -788,7 +812,7 @@ watch(
             </LcSectionCard>
           </q-tab-panel>
 
-          <!-- 7. Аккаунт: под кем работаем, защита PIN и выход. -->
+          <!-- 8. Аккаунт: под кем работаем, защита PIN и выход. -->
           <q-tab-panel name="account" class="q-pa-md">
             <LcSectionCard title="аккаунт" icon="person">
               <div class="q-gutter-y-sm">
@@ -832,16 +856,16 @@ watch(
             </LcSectionCard>
           </q-tab-panel>
 
-          <!-- 8. Разработка: тумблер режима разработчика и ленивая панель диагностики. -->
+          <!-- 9. Разработка: тумблер режима разработчика и ленивая панель диагностики. -->
           <q-tab-panel name="dev" class="q-pa-md">
             <LcSectionCard title="разработка" icon="bug_report">
               <div class="row items-center no-wrap">
                 <div class="col">
                   <div class="lc-muted">Режим разработчика</div>
-                  <div class="text-caption lc-mute">
+                  <LcHint>
                     Логи, диагностика и очередь синка. Включается сразу и запоминается на
                     устройстве — работает даже в боевой сборке.
-                  </div>
+                  </LcHint>
                 </div>
                 <q-toggle v-model="devMode" color="secondary" />
               </div>

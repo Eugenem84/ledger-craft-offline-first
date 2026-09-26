@@ -30,6 +30,7 @@ import {
   REPORT_FORMAT_TEXT,
 } from 'src/utils/reportSettings.js'
 import { buildOrderReportText } from 'src/utils/reportText.js'
+import LcHint from 'src/components/ui/LcHint.vue'
 
 const props = defineProps({
   /** `link` — публичная ссылка, `text` — весь отчёт текстом. */
@@ -78,7 +79,7 @@ const setFlag = (flag, value) => emit('update:content', { ...props.content, [fla
 
 <template>
   <div>
-    <div class="text-caption lc-mute">Что копирует кнопка «поделиться» в карточке заказа.</div>
+    <LcHint>Что копирует кнопка «поделиться» в карточке заказа.</LcHint>
 
     <q-btn-toggle
       :model-value="props.format"
@@ -91,20 +92,20 @@ const setFlag = (flag, value) => emit('update:content', { ...props.content, [fla
       @update:model-value="value => emit('update:format', value)"
     />
 
-    <div class="text-caption lc-mute q-mt-sm">
+    <LcHint class="q-mt-sm">
       <b>{{ REPORT_FORMAT_LABELS[props.format] }}</b> — {{ REPORT_FORMAT_HINTS[props.format] }}
-    </div>
+    </LcHint>
 
-    <div v-if="props.format !== REPORT_FORMAT_TEXT" class="text-caption lc-mute q-mt-xs">
+    <LcHint v-if="props.format !== REPORT_FORMAT_TEXT" class="q-mt-xs">
       Состав ниже настраивает только текстовый отчёт: ссылку собирает сервер.
-    </div>
+    </LcHint>
 
     <div class="lc-eyebrow q-mt-lg">что будет в отчёте</div>
 
     <div v-for="flag in contentFlags" :key="flag" class="row items-center no-wrap q-mt-sm">
       <div class="col">
         <div class="lc-muted">{{ REPORT_CONTENT_LABELS[flag] }}</div>
-        <div class="text-caption lc-mute">{{ REPORT_CONTENT_HINTS[flag] }}</div>
+        <LcHint>{{ REPORT_CONTENT_HINTS[flag] }}</LcHint>
       </div>
       <q-toggle
         :model-value="props.content?.[flag] === true"
@@ -113,15 +114,15 @@ const setFlag = (flag, value) => emit('update:content', { ...props.content, [fla
       />
     </div>
 
-    <div class="text-caption lc-mute q-mt-sm">
+    <LcHint class="q-mt-sm">
       Статус, позиции, общий «Итого» и комментарий есть в отчёте всегда — их выключить нельзя.
-    </div>
+    </LcHint>
 
     <div class="lc-eyebrow q-mt-lg">образец отчёта</div>
     <pre class="lc-report-preview">{{ preview }}</pre>
-    <div class="text-caption lc-mute q-mt-xs">
+    <LcHint class="q-mt-xs">
       Данные в образце — пример; в карточке заказа подставится ваш заказ.
-    </div>
+    </LcHint>
   </div>
 </template>
 

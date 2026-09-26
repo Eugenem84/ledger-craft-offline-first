@@ -10,6 +10,7 @@
 // ⚠️ В простом просмотре заказа (`editMode = false`) количество не меняется: поле
 // показывается только в режиме правки, в просмотре — «× N».
 import { computed } from 'vue'
+import LcHint from 'src/components/ui/LcHint.vue'
 import LcQuantitySelect from 'src/components/ui/LcQuantitySelect.vue'
 import { useLexicon } from 'src/domain/lexicon.js'
 import { normalizeQuantity } from 'src/utils/quantity.js'
@@ -86,9 +87,7 @@ const hint = computed(() =>
         @click="emit('create')"
       />
 
-      <div class="text-caption lc-mute q-mt-sm">
-        {{ hint }}
-      </div>
+      <LcHint class="q-mt-sm">{{ hint }}</LcHint>
     </div>
 
     <div class="lc-linerow lc-linerow--head">
