@@ -124,7 +124,14 @@ export default defineConfig((/* ctx */) => {
     // https://v2.quasar.dev/quasar-cli-vite/quasar-config-file#framework
     framework: {
       config: {
-        dark: true
+        dark: true,
+
+        // Уведомления — сверху (правка владельца 26.09.2026: «все всплывающие уведомления
+        // сделай сверху а не снизу»). Значение задано здесь одним местом: `Notify.install()`
+        // читает `$q.config.notify` и зовёт `setDefaults()`, поэтому его подхватывают все
+        // вызовы `$q.notify` без явной позиции. Явный `position` в конкретном вызове всё
+        // ещё переопределяет это значение.
+        notify: { position: 'top' },
       },
 
       // iconSet: 'material-icons', // Quasar icon set

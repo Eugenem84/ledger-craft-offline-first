@@ -409,9 +409,9 @@ describe('17.09 отчёт клиенту: UI', () => {
   const dialog = read('src/components/settings/SettingsDialog.vue')
   const header = read('src/components/order/OrderHeaderActions.vue')
 
-  it('уведомление о копировании появляется внизу, а не сверху', () => {
+  it('уведомление о копировании появляется сверху, а не снизу', () => {
     expect(order).toContain(
-      "const notify = (type, message) => $q.notify({ type, message, position: 'bottom' })"
+      "const notify = (type, message) => $q.notify({ type, message, position: 'top' })"
     )
   })
 

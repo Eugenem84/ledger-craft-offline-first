@@ -89,8 +89,8 @@ const auth = useAuthStore()
 
 const tab = ref(SETTINGS_TABS[0].name)
 
-/** Короткие уведомления внизу: сверху они спорят с шапкой (правка владельца 17.09.2026). */
-const notify = (type, message) => $q.notify({ type, message, position: 'bottom', timeout: 2200 })
+/** Короткие уведомления сверху (правка владельца 26.09.2026; общий дефолт — в `quasar.config.js`). */
+const notify = (type, message) => $q.notify({ type, message, position: 'top', timeout: 2200 })
 
 // --- Настройки применяются сразу ----------------------------------------------
 // Правка владельца 17.09.2026 (сразу после первого выката): «кнопки отмена и сохранить вообще
