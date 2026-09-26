@@ -30,8 +30,8 @@
                       через `public/.well-known/assetlinks.json` (отпечаток ключа
                       подписи), Android открывает приложение прямо по https-ссылке из
                       письма, без браузера. Верификация — по каждому host отдельно,
-                      поэтому prod-домен (задача 11.12) добавляется сюда своим
-                      intent-filter'ом, когда появится.
+                      поэтому здесь два host'а: dev (`ledgercraft.dev.medovf2h.beget.tech`)
+                      и боевой `ledgercraft.ru` (появился 26.09.2026, задача 11.12).
                    2) Своя схема `ledgercraft://`: фолбэк для debug-сборок и пока
                       верификация домена не прошла — bridge-страница бэкенда
                       (`resources/views/app-link.blade.php`) уводит сюда.
@@ -44,6 +44,16 @@
                 <data
                     android:scheme="https"
                     android:host="ledgercraft.dev.medovf2h.beget.tech"
+                    android:pathPrefix="/app" />
+            </intent-filter>
+
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data
+                    android:scheme="https"
+                    android:host="ledgercraft.ru"
                     android:pathPrefix="/app" />
             </intent-filter>
 

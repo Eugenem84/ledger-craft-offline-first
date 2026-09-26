@@ -71,12 +71,13 @@ curl -sI https://ledgercraft.dev.medovf2h.beget.tech/api/download-apk | grep -i 
 версию и APK будет спрашивать у dev:
 
 ```bash
-npm run landing:publish -- --server prod-vps \
-  --url https://<prod-домен>/promo/ --api https://<prod-домен>/api
+npm run landing:publish -- --server ledgercraft-home \
+  --remote-root /opt/projects/ledgercraft-prod/backend/public/promo \
+  --url https://ledgercraft.ru/promo/ --api https://ledgercraft.ru/api
 ```
 
-⚠️ prod-VPS ещё не поднят (задача 11.12) — боевой выкат станет возможен после него. Правило сред то
-же, что у проекта: сначала dev, на боевой — только проверенное.
+Боевой контур `ledgercraft.ru` поднят 26.09.2026 (задача 11.12); его промо опубликовано:
+<https://ledgercraft.ru/promo/>. Правило сред то же, что у проекта: сначала dev, на боевой — только проверенное.
 
 ## Локальный просмотр
 

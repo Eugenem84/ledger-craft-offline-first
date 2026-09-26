@@ -32,8 +32,9 @@
 #   npm run release:android -- --channel dev --notes "Чиним склад"     # соберёт и покажет команды публикации
 #   RELEASE_SERVER=ledgercraft-home npm run release:android -- --channel dev   # домашний контур (текущий dev)
 #   npm run release:android -- --channel dev --dry-run                 # план без сборки (что и куда уедет)
-#   RELEASE_SERVER=prod-vps RELEASE_REMOTE_DIR=/var/www/<prod> \
-#     RELEASE_API_URL=https://<prod-домен>/api \
+#   RELEASE_SERVER=ledgercraft-home RELEASE_REMOTE_DIR=/opt/projects/ledgercraft-prod/backend \
+#     RELEASE_REMOTE_PHP='docker exec ledgercraft-prod-app php' \
+#     RELEASE_API_URL=https://ledgercraft.ru/api \
 #     npm run release:android -- --channel prod --notes "Первый боевой"
 #
 # ⚠️ Для prod-контура адрес, сервер и каталог обязательны явно, а `versionCode` обязан быть
@@ -149,7 +150,7 @@ ENV_LOCAL_URL="$(grep -E '^VITE_API_URL=' "$ROOT_DIR/.env.local" 2>/dev/null | h
 ENV_URL="$(grep -E '^VITE_API_URL=' "$ROOT_DIR/.env" 2>/dev/null | head -1 | cut -d= -f2- || true)"
 
 DEV_API_URL="${DEV_API_URL:-https://ledgercraft.dev.medovf2h.beget.tech/api}"
-PROD_API_URL="${PROD_API_URL:-}" # боевой домен ещё не выбран — задача 11.12
+PROD_API_URL="${PROD_API_URL:-https://ledgercraft.ru/api}" # боевой контур (домашний сервер), задача 11.12
 
 if [ -n "${RELEASE_API_URL:-}" ]; then
   EXPECTED_API_URL="$RELEASE_API_URL"
@@ -187,7 +188,7 @@ fi
 # Публикация на prod требует явных сервера и каталога: пути контуров разные, а цена
 # ошибки — релиз не на том сервере.
 if [ "$CHANNEL" = 'prod' ] && [ "$LOCAL_ONLY" != '1' ]; then
-  [ -n "$SERVER" ] || fail 'Для prod-контура задайте сервер: RELEASE_SERVER=prod-vps или --server'
+  [ -n "$SERVER" ] || fail 'Для prod-контура задайте сервер: RELEASE_SERVER=ledgercraft-home или --server'
   [ "$REMOTE_DIR_EXPLICIT" = '1' ] || fail 'Для prod-контура задайте каталог: RELEASE_REMOTE_DIR=/var/www/<prod> или --remote-dir'
 fi
 
@@ -197,19 +198,23 @@ step "Контур $CHANNEL: адрес API $EXPECTED_API_URL"
 # Android не ставит APK с `versionCode` меньше или равным установленному, поэтому
 # публикация «вниз» = у мастеров навсегда «обновление не встаёт». Проверяем манифест
 # контура заранее — до двухминутной сборки.
-CONTOUR_CURRENT_CODE="$(
-  curl -sS -m 20 "$EXPECTED_API_URL/app-version" 2>/dev/null \
-    | grep -o '"versionCode"[[:space:]]*:[[:space:]]*[0-9]\+' \
-    | grep -o '[0-9]\+$' | head -1 || true
-)"
+# `-w` дописывает код ответа последней строкой: `404` = контур пуст (первый релиз на нём),
+# «нет кода» = контура не видно (сеть/DNS). Это разные случаи — путать нельзя.
+CONTOUR_RESPONSE="$(curl -sS -m 20 -w '\n%{http_code}' "$EXPECTED_API_URL/app-version" 2>/dev/null || true)"
+CONTOUR_HTTP="$(printf '%s' "$CONTOUR_RESPONSE" | tail -1)"
+CONTOUR_CURRENT_CODE="$(printf '%s' "$CONTOUR_RESPONSE" | sed '$d' \
+  | grep -o '"versionCode"[[:space:]]*:[[:space:]]*[0-9]\+' \
+  | grep -o '[0-9]\+$' | head -1 || true)"
 
 if [ -n "$CONTOUR_CURRENT_CODE" ]; then
   step "На контуре уже опубликован versionCode $CONTOUR_CURRENT_CODE"
   if [ "$VERSION_CODE" -le "$CONTOUR_CURRENT_CODE" ]; then
     fail "versionCode $VERSION_CODE не выше опубликованного ($CONTOUR_CURRENT_CODE) — поднимите APP_VERSION_CODE"
   fi
+elif [ "$CONTOUR_HTTP" = '404' ]; then
+  echo 'ⓘ  Контур пуст (app-version = 404) — первый релиз на нём: проверка «версия растёт» пропущена'
 elif [ "$CHANNEL" = 'prod' ] && [ "$LOCAL_ONLY" != '1' ]; then
-  fail "Не удалось прочитать $EXPECTED_API_URL/app-version — выкат на prod вслепую запрещён"
+  fail "Не удалось прочитать $EXPECTED_API_URL/app-version — выкат на prod вслепую запрещён (HTTP ${CONTOUR_HTTP:-нет ответа})"
 else
   echo '⚠️  Манифест контура недоступен — проверка «версия растёт» пропущена'
 fi

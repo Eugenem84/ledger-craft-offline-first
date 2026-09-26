@@ -140,7 +140,7 @@ ENV_LOCAL_URL="$(grep -E '^VITE_API_URL=' "$ROOT_DIR/.env.local" 2>/dev/null | h
 ENV_URL="$(grep -E '^VITE_API_URL=' "$ROOT_DIR/.env" 2>/dev/null | head -1 | cut -d= -f2- || true)"
 
 DEV_API_URL="${DEV_API_URL:-https://ledgercraft.dev.medovf2h.beget.tech/api}"
-PROD_API_URL="${PROD_API_URL:-}" # боевой домен ещё не выбран — задача 11.12
+PROD_API_URL="${PROD_API_URL:-https://ledgercraft.ru/api}" # боевой контур (домашний сервер), задача 11.12
 
 if [ -n "${RELEASE_API_URL:-}" ]; then
   EXPECTED_API_URL="$RELEASE_API_URL"
@@ -177,7 +177,7 @@ fi
 
 # Публикация на prod требует явных сервера и каталога: пути контуров разные.
 if [ "$CHANNEL" = 'prod' ] && [ "$LOCAL_ONLY" != '1' ]; then
-  [ -n "$SERVER" ] || fail 'Для prod-контура задайте сервер: RELEASE_SERVER=prod-vps или --server'
+  [ -n "$SERVER" ] || fail 'Для prod-контура задайте сервер: RELEASE_SERVER=ledgercraft-home или --server'
   [ "$REMOTE_DIR_EXPLICIT" = '1' ] || fail 'Для prod-контура задайте каталог: RELEASE_REMOTE_DIR=/var/www/<prod> или --remote-dir'
 fi
 
@@ -187,18 +187,26 @@ step "Контур $CHANNEL: адрес API $EXPECTED_API_URL"
 # Нужно и для проверки «бандл не публиковали», и для счётчика веб-релизов (задача 15.21):
 # «последний выпущенный номер» знает контур, а `APP_BUNDLE_BUILD` в gradle.properties —
 # только пол на случай, когда манифест недоступен.
-CONTOUR_MANIFEST="$(curl -sS -m 20 "$EXPECTED_API_URL/app-version" 2>/dev/null || true)"
+# `-w` дописывает код ответа последней строкой: `404` = контур пуст (первый релиз на нём),
+# «нет кода» = контура не видно (сеть/DNS). Это разные случаи — путать нельзя.
+CONTOUR_RESPONSE="$(curl -sS -m 20 -w '\n%{http_code}' "$EXPECTED_API_URL/app-version" 2>/dev/null || true)"
+CONTOUR_HTTP="$(printf '%s' "$CONTOUR_RESPONSE" | tail -1)"
+CONTOUR_MANIFEST="$(printf '%s' "$CONTOUR_RESPONSE" | sed '$d')"
 CONTOUR_BUNDLE_ID=''
 
-if [ -n "$CONTOUR_MANIFEST" ]; then
+if [ "$CONTOUR_HTTP" = '200' ] && [ -n "$CONTOUR_MANIFEST" ]; then
   # "bundle":{…,"version":"1.14.7.260915-1440",…} → идентификатор опубликованного бандла
   CONTOUR_BUNDLE_JSON="$(printf '%s' "$CONTOUR_MANIFEST" | tr -d '\n' \
     | sed -n 's/.*"bundle"[[:space:]]*:[[:space:]]*{\([^}]*\)}.*/\1/p')"
   CONTOUR_BUNDLE_ID="$(printf '%s' "$CONTOUR_BUNDLE_JSON" | tr ',' '\n' \
     | sed -n 's/^[[:space:]]*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)"
+elif [ "$CONTOUR_HTTP" = '404' ]; then
+  CONTOUR_MANIFEST=''
+  echo 'ⓘ  Контур пуст (app-version = 404) — первый релиз: счётчик веб-релиза с нуля, проверка «бандл ещё не публиковался» пропущена'
 elif [ "$CHANNEL" = 'prod' ] && [ "$LOCAL_ONLY" != '1' ]; then
-  fail "Не удалось прочитать $EXPECTED_API_URL/app-version — выкат на prod вслепую запрещён"
+  fail "Не удалось прочитать $EXPECTED_API_URL/app-version — выкат на prod вслепую запрещён (HTTP ${CONTOUR_HTTP:-нет ответа})"
 else
+  CONTOUR_MANIFEST=''
   echo '⚠️  Манифест контура недоступен — счётчик веб-релиза и проверка «бандл ещё не публиковался» пропущены'
 fi
 

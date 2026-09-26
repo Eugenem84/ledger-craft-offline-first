@@ -15,13 +15,14 @@
 # dev-промо отдаёт релизный APK с dev-адресом, боевое промо — с боевым. Поэтому при
 # выкате на боевой контур передавайте и `--api`, и `--url`: `--api` подставляет адрес в
 # копию `index.html` (файл в git не меняется), `--url` проверяет опубликованную страницу.
-# ⚠️ prod-VPS ещё не поднят (задача 11.12) — боевой выкат станет возможен после него.
+# Боевой контур — `ledgercraft.ru` (домашний сервер, задача 11.12; поднят 26.09.2026).
 #
 # Примеры:
 #   scripts/publish-landing.sh                            # домашний контур (текущий dev)
 #   scripts/publish-landing.sh --dry-run                  # только показать, что уедет
-#   scripts/publish-landing.sh --server prod-vps \
-#     --url https://<prod-домен>/promo/ --api https://<prod-домен>/api
+#   scripts/publish-landing.sh --server ledgercraft-home \
+#     --remote-root /opt/projects/ledgercraft-prod/backend/public/promo \
+#     --url https://ledgercraft.ru/promo/ --api https://ledgercraft.ru/api
 #
 set -euo pipefail
 
