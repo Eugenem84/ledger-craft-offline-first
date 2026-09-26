@@ -27,6 +27,9 @@ import m029 from './029_backfill_catalog_specialization.js'
 import m030 from './030_create_feedback_reports_table.js'
 // Диагностика очереди: счётчик откладываний и причина отказа (дефект 14.11).
 import m031 from './031_operations_diagnostics.js'
+// Человеческая нумерация заказов: разовая простановка номеров уже заведённым
+// заказам (правка владельца 26.09.2026).
+import m032 from './032_backfill_order_numbers.js'
 
 const migrations = [
   m001,
@@ -55,6 +58,7 @@ const migrations = [
   m029,
   m030,
   m031,
+  m032,
 ]
 
 export default migrations

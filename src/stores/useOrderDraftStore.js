@@ -93,8 +93,12 @@ export const useOrderDraftStore = defineStore('orderDraft', {
 
   getters: {
     isNewOrder: state => !state.order?.id,
-    /** Номер для шапки: серверный id, а у ещё не синхронизированного — локальный. */
-    orderNumber: state => state.order?.server_id || state.order?.id || null,
+    /**
+     * Номер для шапки: человеческий номер профиля (`user_order_number`, сквозной с 1).
+     * У заказов, заведённых до появления нумерации, поле пустое — тогда показываем
+     * `server_id` как раньше (нормальные номера разово проставляет миграция 032).
+     */
+    orderNumber: state => state.order?.user_order_number ?? state.order?.server_id ?? null,
     /**
      * Данные текстового отчёта клиенту (правка владельца 17.09.2026; переработка настроек
      * 17.09.2026): то, что чистая функция `utils/reportText.buildOrderReportText`

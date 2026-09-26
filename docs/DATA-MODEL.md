@@ -103,7 +103,7 @@
 | hours, minutes | INTEGER | длительность работ |
 | total_amount | INTEGER | **в рублях** (единый стандарт; конверсии нет). ⚠️ Это **снапшот** на момент сохранения заказа из карточки, а не источник правды для UI: сумму заказа считают из позиций (см. §«Маржа и наценка» ниже и задачи 9.1/14.20) |
 | comments | TEXT | |
-| user_id, user_order_number | INTEGER | |
+| user_id, user_order_number | INTEGER | `user_order_number` — человеческий номер заказа: сквозной **внутри специализации**, начинается с 1 (правка 26.09.2026). Выдаётся на устройстве при создании (`ordersRepo.getNextUserOrderNumber`), легаси-заказы разово нумерует миграция 032. Список заказов и шапка карточки показывают именно его, а `server_id` — только фолбэк |
 | status | TEXT | waiting / process / done |
 | paid | INTEGER | 0/1 |
 | model_id / model_server_id | TEXT / INTEGER | модель техники |

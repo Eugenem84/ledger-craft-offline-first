@@ -122,11 +122,44 @@ async function getClientData(order) {
   return { id: null, server_id: null };
 }
 
+/**
+ * Следующий номер заказа рабочего профиля (правка владельца 26.09.2026).
+ *
+ * Нумерация сквозная **внутри специализации** и начинается с 1: мастер ведёт
+ * «заказ №1, №2, …» отдельно для каждого профиля. `MAX(user_order_number) + 1`
+ * (а не счётчик в `meta`) выбран осознанно — номер «догоняет» данные, приехавшие
+ * с сервера/второго устройства, поэтому следующая локальная выдача не повторяет
+ * уже занятый номер.
+ *
+ * ⚠️ Офлайн-первый компромисс: два устройства, ещё ни разу не синхронизировавшиеся,
+ * могут выдать один и тот же номер в профиле (сервер номер не выдаёт) — разрешение
+ * таких коллизий за рамками этой задачи.
+ *
+ * @param {string|null} specializationId локальный UUID профиля
+ * @returns {Promise<number>} номер (≥ 1)
+ */
+export async function getNextUserOrderNumber(specializationId) {
+  const row = specializationId
+    ? await dbAdapter.queryOne(queries.nextUserOrderNumber, [specializationId])
+    : await dbAdapter.queryOne(queries.nextUserOrderNumberWithoutSpecialization)
+
+  const next = Number(row?.next_number)
+  return Number.isFinite(next) && next > 0 ? next : 1
+}
+
 export async function save(order) {
   const id = order.id || uuidv4()
   const specializationData = await getSpecializationData(order);
   const clientData = await getClientData(order);
   const modelData = await getModelData(order);
+
+  // Номер заказа выдаём на устройстве (офлайн-первый): следующий в профиле, с 1.
+  // Пишем прямо в переданный объект — стор заказа держит ту же ссылку в списке,
+  // поэтому номер сразу виден в оптимистичной записи, без повторного чтения из БД.
+  // При правке заказа номер не трогаем: `save` — путь создания.
+  if (order.user_order_number == null) {
+    order.user_order_number = await getNextUserOrderNumber(specializationData.id)
+  }
 
   // Задача 8.3: позиционные аргументы собирает именованный маппер — порядок колонок
   // живёт в `src/database/mappers/orders.js`, а не в репозитории.
@@ -164,12 +197,21 @@ export async function save(order) {
 
 export async function update(order) {
   const existingOrder = await dbAdapter.queryOne(queries.getById, [order.id]);
-  const specializationData = await getSpecializationData(order);
-  const clientData = await getClientData(order);
-  const modelData = await getModelData(order);
+
+  // Номер заказа неизменяем: он выдаётся один раз при создании (`save`). Если вызывающий
+  // не передал поле (частичное обновление — например, `useOrdersStore.update(id, {status})`),
+  // берём номер из БД: иначе `orderUpdateParams` записал бы NULL и мастер потерял бы номер.
+  const orderData = {
+    ...order,
+    user_order_number: existingOrder?.user_order_number ?? order.user_order_number ?? null,
+  };
+
+  const specializationData = await getSpecializationData(orderData);
+  const clientData = await getClientData(orderData);
+  const modelData = await getModelData(orderData);
 
   const params = orderUpdateParams({
-    order,
+    order: orderData,
     specialization: specializationData,
     client: clientData,
     modelServerId: modelData.server_id,
@@ -180,9 +222,9 @@ export async function update(order) {
     const opId = uuidv4();
     const payloadForServer = {
       id: existingOrder.server_id,
-      ...toServerPayload(order)
+      ...toServerPayload(orderData)
     };
-    if (order.model_id || modelData.server_id != null) {
+    if (orderData.model_id || modelData.server_id != null) {
       // Задача 11.2: см. комментарий в `save` — `null` в сигнальном поле означает
       // «модель ещё не на сервере», и syncService переведёт локальный id сам.
       payloadForServer.model_id = modelData.id ?? payloadForServer.model_id ?? null;

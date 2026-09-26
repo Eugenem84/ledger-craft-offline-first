@@ -164,7 +164,12 @@ watch(
           <div class="row items-center no-wrap">
             <div class="col ellipsis">
               <div class="row items-baseline no-wrap q-gutter-x-sm">
-                <span class="lc-money text-body2">№ {{ order.server_id ?? '—' }}</span>
+                <!-- Человеческий номер заказа (правка 26.09.2026): сквозной внутри
+                     профиля и с 1 (`user_order_number`). `server_id` — только фолбэк
+                     для заказов, заведённых до нумерации; если и его нет — «—». -->
+                <span class="lc-money text-body2">
+                  № {{ order.user_order_number ?? order.server_id ?? '—' }}
+                </span>
                 <span class="text-caption lc-mute">{{ formatDate(order.created_at) }}</span>
               </div>
               <div class="text-body2 ellipsis lc-muted">

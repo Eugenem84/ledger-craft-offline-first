@@ -71,6 +71,25 @@ export default {
     ${POSITIONS_TOTAL_JOINS}
     WHERE o.specialization_id = ?
   `,
+  /**
+   * Следующий номер заказа рабочего профиля: `MAX(user_order_number) + 1`, либо 1,
+   * если заказов ещё нет (правка владельца 26.09.2026). Считаем по живым строкам
+   * профиля; `NULL` у заказов, пришедших с сервера до этой версии, в максимум не
+   * попадает — они «догонят» нумерацию разово (миграция 032).
+   */
+  nextUserOrderNumber: `
+    SELECT COALESCE(MAX(user_order_number), 0) + 1 AS next_number
+    FROM orders
+    WHERE deleted_at IS NULL
+      AND specialization_id = ?
+  `,
+  /** То же для заказов без рабочего профиля (легаси/профиль ещё не выбран). */
+  nextUserOrderNumberWithoutSpecialization: `
+    SELECT COALESCE(MAX(user_order_number), 0) + 1 AS next_number
+    FROM orders
+    WHERE deleted_at IS NULL
+      AND specialization_id IS NULL
+  `,
   insert: `
     INSERT INTO orders (id, server_id, specialization_id, specialization_server_id, client_id, client_server_id, hours, minutes, total_amount, comments, user_id, user_order_number, status, paid, model_id, model_server_id, share_token, equipment_identifier, created_at, updated_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, strftime('%s','now'), strftime('%s','now'))
