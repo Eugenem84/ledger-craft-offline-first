@@ -1,11 +1,15 @@
 <script setup>
 // Диалог «Сообщить об ошибке» (Фаза 14, задача 14.5).
 //
-// Точка входа — настройки («Ещё»). Отчёт создаётся офлайн-первым: `feedbackService`
+// Точка входа — настройки, вкладка «поддержка». Отчёт создаётся офлайн-первым: `feedbackService`
 // сначала кладёт его в локальную очередь, потом пробует отправить, поэтому диалог
 // никогда не «висит» на сети и отчёт не теряется. Диагностика (версия, схема,
 // состояние синка, хвост ошибок) собирается сервисом; данных мастерской в отчёте нет
 // (`docs/FEEDBACK.md` §4), а полные логи подключаются отдельным тумблером.
+//
+// Списка последних отчётов в окне нет (правка владельца 17.09.2026): мастеру он не нужен,
+// а «отчёт не потерялся» видно по счётчику «Отчётов в очереди» (и подписи в настройках).
+// Полная история очереди остаётся доступной для диагностики — `feedbackRepo.listAll()`.
 //
 // Кнопка «копировать текст в буфер» — аварийный путь, когда сети/сервера нет вовсе:
 // тот же «снимок для поддержки» (12.5) мастер пересылает любым каналом.
@@ -20,7 +24,6 @@ import {
   FEEDBACK_KIND_LABELS,
   FEEDBACK_MESSAGE_MAX,
   canSubmitFeedback,
-  feedbackStatusView,
   feedbackTextFromReport,
 } from 'src/utils/feedbackView.js'
 import LcDialogShell from 'src/components/ui/LcDialogShell.vue'
@@ -40,36 +43,24 @@ const contact = ref('')
 const attachDiagnostics = ref(true)
 const includeLogs = ref(false)
 const saving = ref(false)
-const queue = ref([])
 const pendingCount = ref(0)
 
 const kindOptions = FEEDBACK_KINDS.map(value => ({ label: FEEDBACK_KIND_LABELS[value], value }))
 const validation = computed(() => canSubmitFeedback(message.value))
 const canSubmit = computed(() => validation.value.ok)
 const profileName = computed(() => specializations.getSelectedSpecialization?.name || '')
-/** Последние отчёты: мастер видит, что ни один не потерялся. */
-const recent = computed(() => queue.value.slice(-5).reverse())
 
-/** Строка очереди: подпись статуса и пояснение (`feedbackStatusView`). */
-function describe(row) {
-  return feedbackStatusView(row.status, {
-    attempts: row.attempts,
-    lastError: row.last_error,
-    serverId: row.server_id,
-  })
-}
-
-async function refresh() {
+/** Счётчик «в очереди»: мастер видит, что ни один отчёт не потерялся. */
+async function refreshPending() {
   try {
-    queue.value = await feedbackService.listAll()
     pendingCount.value = await feedbackService.pendingCount()
   } catch (error) {
-    // История не должна ломать диалог: отчёт всё равно можно создать и отправить.
+    // Счётчик — не повод ломать диалог: отчёт всё равно можно создать и отправить.
     console.warn('[Feedback] Не удалось прочитать очередь отчётов:', error?.message)
   }
 }
 
-/** Открывается из «Ещё»: форма пустая, история — из локальной очереди. */
+/** Открывается из настроек (вкладка «поддержка»): форма пустая, черновики обнуляются. */
 async function open() {
   kind.value = 'bug'
   message.value = ''
@@ -77,7 +68,7 @@ async function open() {
   attachDiagnostics.value = true
   includeLogs.value = false
   isOpen.value = true
-  await refresh()
+  await refreshPending()
 }
 
 async function submitReport() {
@@ -97,7 +88,7 @@ async function submitReport() {
       profile: profileName.value,
     })
 
-    await refresh()
+    await refreshPending()
 
     emit('changed')
 
@@ -238,15 +229,6 @@ defineExpose({ open })
         label="копировать текст в буфер"
         @click="copyReport"
       />
-
-      <div v-if="recent.length">
-        <q-separator dark class="q-mb-sm" />
-        <div class="lc-eyebrow">последние отчёты</div>
-        <div v-for="row in recent" :key="row.id" class="text-caption lc-mute q-mb-xs">
-          <b>{{ describe(row).label }}</b> · {{ row.message }}
-          <div v-if="describe(row).hint" class="lc-mute">{{ describe(row).hint }}</div>
-        </div>
-      </div>
     </div>
   </LcDialogShell>
 </template>

@@ -36,6 +36,17 @@ describe('14.5 UI «Сообщить об ошибке»', () => {
     expect(dialog).toContain('Заказы, клиенты и суммы в отчёт не попадают')
   })
 
+  it('внизу окна нет списка последних отчётов (правка владельца 17.09.2026)', () => {
+    const dialog = read('src/pages/dialogs/FeedbackDialogPage.vue')
+
+    // Владелец: «в окне внизу указаны последние отчёты. Это надо убрать». Мастеру нужен
+    // только ввод и подтверждение: что отчёт не потерялся, видно по счётчику «Отчётов
+    // в очереди» (он остаётся) и по подписи в настройках.
+    expect(dialog).not.toContain('последние отчёты')
+    expect(dialog).not.toContain('feedbackStatusView')
+    expect(dialog).toContain('Отчётов в очереди:')
+  })
+
   it('в настройках «отчётов в очереди» и диалог не блокируют интерфейс на сети', () => {
     const service = read('src/services/feedbackService.js')
 

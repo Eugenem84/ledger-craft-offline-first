@@ -23,7 +23,12 @@ import { createPinia, setActivePinia } from 'pinia'
 
 import { setupTestDb } from './helpers/testDb.js'
 import storage from 'src/utils/storage.js'
+import * as specializationsRepo from 'src/repositories/specializationsRepo.js'
+import * as categoriesRepo from 'src/repositories/categoriesRepo.js'
+import * as servicesRepo from 'src/repositories/servicesRepo.js'
+import * as clientsRepo from 'src/repositories/clientsRepo.js'
 import { useOrderDraftStore } from 'src/stores/useOrderDraftStore.js'
+import { useOrdersStore } from 'src/stores/useOrdersStore.js'
 import {
   DEFAULT_REPORT_CONTENT,
   REPORT_CONTENT_HIDDEN,
@@ -296,8 +301,11 @@ describe('17.09 отчёт клиенту: данные из стора зака
     draft.status = 'done'
     draft.paid = true
     draft.comments = 'Проверить тормоза'
-    // Работа: количество в `quantity`, ручная позиция — в `amount` (как в сторе).
-    draft.services = [{ id: 's1', name: 'Замена камеры', price: 500, quantity: 1 }]
+    // Работа: количество в `quantity`, ручная позиция — в `amount` (как в сторе), а имя
+    // работы лежит в колонке `service` — именно так её отдаёт `orderServiceRepo.getByOrderId`
+    // (`SELECT s.*` из `services`, у услуг нет `name`). Раньше в фикстуре стоял `name`,
+    // поэтому дефект 17.09.2026 («• позиция 1×500» вместо названия работы) тест не ловил.
+    draft.services = [{ id: 's1', service: 'Замена камеры', price: 500, quantity: 1 }]
     draft.materials = [{ id: 'm1', name: 'Камера 26', price: 300, amount: 2 }]
 
     const report = draft.clientReport
@@ -325,6 +333,12 @@ describe('17.09 отчёт клиенту: данные из стора зака
     expect(minimal).not.toContain('Trek')
     expect(minimal).toContain('Итого: 1 100 р')
 
+    // Название строки печатается как есть: ни «позиции», ни «undefined» в отчёте нет
+    // (дефект 17.09.2026: у работ имя лежит в колонке `service`, а не в `name`).
+    expect(minimal).toContain('• Замена камеры 1×500')
+    expect(minimal).not.toContain('позиция')
+    expect(minimal).not.toContain('undefined')
+
     // А включённые тумблеры печатают ровно те строки, которые мастер выбрал.
     const full = buildOrderReportText(report, {
       content: { clientName: true, clientPhone: true, model: true, partsTotal: true },
@@ -333,6 +347,41 @@ describe('17.09 отчёт клиенту: данные из стора зака
     expect(full).toContain('+7 999 000-00-00')
     expect(full).toContain('Trek Marlin 5')
     expect(full).toContain('Итого за запчасти: 600 р')
+  })
+
+  it('название работы приходит из каталога, а не превращается в «позицию» (дефект 17.09.2026)', async () => {
+    // Сквозной путь на настоящей БД: каталог → заказ → перечитывание заказа. У услуг нет
+    // колонки `name` (ресурс лежит в `service`), поэтому отчёт печатал «• позиция 1×500» —
+    // мастер читал это как «позиция 1», где число было количеством строки.
+    const specializationId = await specializationsRepo.save({ name: 'Ремонт' })
+    const categoryId = await categoriesRepo.save({
+      category_name: 'Двигатель',
+      specialization_id: specializationId,
+    })
+    await servicesRepo.save({ service: 'Замена масла', price: 500, category_id: categoryId })
+    await clientsRepo.save({ name: 'Иван', phone: '123', specialization_id: specializationId })
+
+    const draft = useOrderDraftStore()
+    await draft.init({ create: true })
+    // Два раза одну работу: тогда «2×500» в отчёте уже не спутать с нумерацией строк.
+    draft.addService(draft.servicesByCategory[0], 2)
+
+    const orderId = await draft.createOrder()
+
+    // Открываем заказ так, как это делает карточка: из списка ордеров.
+    const ordersStore = useOrdersStore()
+    await ordersStore.load()
+    await ordersStore.select(orderId)
+
+    const reopened = useOrderDraftStore()
+    await reopened.loadOrder(ordersStore.getSelectedOrder)
+
+    expect(reopened.clientReport.services[0].name).toBe('Замена масла')
+
+    const text = buildOrderReportText(reopened.clientReport)
+
+    expect(text).toContain('• Замена масла 2×500')
+    expect(text).not.toContain('позиция')
   })
 
   it('новый заказ: отчёт всё равно собирается и не печатает служебных слов', () => {

@@ -40,7 +40,7 @@ export default {
     return db.query(queries.getByStatus, [STATUS.PENDING]);
   },
 
-  /** Вся очередь отчётов (для «Режима разработчика» и счётчика в настройках). */
+  /** Вся очередь отчётов (диагностика и тесты; в интерфейсе не показывается). */
   async listAll() {
     return db.query(queries.getAll);
   },

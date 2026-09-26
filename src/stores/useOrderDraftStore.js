@@ -112,7 +112,11 @@ export const useOrderDraftStore = defineStore('orderDraft', {
     clientReport() {
       const statusLabel = ORDER_STATUSES.find(item => item.value === this.status)?.label || ''
       const line = source => ({
-        name: source.name,
+        // Имя строки берём по ключам **реальных** строк заказа: у работ это колонка
+        // `service` (у услуг нет `name` — в отчёт попадал `undefined`, и `describeLine`
+        // печатал «позиция», дефект 17.09.2026), у товаров со склада и ручных позиций —
+        // `name` (или `product`). Тот же порядок, что в `OrderServicesBlock` (`service.service`).
+        name: source.name || source.service || source.product || '',
         quantity: lineQuantity(source),
         unitPrice: Number(source.price || 0),
       })
