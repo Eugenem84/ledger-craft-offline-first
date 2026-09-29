@@ -106,7 +106,7 @@ export const useOrderDraftStore = defineStore('orderDraft', {
      *
      * Стор отдаёт **все** значения, а печатать их или нет, решает состав отчёта
      * (`utils/reportSettings.js`, вкладка «отчёты»): имя клиента, телефон, модель,
-     * раздельные итоги за работы и за запчасти. По умолчанию ничего из этого не выводится —
+     * раздельные итоги за работы и за товары. По умолчанию ничего из этого не выводится —
      * отчёт остаётся минимальным («уместиться даже в одно SMS»).
      *
      * Пустого клиента не отдаём: в сторе у него подпись «выберите клиента», и она не должна
@@ -156,6 +156,19 @@ export const useOrderDraftStore = defineStore('orderDraft', {
         (sum, product) => sum + Number(product.price || 0) * lineQuantity(product),
         0
       ),
+    /**
+     * Единый список позиций «товары» для UI (правка владельца 29.09.2026): товар со
+     * склада и разовая покупка («вне склада») показываются одним списком с тегом
+     * источника. Модель данных не меняется (решение D2): под капотом это по-прежнему
+     * `products` (склад) и `materials` (покупки), а `index` указывает позицию в исходном
+     * массиве — правки и удаление адресуются к нужной таблице.
+     *
+     * Порядок: сначала склад, затем покупки (детерминированно, без поля «порядок»).
+     */
+    parts: state => [
+      ...state.products.map((line, index) => ({ ...line, source: 'store', index })),
+      ...state.materials.map((line, index) => ({ ...line, source: 'purchase', index })),
+    ],
     totalAmount() {
       return this.servicesTotal + this.materialsTotal + this.productsTotal
     },
@@ -415,6 +428,28 @@ export const useOrderDraftStore = defineStore('orderDraft', {
     updateProductLine(index, field, value) {
       const line = this.products[index]
       if (line) line[field] = this._normalizeLineField(field, value)
+    },
+
+    /**
+     * Удаляет позицию «товары» по источнику (правка владельца 29.09.2026): вкладка
+     * показывает один список, но строка помнит, из какой таблицы пришла
+     * (`source: 'store' | 'purchase'`).
+     *
+     * @param {{source: string, index: number}} payload
+     */
+    removePart({ source, index }) {
+      if (source === 'store') this.removeProduct(index)
+      else this.removeMaterial(index)
+    },
+
+    /**
+     * Правка строки «товары» по источнику — делегирует в правку товара/покупки.
+     *
+     * @param {{source: string, index: number, field: string, value: unknown}} payload
+     */
+    updatePartLine({ source, index, field, value }) {
+      if (source === 'store') this.updateProductLine(index, field, value)
+      else this.updateMaterialLine(index, field, value)
     },
 
     /**

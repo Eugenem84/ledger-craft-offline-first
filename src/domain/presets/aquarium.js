@@ -8,7 +8,7 @@ export default {
   icon: 'water',
   accent: '#26c6da',
   version: 1,
-  lexicon: { part: 'товар', model: 'аквариум', equipmentIdentifier: 'номер аквариума' },
+  lexicon: { model: 'аквариум', equipmentIdentifier: 'номер аквариума' },
   features: { store: false, models: true, analytics: true, shareLink: true, equipmentIdentifier: false },
   categories: [
     {

@@ -8,7 +8,7 @@ export default {
   icon: 'home_repair_service',
   accent: '#8e24aa',
   version: 1,
-  lexicon: { part: 'запчасть', model: 'прибор', equipmentIdentifier: 'серийный номер' },
+  lexicon: { model: 'прибор', equipmentIdentifier: 'серийный номер' },
   features: { store: true, models: true, analytics: true, shareLink: true, equipmentIdentifier: true },
   categories: [
     {

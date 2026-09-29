@@ -12,7 +12,7 @@ export default {
   icon: 'pedal_bike',
   accent: '#4caf50',
   version: 1,
-  lexicon: { part: 'запчасть', model: 'велосипед', equipmentIdentifier: 'серийный номер рамы' },
+  lexicon: { model: 'велосипед', equipmentIdentifier: 'серийный номер рамы' },
   features: { store: true, models: true, analytics: true, shareLink: true, equipmentIdentifier: false },
   categories: [
     {

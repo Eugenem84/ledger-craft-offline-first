@@ -8,7 +8,7 @@ export default {
   icon: 'chair',
   accent: '#8d6e63',
   version: 1,
-  lexicon: { part: 'фурнитура', model: 'предмет мебели', equipmentIdentifier: 'номер заказа' },
+  lexicon: { model: 'предмет мебели', equipmentIdentifier: 'номер заказа' },
   features: { store: true, models: false, analytics: true, shareLink: true, equipmentIdentifier: false },
   categories: [
     {

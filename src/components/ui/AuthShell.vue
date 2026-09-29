@@ -17,7 +17,7 @@ defineProps({
         <div class="column items-center q-mb-lg">
           <div class="auth-mark">LC</div>
           <div class="text-subtitle1 q-mt-sm text-weight-medium">Ledger Craft</div>
-          <div class="text-caption lc-mute">учёт работ и запчастей</div>
+          <div class="text-caption lc-mute">учёт работ и товаров</div>
         </div>
 
         <q-card class="auth-card" flat>

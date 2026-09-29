@@ -61,10 +61,8 @@ describe('карточка заказа: себестоимости нет, да
 
   it('строки позиций: нет колонок «закупка»/«маржа» и ввода buy_price', () => {
     const rows = [
-      'src/components/order/OrderMaterialsBlock.vue',
-      'src/components/order/OrderMaterialsEditor.vue',
-      'src/components/order/OrderProductsBlock.vue',
-      'src/components/order/OrderProductsEditor.vue',
+      'src/components/order/OrderPartsBlock.vue',
+      'src/components/order/OrderPartsEditor.vue',
     ]
 
     for (const file of rows) {
@@ -96,8 +94,7 @@ describe('карточка заказа: себестоимости нет, да
   it('жалоба владельца: в карточке нет слов «маржа» и «наценка» (кроме комментариев)', () => {
     for (const file of [
       'src/components/order/OrderTotals.vue',
-      'src/components/order/OrderMaterialsBlock.vue',
-      'src/components/order/OrderProductsBlock.vue',
+      'src/components/order/OrderPartsBlock.vue',
     ]) {
       const source = codeOf(read(file))
 

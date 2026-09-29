@@ -8,7 +8,7 @@ export default {
   icon: 'computer',
   accent: '#3949ab',
   version: 1,
-  lexicon: { part: 'комплектующая', model: 'устройство', equipmentIdentifier: 'серийный номер' },
+  lexicon: { model: 'устройство', equipmentIdentifier: 'серийный номер' },
   features: { store: true, models: true, analytics: true, shareLink: true, equipmentIdentifier: false },
   categories: [
     {

@@ -53,8 +53,8 @@ const submit = () => {
 <template>
   <LcDialogShell
     :model-value="props.modelValue"
-    title="Новый материал"
-    subtitle="Позиция, купленная «по пути» и не учтённая на складе"
+    title="Покупка (вне склада)"
+    subtitle="Позиция, купленная отдельно, — не со склада: переносится клиенту как есть"
     confirm-label="Добавить"
     @update:model-value="value => emit('update:modelValue', value)"
     @confirm="submit"

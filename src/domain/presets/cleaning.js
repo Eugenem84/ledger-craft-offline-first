@@ -9,7 +9,7 @@ export default {
   icon: 'cleaning_services',
   accent: '#26a69a',
   version: 1,
-  lexicon: { part: 'средство', model: 'объект', equipmentIdentifier: 'адрес объекта' },
+  lexicon: { model: 'объект', equipmentIdentifier: 'адрес объекта' },
   features: { store: false, models: false, analytics: true, shareLink: true, equipmentIdentifier: true },
   categories: [
     {

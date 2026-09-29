@@ -1,18 +1,17 @@
 <script setup>
-// Вкладка «все» (Фаза 8, задача 8.1): выбранные работы, ручные позиции, товары,
+// Вкладка «все» (Фаза 8, задача 8.1): выбранные работы, товары (склад + покупки),
 // итоги и комментарий. Данные приходят пропсами, изменения уходят событиями
 // в `useOrderDraftStore` (страница — посредник).
 import { computed } from 'vue'
 import LcHint from 'src/components/ui/LcHint.vue'
 import OrderServicesBlock from 'src/components/order/OrderServicesBlock.vue'
-import OrderMaterialsBlock from 'src/components/order/OrderMaterialsBlock.vue'
-import OrderProductsBlock from 'src/components/order/OrderProductsBlock.vue'
+import OrderPartsBlock from 'src/components/order/OrderPartsBlock.vue'
 import OrderTotals from 'src/components/order/OrderTotals.vue'
 
 const props = defineProps({
   services: { type: Array, default: () => [] },
-  materials: { type: Array, default: () => [] },
-  products: { type: Array, default: () => [] },
+  /** Единый список «товары»: `{ source, index, ...line }` (склад и покупки вместе). */
+  parts: { type: Array, default: () => [] },
   editMode: { type: Boolean, default: false },
   comments: { type: String, default: '' },
   // Универсальный идентификатор объекта (задача 10.9): подпись и видимость — из
@@ -29,31 +28,28 @@ const emit = defineEmits([
   'update:comments',
   'update:equipmentIdentifier',
   'remove-service',
-  'remove-material',
-  'remove-product',
+  'remove-part',
   'update-service-line',
 ])
 
-/** Есть ли в заказе позиции: работы, материалы или товары со склада. */
-const hasPositions = computed(
-  () => props.services.length + props.materials.length + props.products.length > 0
-)
+/** Есть ли в заказе позиции: работы или товары (склад/покупки). */
+const hasPositions = computed(() => props.services.length + props.parts.length > 0)
 </script>
 
 <template>
   <!-- Панель вкладки живёт в `OrderDetailsPage.vue` (прямой ребёнок `q-tab-panels`) —
        здесь только содержимое. -->
   <div>
-    <!-- Вкладки «работа»/«материалы» видны всегда; в режиме просмотра напоминаем,
+    <!-- Вкладки «работа»/«товары» видны всегда; в режиме просмотра напоминаем,
          что добавить позиции можно там же — правка включится автоматически. Подсказка
-         нужна только **пустому** заказу: как только появились работы, материалы или
-         товары, она мешает читать список (правка владельца 15.09.2026). -->
+         нужна только **пустому** заказу: как только появились работы или товары,
+         она мешает читать список (правка владельца 15.09.2026). -->
     <LcHint
       v-if="!props.editMode && !hasPositions"
       icon="info"
       class="lc-pad-x q-pt-md"
     >
-      Добавить работы, материалы или товары можно на вкладках выше — правка включится сама,
+      Добавить работы и товары можно на вкладках выше — правка включится сама,
       а изменения сохранит кнопка «Сохранить».
     </LcHint>
 
@@ -72,21 +68,7 @@ const hasPositions = computed(
       <span class="lc-money">{{ props.servicesTotal }} р</span>
     </div>
 
-    <!-- Подсказка «пусто» гаснет, если во второй группе позиции есть (правка владельца
-         15.09.2026): «материалов пока нет» рядом с товаром со склада сбивало с толку. -->
-    <OrderMaterialsBlock
-      :materials="props.materials"
-      :edit-mode="props.editMode"
-      :show-empty="!props.products.length"
-      @remove="index => emit('remove-material', index)"
-    />
-
-    <OrderProductsBlock
-      :products="props.products"
-      :edit-mode="props.editMode"
-      :show-empty="!props.materials.length"
-      @remove="index => emit('remove-product', index)"
-    />
+    <OrderPartsBlock :parts="props.parts" />
 
     <q-separator dark class="q-my-sm" />
 

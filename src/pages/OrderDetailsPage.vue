@@ -13,9 +13,10 @@ import DeleteConfirmPage from 'pages/dialogs/DeleteConfirmPage.vue'
 import OrderClientDialog from 'src/components/order/dialogs/OrderClientDialog.vue'
 import OrderHeaderActions from 'src/components/order/OrderHeaderActions.vue'
 import OrderMaterialDialog from 'src/components/order/dialogs/OrderMaterialDialog.vue'
-import OrderMaterialsPanel from 'src/components/order/OrderMaterialsPanel.vue'
 import OrderModelDialog from 'src/components/order/dialogs/OrderModelDialog.vue'
 import OrderOverviewPanel from 'src/components/order/OrderOverviewPanel.vue'
+import OrderPartSourceDialog from 'src/components/order/dialogs/OrderPartSourceDialog.vue'
+import OrderPartsPanel from 'src/components/order/OrderPartsPanel.vue'
 import OrderPartySelectors from 'src/components/order/OrderPartySelectors.vue'
 import OrderServiceDialog from 'src/components/order/dialogs/OrderServiceDialog.vue'
 import OrderServicesPanel from 'src/components/order/OrderServicesPanel.vue'
@@ -52,8 +53,7 @@ const {
   isNewOrder,
   orderNumber,
   services,
-  materials,
-  products,
+  parts,
   servicesByCategory,
   selectedServiceCategory,
   servicesTotal,
@@ -68,6 +68,7 @@ const isLoading = ref(false)
 const tab = ref('all')
 
 const showMaterialDialog = ref(false)
+const showPartSourceDialog = ref(false)
 const showServiceDialog = ref(false)
 const showClientDialog = ref(false)
 const showModelDialog = ref(false)
@@ -98,6 +99,15 @@ function openMaterialDialog() {
 function openStoreProductDialog() {
   ensureEditMode()
   showStoreProductDialog.value = true
+}
+
+/**
+ * Источник позиции «товары» (правка владельца 29.09.2026): один вход «Добавить»,
+ * а дальше — товар со склада или разовая покупка вне склада.
+ */
+function handlePartSource(source) {
+  if (source === 'store') openStoreProductDialog()
+  else openMaterialDialog()
 }
 
 /** Работа из каталога: добавляется одной штукой, количество правится у выбранной (14.19). */
@@ -306,10 +316,10 @@ const handleShare = async () => {
               icon="list_alt"
               :label="`обзор · ${positionsCount}`"
             />
-            <!-- Вкладки видны всегда: разделы «работа»/«материалы» не должны
+            <!-- Вкладки видны всегда: разделы «работа»/«товары» не должны
                  исчезать в режиме просмотра (правку включает первое же действие). -->
             <q-tab name="servicesChoice" icon="build" :label="t('service')" />
-            <q-tab name="materialsChoice" icon="inventory_2" label="материалы" />
+            <q-tab name="materialsChoice" icon="inventory_2" :label="t('parts')" />
           </q-tabs>
 
           <q-separator dark />
@@ -325,8 +335,7 @@ const handleShare = async () => {
               <OrderOverviewPanel
                 v-model:comments="comments"
                 :services="services"
-                :materials="materials"
-                :products="products"
+                :parts="parts"
                 :edit-mode="editMode"
                 :services-total="servicesTotal"
                 :materials-total="materialsTotal"
@@ -339,8 +348,7 @@ const handleShare = async () => {
                 @update-service-line="
                   ({ index, field, value }) => draft.updateServiceLine(index, field, value)
                 "
-                @remove-material="draft.removeMaterial($event)"
-                @remove-product="draft.removeProduct($event)"
+                @remove-part="draft.removePart($event)"
               />
             </q-tab-panel>
 
@@ -361,35 +369,31 @@ const handleShare = async () => {
             </q-tab-panel>
 
             <q-tab-panel name="materialsChoice" class="q-pa-none">
-              <OrderMaterialsPanel
-                :materials="materials"
-                :products="products"
-                :materials-total="materialsTotal"
-                :products-total="productsTotal"
+              <OrderPartsPanel
+                :parts="parts"
+                :parts-total="materialsTotal + productsTotal"
                 :edit-mode="editMode"
-                :show-store-products="isEnabled('store')"
-                @remove-material="draft.removeMaterial($event)"
-                @remove-product="draft.removeProduct($event)"
-                @update-material-line="
-                  ({ index, field, value }) => draft.updateMaterialLine(index, field, value)
-                "
-                @update-product-line="
-                  ({ index, field, value }) => draft.updateProductLine(index, field, value)
-                "
-                @create-material="openMaterialDialog"
-                @add-store-product="openStoreProductDialog"
+                @remove-part="draft.removePart($event)"
+                @update-part-line="draft.updatePartLine($event)"
+                @add="showPartSourceDialog = true"
               />
             </q-tab-panel>
           </q-tab-panels>
         </q-card>
 
         <!-- Плавающей кнопки создания здесь нет: то же действие уже есть в самих
-             панелях («Новая работа» / «Добавить материал»), а страница объявляет
+             панелях («Новая работа» / «Добавить»), а страница объявляет
              собственный QLayout без нижнего таббара — FAB «висел» в 76px от края.
              Дублирование убрано по правке живого прогона. -->
       </q-page>
     </q-page-container>
   </q-layout>
+
+  <OrderPartSourceDialog
+    v-model="showPartSourceDialog"
+    :show-store="isEnabled('store')"
+    @choose="handlePartSource"
+  />
 
   <OrderMaterialDialog
     v-model="showMaterialDialog"

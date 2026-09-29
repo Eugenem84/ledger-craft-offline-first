@@ -6,6 +6,9 @@
 // «Аналитике». Данные `buy_price` при этом продолжают синкаться и считаться —
 // просто в ордере не показываются.
 import { computed } from 'vue'
+import { useLexicon } from 'src/domain/lexicon.js'
+
+const { t } = useLexicon()
 
 const props = defineProps({
   servicesTotal: { type: Number, default: 0 },
@@ -25,7 +28,7 @@ const grandTotal = computed(() => itemsTotal.value + props.servicesTotal)
     </div>
 
     <div v-show="itemsTotal > 0" class="lc-totals-row">
-      <span class="lc-muted">материалы и товары</span>
+      <span class="lc-muted">{{ t('parts') }}</span>
       <span class="lc-money">{{ itemsTotal }} р</span>
     </div>
 

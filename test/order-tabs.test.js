@@ -9,7 +9,7 @@
 // этом вкладки видны, и дефект выглядит как «под вкладкой ничего нет».
 //
 // Именно так и было в карточке заказа: панели лежали внутри `OrderOverviewPanel`,
-// `OrderServicesPanel` и `OrderMaterialsPanel` вместо прямых детей `q-tab-panels`.
+// `OrderServicesPanel` и `OrderPartsPanel` вместо прямых детей `q-tab-panels`.
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -24,7 +24,7 @@ const PAGE = 'src/pages/OrderDetailsPage.vue'
 const PANEL_CONTENT_COMPONENTS = [
   'src/components/order/OrderOverviewPanel.vue',
   'src/components/order/OrderServicesPanel.vue',
-  'src/components/order/OrderMaterialsPanel.vue',
+  'src/components/order/OrderPartsPanel.vue',
 ]
 
 /** Имена вкладок: `<q-tab name="...">` (но не `<q-tab-panel…>` / `<q-tab-panels…>`). */

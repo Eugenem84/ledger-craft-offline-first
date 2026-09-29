@@ -16,7 +16,7 @@
 //
 // Правка владельца 17.09.2026 (переработка настроек, вкладка «отчёты»): что именно попадёт
 // в отчёт, решает мастер — `content` (`utils/reportSettings.js`) включает имя клиента,
-// телефон, модель техники и раздельные итоги (за работы / за запчасти). Подпись с сайтом
+// телефон, модель техники и раздельные итоги (за работы / за товары). Подпись с сайтом
 // тоже параметр (`signature`), но пока её в интерфейсе нет — «сайт пока убери, добавим
 // потом» (флаг `signature` живёт в `REPORT_CONTENT_HIDDEN`).
 //
@@ -120,12 +120,12 @@ export function buildOrderReportText(report = {}, { content = null, signature = 
 
   const items = [...(data.materials || []), ...(data.products || [])]
   if (items.length) {
-    positionBlocks.push(['Материалы и товары:', ...items.map(describeLine)].join('\n'))
+    positionBlocks.push(['Товары:', ...items.map(describeLine)].join('\n'))
   }
 
   blocks.push([positionBlocks.length ? positionBlocks.join('\n\n') : 'Позиции не добавлены.'])
 
-  // 3. Итоги. Раздельные строки («за работы» / «за запчасти») — только по выбору мастера:
+  // 3. Итоги. Раздельные строки («за работы» / «за товары») — только по выбору мастера:
   //    по умолчанию остаётся один общий итог, как было до правки (минимум текста).
   const totals = []
 
@@ -134,7 +134,7 @@ export function buildOrderReportText(report = {}, { content = null, signature = 
   }
 
   if (show('partsTotal')) {
-    totals.push(`Итого за запчасти: ${formatMoney(data.partsTotal)} р`)
+    totals.push(`Итого за товары: ${formatMoney(data.partsTotal)} р`)
   }
 
   totals.push(`Итого: ${formatMoney(data.total)} р`)

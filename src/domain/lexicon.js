@@ -15,6 +15,12 @@
 export const DEFAULT_LEXICON = Object.freeze({
   order: 'заказ',
   part: 'товар',
+  // Правка владельца (29.09.2026): объединённый список «товары» — и товары со склада, и
+  // разовые покупки («вне склада») одним списком с тегом источника. Слово **одно на все
+  // ниши**: «товар» — самое общее (и запчасть, и масло, и упаковка, и расходник).
+  parts: 'товары',
+  fromStock: 'со склада',
+  purchase: 'покупка (вне склада)',
   model: 'модель техники',
   catalog: 'каталог',
   stock: 'склад',
@@ -27,65 +33,53 @@ export const DEFAULT_LEXICON = Object.freeze({
 /** Словари по `preset_key`. Частичные — недостающие ключи берутся из `DEFAULT_LEXICON`. */
 export const LEXICONS = Object.freeze({
   bike: Object.freeze({
-    part: 'запчасть',
     model: 'велосипед',
     service: 'работа',
     equipmentIdentifier: 'серийный номер рамы',
   }),
   aquarium: Object.freeze({
-    part: 'товар',
     model: 'аквариум',
     equipmentIdentifier: 'номер аквариума',
   }),
   hvac: Object.freeze({
-    part: 'запчасть',
     model: 'объект',
     equipmentIdentifier: 'адрес объекта',
   }),
   auto: Object.freeze({
-    part: 'запчасть',
     model: 'автомобиль',
     equipmentIdentifier: 'VIN / госномер',
   }),
   // Расширение реестра ниш: массовые офлайн-мастера. Переопределены только слова,
   // которые в нише звучат иначе; остальные берутся из `DEFAULT_LEXICON`.
   electric: Object.freeze({
-    part: 'комплектующая',
     model: 'объект',
     equipmentIdentifier: 'адрес объекта',
   }),
   plumbing: Object.freeze({
-    part: 'деталь',
     model: 'объект',
     equipmentIdentifier: 'адрес объекта',
   }),
   appliance: Object.freeze({
-    part: 'запчасть',
     model: 'прибор',
     equipmentIdentifier: 'серийный номер',
   }),
   phone: Object.freeze({
-    part: 'запчасть',
     model: 'устройство',
     equipmentIdentifier: 'IMEI / серийный номер',
   }),
   computer: Object.freeze({
-    part: 'комплектующая',
     model: 'устройство',
     equipmentIdentifier: 'серийный номер',
   }),
   furniture: Object.freeze({
-    part: 'фурнитура',
     model: 'предмет мебели',
     equipmentIdentifier: 'номер заказа',
   }),
   windows: Object.freeze({
-    part: 'фурнитура',
     model: 'изделие',
     equipmentIdentifier: 'адрес объекта',
   }),
   cleaning: Object.freeze({
-    part: 'средство',
     model: 'объект',
     equipmentIdentifier: 'адрес объекта',
   }),

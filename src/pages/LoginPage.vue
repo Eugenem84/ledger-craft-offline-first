@@ -44,7 +44,7 @@ const title = computed(() => {
 const subtitle = computed(() => {
   if (mode.value === 'unlock') return 'Введите PIN-код'
   if (mode.value === 'set-pin') return 'PIN-код спрашивается при каждом запуске'
-  return 'Учёт работ и запчастей — офлайн, с синхронизацией'
+  return 'Учёт работ и товаров — офлайн, с синхронизацией'
 })
 
 onMounted(() => {

@@ -8,7 +8,7 @@ export default {
   icon: 'directions_car',
   accent: '#ff7043',
   version: 1,
-  lexicon: { part: 'запчасть', model: 'автомобиль', equipmentIdentifier: 'VIN / госномер' },
+  lexicon: { model: 'автомобиль', equipmentIdentifier: 'VIN / госномер' },
   features: { store: true, models: true, analytics: true, shareLink: true, equipmentIdentifier: true },
   categories: [
     {

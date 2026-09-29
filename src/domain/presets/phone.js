@@ -8,7 +8,7 @@ export default {
   icon: 'smartphone',
   accent: '#546e7a',
   version: 1,
-  lexicon: { part: 'запчасть', model: 'устройство', equipmentIdentifier: 'IMEI / серийный номер' },
+  lexicon: { model: 'устройство', equipmentIdentifier: 'IMEI / серийный номер' },
   features: { store: true, models: true, analytics: true, shareLink: true, equipmentIdentifier: true },
   categories: [
     {

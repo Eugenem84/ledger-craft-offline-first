@@ -100,14 +100,15 @@ describe('10.3 Доработка UI: тумблеры разделов и ка�
   it('флаги store/shareLink реально скрывают блоки заказа', () => {
     const order = read('src/pages/OrderDetailsPage.vue')
     const header = read('src/components/order/OrderHeaderActions.vue')
-    const materials = read('src/components/order/OrderMaterialsPanel.vue')
+    const source = read('src/components/order/dialogs/OrderPartSourceDialog.vue')
 
     expect(order).toContain(':show-share="isEnabled(\'shareLink\')"')
-    expect(order).toContain(':show-store-products="isEnabled(\'store\')"')
+    // Склад выключен профилем → в выборе источника остаётся только «покупка (вне склада)».
+    expect(order).toContain(':show-store="isEnabled(\'store\')"')
     expect(header).toContain('showShare')
     expect(header).toContain('v-if="showShare"')
-    expect(materials).toContain('showStoreProducts')
-    expect(materials).toContain('v-if="props.showStoreProducts"')
+    expect(source).toContain('showStore')
+    expect(source).toContain('v-if="props.showStore"')
   })
 
   it('у каждого флага есть подпись и пояснение для тумблера', () => {

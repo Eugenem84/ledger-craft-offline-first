@@ -8,7 +8,7 @@ export default {
   icon: 'plumbing',
   accent: '#039be5',
   version: 1,
-  lexicon: { part: 'деталь', model: 'объект', equipmentIdentifier: 'адрес объекта' },
+  lexicon: { model: 'объект', equipmentIdentifier: 'адрес объекта' },
   features: { store: true, models: false, analytics: true, shareLink: true, equipmentIdentifier: true },
   categories: [
     {

@@ -8,7 +8,7 @@ export default {
   icon: 'window',
   accent: '#00acc1',
   version: 1,
-  lexicon: { part: 'фурнитура', model: 'изделие', equipmentIdentifier: 'адрес объекта' },
+  lexicon: { model: 'изделие', equipmentIdentifier: 'адрес объекта' },
   features: { store: true, models: false, analytics: true, shareLink: true, equipmentIdentifier: true },
   categories: [
     {

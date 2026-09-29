@@ -9,7 +9,7 @@ export default {
   icon: 'ac_unit',
   accent: '#42a5f5',
   version: 1,
-  lexicon: { part: 'запчасть', model: 'объект', equipmentIdentifier: 'адрес объекта' },
+  lexicon: { model: 'объект', equipmentIdentifier: 'адрес объекта' },
   features: { store: true, models: false, analytics: true, shareLink: true, equipmentIdentifier: true },
   categories: [
     {

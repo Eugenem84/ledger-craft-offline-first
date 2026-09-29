@@ -25,8 +25,7 @@ const read = relative => readFileSync(path.join(root, relative), 'utf8')
 const QUANTITY_USERS = [
   'src/components/order/OrderServicesPanel.vue',
   'src/components/order/OrderServicesBlock.vue',
-  'src/components/order/OrderMaterialsEditor.vue',
-  'src/components/order/OrderProductsEditor.vue',
+  'src/components/order/OrderPartsEditor.vue',
   'src/components/order/dialogs/OrderStoreProductDialog.vue',
   'src/components/order/dialogs/OrderMaterialDialog.vue',
   // Приход товара — тоже количество, поэтому и здесь список, а не числовое поле.
@@ -51,12 +50,11 @@ describe('14.19 количество работ/товаров — только 
     expect(block).toContain("emit('update-line', { index, field: 'quantity', value })")
   })
 
-  it('материалы и товары: редактируемые строки видны только при правке', () => {
-    const panel = read('src/components/order/OrderMaterialsPanel.vue')
+  it('товары: редактируемый список виден только при правке, в просмотре — чтение', () => {
+    const panel = read('src/components/order/OrderPartsPanel.vue')
 
-    expect(panel).toMatch(/<template v-if="props\.editMode">\s*<OrderMaterialsEditor/)
-    expect(panel).toMatch(/<template v-if="props\.editMode">[\s\S]*<OrderProductsEditor/)
-    expect(panel).toMatch(/<template v-else>[\s\S]*<OrderMaterialsBlock/)
+    expect(panel).toMatch(/<template v-if="props\.editMode">\s*<OrderPartsEditor/)
+    expect(panel).toMatch(/<template v-else>[\s\S]*<OrderPartsBlock/)
   })
 
   it('страница заказа передаёт режим правки в панель работ', () => {

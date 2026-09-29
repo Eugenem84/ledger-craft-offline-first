@@ -10,7 +10,7 @@ export default {
   icon: 'electrical_services',
   accent: '#fbc02d',
   version: 1,
-  lexicon: { part: 'комплектующая', model: 'объект', equipmentIdentifier: 'адрес объекта' },
+  lexicon: { model: 'объект', equipmentIdentifier: 'адрес объекта' },
   features: { store: true, models: false, analytics: true, shareLink: true, equipmentIdentifier: true },
   categories: [
     {
