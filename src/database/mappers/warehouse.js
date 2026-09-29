@@ -47,14 +47,6 @@ export function arrivalUpdateFromServerParams({
 }
 
 /**
- * `queries.product_stocks.insert`.
- * @param {{ id: string, productId: string, quantity: number, supplier: string }} input
- */
-export function stockInsertParams({ id, productId, quantity, supplier = '' }) {
-  return [id, null, productId, quantity, supplier]
-}
-
-/**
  * `queries.product_stocks.insertFromServer`.
  * @param {{ localId: string, serverId: number, localProductId: string, quantity: number, supplier: string, createdAt: number, updatedAt: number }} input
  */

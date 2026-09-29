@@ -22,7 +22,6 @@ import { createFakeServer } from './helpers/fakeServer.js'
 import * as specializationsRepo from 'src/repositories/specializationsRepo.js'
 import * as productCategoriesRepo from 'src/repositories/productCategoriesRepo.js'
 import * as productsRepo from 'src/repositories/productsRepo.js'
-import * as productStocksRepo from 'src/repositories/productStocksRepo.js'
 import * as buyProductPricesRepo from 'src/repositories/buyProductPricesRepo.js'
 import { useProductsStore } from 'src/stores/useProductsStore.js'
 
@@ -99,7 +98,8 @@ describe('9.2 приход товара офлайн', () => {
     expect(
       await db.queryOne('SELECT * FROM incoming_products WHERE id = ?', [result.arrivalId])
     ).toMatchObject({ quantity: 5, by_price: 300, supplier: '' })
-    expect(await productStocksRepo.getByProductId(product.id)).toMatchObject({ quantity: 5 })
+    // Остаток — производный (Σ приходов): считается на устройстве, без сервера.
+    expect(await productsRepo.getStockQuantity(product.id)).toBe(5)
     expect(await buyProductPricesRepo.getLatestByProductId(product.id)).toMatchObject({
       buy_price: 300,
     })
@@ -131,7 +131,7 @@ describe('9.2 приход товара офлайн', () => {
 
     // Два прихода — два документа, а остаток один и равен сумме.
     expect(await db.query('SELECT * FROM incoming_products')).toHaveLength(2)
-    expect(await productStocksRepo.getByProductId(product.id)).toMatchObject({ quantity: 8 })
+    expect(await productsRepo.getStockQuantity(product.id)).toBe(8)
 
     // Закупочная цена — одна актуальная строка на товар…
     const prices = await db.query('SELECT * FROM buy_product_prices')
@@ -155,7 +155,7 @@ describe('9.2 приход товара офлайн', () => {
     ).rejects.toThrow(/количество/i)
 
     expect(await db.query('SELECT * FROM incoming_products')).toHaveLength(0)
-    expect(await productStocksRepo.getByProductId(product.id)).toBeNull()
+    expect(await productsRepo.getStockQuantity(product.id)).toBe(0)
   })
 })
 
@@ -191,7 +191,7 @@ describe('9.2 приход в синхронизации', () => {
     expect(await db.query('SELECT * FROM operations')).toHaveLength(0)
   })
 
-  it('остаток и чужие приходы приезжают с сервера и не плодят дублей', async () => {
+  it('чужие приходы приезжают с сервера, а остаток считается из локальных движений', async () => {
     const product = await seedProduct()
     // Товар уже уезжал в синк: очередь пуста, у строки есть серверный id.
     await db.execute('DELETE FROM operations')
@@ -203,18 +203,15 @@ describe('9.2 приход в синхронизации', () => {
       arrivalQuantity: 5,
     })
 
-    // Сервер — источник истины по остатку: у него уже 12 (наш приход + закупка из web-версии).
+    // Сервер прислал legacy-строку остатка (12) — на устройстве она больше НЕ источник
+    // истины. Остаток считается из движений: 5 (наш приход) + 4 (чужой) = 9.
     server.seed('product_stocks', { product_id: 42, quantity: 12 })
     // И приход, сделанный другим устройством.
     server.seed('incoming_products', { product_id: 42, quantity: 4, by_price: 100, supplier: '' })
 
     await syncService.sync()
 
-    // Остаток — одна строка на товар: наша «предсказанная» строка приняла значения сервера.
-    const stocks = await db.query('SELECT * FROM product_stocks')
-    expect(stocks).toHaveLength(1)
-    expect(stocks[0].server_id).not.toBeNull()
-    expect(stocks[0].quantity).toBe(12)
+    expect(await productsRepo.getStockQuantity(product.id)).toBe(9)
 
     // Приходов стало два: наш (уже с server_id) и чужой (пришёл выгрузкой).
     const arrivals = await db.query('SELECT * FROM incoming_products ORDER BY created_at ASC')

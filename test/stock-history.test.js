@@ -11,9 +11,10 @@
 //     истории исчезает;
 //   • историю профиля (вкладка «движение товаров») — с названиями товаров, только по
 //     своим категориям и с лимитом ленты;
-//   • правку прихода: пока приход в очереди — правим всё (остаток меняется на дельту,
-//     ожидающий INSERT переписывается), а у прихода «на сервере» количество менять
-//     нельзя (сервер остаток по нему не пересчитывает) — закупка и поставщик едут update.
+//   • правку прихода: пока приход в очереди — правим всё (производный остаток
+//     пересчитывается сам, ожидающий INSERT переписывается), а у прихода «на сервере»
+//     количество менять нельзя (сервер приходует склад ровно один раз) — закупка и
+//     поставщик едут update.
 import { describe, it, expect, beforeEach } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 
@@ -24,7 +25,6 @@ import * as specializationsRepo from 'src/repositories/specializationsRepo.js'
 import * as productCategoriesRepo from 'src/repositories/productCategoriesRepo.js'
 import * as productsRepo from 'src/repositories/productsRepo.js'
 import * as orderProductRepo from 'src/repositories/orderProductRepo.js'
-import * as productStocksRepo from 'src/repositories/productStocksRepo.js'
 import * as buyProductPricesRepo from 'src/repositories/buyProductPricesRepo.js'
 import * as incomingProductsRepo from 'src/repositories/incomingProductsRepo.js'
 import * as stockHistoryRepo from 'src/repositories/stockHistoryRepo.js'
@@ -354,7 +354,7 @@ describe('история склада: приходы и расходы това
 })
 
 describe('правка прихода (правка владельца 15.09.2026)', () => {
-  it('приход ещё в очереди: правим количество, остаток считается на дельту, INSERT переписан', async () => {
+  it('приход ещё в очереди: правим количество, остаток пересчитывается, INSERT переписан', async () => {
     const product = await seedProduct()
     const store = useProductsStore()
     await store.loadByCategoryId(product.product_category_id)
@@ -364,7 +364,8 @@ describe('правка прихода (правка владельца 15.09.202
     expect(
       (await db.queryOne('SELECT * FROM incoming_products WHERE id = ?', [arrival.arrivalId])).server_id
     ).toBeNull()
-    expect((await productStocksRepo.getByProductId(product.id)).quantity).toBe(5)
+    // Остаток — производный, считается из движений (Σ приходов).
+    expect(await productsRepo.getStockQuantity(product.id)).toBe(5)
 
     const result = await store.updateArrival(arrival.arrivalId, {
       quantity: 2,
@@ -374,11 +375,11 @@ describe('правка прихода (правка владельца 15.09.202
 
     expect(result).toMatchObject({ quantity: 2, byPrice: 750, supplier: 'Склад №1', stockQuantity: 2 })
 
-    // Строка прихода и остаток: 5 − 3 = 2.
+    // Строка прихода и остаток: приход стал 2 — производный остаток тоже 2.
     expect(
       await db.queryOne('SELECT * FROM incoming_products WHERE id = ?', [arrival.arrivalId])
     ).toMatchObject({ quantity: 2, by_price: 750, supplier: 'Склад №1' })
-    expect((await productStocksRepo.getByProductId(product.id)).quantity).toBe(2)
+    expect(await productsRepo.getStockQuantity(product.id)).toBe(2)
     // Список склада в сторе обновлён сразу (офлайн-первый подход).
     expect(store.items[0].quantity).toBe(2)
 
@@ -416,7 +417,7 @@ describe('правка прихода (правка владельца 15.09.202
     expect(
       (await db.queryOne('SELECT * FROM incoming_products WHERE id = ?', [arrival.arrivalId])).quantity
     ).toBe(5)
-    expect((await productStocksRepo.getByProductId(product.id)).quantity).toBe(5)
+    expect(await productsRepo.getStockQuantity(product.id)).toBe(5)
 
     // Закупка и поставщик — можно: остаток они не меняют.
     const result = await incomingProductsRepo.updateArrival(arrival.arrivalId, {

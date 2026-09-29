@@ -1,10 +1,10 @@
 // test/product-stock.test.js
 //
-// Задача 9.3: остаток и цены. Проверяем, что склад реально читает три таблицы
-// (`product_stocks` — остаток, `buy_product_prices` — закупка, `sales_products_prices` —
-// последняя цена продажи), а цена продажи фиксируется в момент продажи товара и уходит
-// синком (раньше `sales_products_prices` не заполнялась вообще, и склад показывал
-// `product.quantity` без источника).
+// Задача 9.3: остаток и цены. Проверяем, что склад реально отдаёт три величины:
+// закупку (`buy_product_prices`), последнюю цену продажи (`sales_products_prices`,
+// фиксируется в момент продажи товара и уходит синком) и **остаток**. С 29.09.2026
+// остаток — производная величина от движений (`Σ приходов − Σ расходов`), считается
+// на устройстве, поэтому продажа его уменьшает, а удаление заказа/товара возвращает.
 //
 // БД — настоящий sql.js в памяти (`test/helpers/testDb.js`), сеть — фейковый сервер
 // `SyncController` (`test/helpers/fakeServer.js`).
@@ -101,13 +101,14 @@ describe('9.3 склад: остаток и цены', () => {
     })
 
     // Продажа: товар ушёл в заказ по 900 ₽ — это и есть «последняя цена продажи» (9.3).
+    // Остаток при этом уменьшается: 4 − 2 = 2 (правка 29.09.2026).
     await orderProductRepo.add(orderId, productId, 2, 900)
 
     const rows = await productsRepo.getByCategoryId(productCategoryId)
     const row = rows.find(item => item.id === productId)
 
     expect(row).toMatchObject({
-      quantity: 4,
+      quantity: 2,
       buy_price: 250,
       base_sale_price: 1000,
       last_sale_price: 900,
@@ -117,7 +118,7 @@ describe('9.3 склад: остаток и цены', () => {
     const store = useProductsStore()
     await store.loadByCategoryId(productCategoryId)
 
-    expect(store.items[0]).toMatchObject({ quantity: 4, buy_price: 250, last_sale_price: 900 })
+    expect(store.items[0]).toMatchObject({ quantity: 2, buy_price: 250, last_sale_price: 900 })
   })
 
   it('цена продажи пишется в историю и убирается вместе со строкой заказа', async () => {
@@ -158,6 +159,85 @@ describe('9.3 склад: остаток и цены', () => {
     const operations = await queuedOperations()
     expect(operations).toContainEqual({ table: 'sales_products_prices', type: 'delete' })
     expect(await db.query('SELECT * FROM sales_products_prices')).toHaveLength(0)
+  })
+})
+
+// Остаток считается **на устройстве** из движений (правка владельца 29.09.2026):
+// приходы минус расходы. Поэтому всё это работает офлайн и без сервера, а расход
+// (товар в заказе) сразу уменьшает остаток — раньше `product_stocks` рос только
+// от приходов, и было «приход 5 → расход 3 → остаток 5».
+describe('9.3 остаток считается из движений (офлайн, без сервера)', () => {
+  it('приход 5 − расход 3 = 2 (расход уменьшает остаток)', async () => {
+    const { product, orderId, productId } = await seedWorkshop()
+
+    await incomingProductsRepo.receiveArrival({ product, byPrice: 100, arrivalQuantity: 5 })
+    await orderProductRepo.add(orderId, productId, 3, 1000)
+
+    expect(await productsRepo.getStockQuantity(productId)).toBe(2)
+  })
+
+  it('удаление товара из заказа возвращает остаток', async () => {
+    const { product, orderId, productId } = await seedWorkshop()
+
+    await incomingProductsRepo.receiveArrival({ product, byPrice: 100, arrivalQuantity: 5 })
+    const lineId = await orderProductRepo.add(orderId, productId, 3, 1000)
+
+    expect(await productsRepo.getStockQuantity(productId)).toBe(2)
+
+    await orderProductRepo.remove({ id: lineId })
+
+    expect(await productsRepo.getStockQuantity(productId)).toBe(5)
+  })
+
+  it('удаление заказа возвращает остаток', async () => {
+    const { product, orderId, productId } = await seedWorkshop()
+
+    await incomingProductsRepo.receiveArrival({ product, byPrice: 100, arrivalQuantity: 5 })
+    await orderProductRepo.add(orderId, productId, 3, 1000)
+
+    expect(await productsRepo.getStockQuantity(productId)).toBe(2)
+
+    await ordersRepo.remove(orderId)
+
+    expect(await productsRepo.getStockQuantity(productId)).toBe(5)
+  })
+
+  it('правка количества прихода пересчитывает остаток', async () => {
+    const { product, orderId, productId } = await seedWorkshop()
+    const store = useProductsStore()
+    await store.loadByCategoryId(product.product_category_id)
+
+    const arrival = await store.receiveArrival({ product, byPrice: 100, arrivalQuantity: 5 })
+    await orderProductRepo.add(orderId, productId, 3, 1000)
+
+    expect(await productsRepo.getStockQuantity(productId)).toBe(2)
+
+    // Приход стал 8 → 8 − 3 = 5.
+    await store.updateArrival(arrival.arrivalId, { quantity: 8, byPrice: 100 })
+
+    expect(await productsRepo.getStockQuantity(productId)).toBe(5)
+    expect(store.items[0].quantity).toBe(5)
+  })
+
+  it('правка заказа «удалить и добавить заново» не двоит расход', async () => {
+    const { product, orderId, productId } = await seedWorkshop()
+
+    await incomingProductsRepo.receiveArrival({ product, byPrice: 100, arrivalQuantity: 5 })
+    await orderProductRepo.add(orderId, productId, 2, 1000)
+
+    // Так правит страница заказа: строки пересоздаются.
+    await orderProductRepo.removeByOrderId(orderId)
+    await orderProductRepo.add(orderId, productId, 3, 1000)
+
+    expect(await productsRepo.getStockQuantity(productId)).toBe(2)
+  })
+
+  it('продажа без прихода даёт отрицательный остаток (честная лента)', async () => {
+    const { orderId, productId } = await seedWorkshop()
+
+    await orderProductRepo.add(orderId, productId, 2, 1000)
+
+    expect(await productsRepo.getStockQuantity(productId)).toBe(-2)
   })
 })
 

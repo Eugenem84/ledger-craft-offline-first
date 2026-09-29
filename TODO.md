@@ -2427,6 +2427,31 @@ BE: миграции полей профиля, `template_key`, `equipment_ident
       → риски: outgoing-очередь (товар + приход, 9.2) и смена типа строки заказа; нужен тест и dev-прогон
       → критерий «Готово»: покупку можно «внести в склад» одним действием; после сохранения строка стала
       товаром со склада (списывает остаток), товар и приход видны в разделе «склад»
+- [x] **14.29** [FE] (P0) Остаток склада не учитывал расход (правка владельца 29.09.2026)
+      → «приход 5, расход 3 — а остаток пишет 5»: остаток читался из `product_stocks`, который
+      ведёт сервер и увеличивает **только приход** — продажа (`order_product`) его не трогала.
+      Офлайн-первому приложению нужен остаток, сходящийся **на устройстве**
+      → решение: остаток = **Σ приходов − Σ расходов**, считается на чтение в SQL из движений
+      (`incoming_products` − `order_product` в не удалённых заказах), `productsRepo.getStockQuantity()`;
+      `product_stocks` — legacy (клиент в него больше не пишет, только принимает выгрузку)
+      → затронуто: `queries/products.js` (+`stockQuantity`), `productsRepo.getStockQuantity`,
+      `incomingProductsRepo` (приход/правка прихода больше не пишут в `product_stocks`),
+      `useProductsStore.receiveArrival` (остаток в списке сразу), `productStocksRepo`/`queries/product_stocks`
+      (убраны локальные записи), `mappers/warehouse.js` (убран `stockInsertParams`)
+      → регрессы: `test/product-stock.test.js` +6 (приход 5 − расход 3 = 2, возврат при удалении
+      товара/заказа, правка прихода, «удалить и добавить заново», отрицательный остаток),
+      обновлены `stock-history`/`incoming-products`
+      → тесты/прогоны: FE **631 тест** (68 файлов), `npm run lint` — 0
+      → ✅ BE (отдельный репо `LedgerCraftDocker03`, только код/тесты, **prod не трогали**):
+      `ProductStockRepository::QUANTITY_SQL` (Σ приходов − Σ продаж) + `quantityForProduct()`;
+      остаток в `ProductRepository::getByCategory` / `getByProductCategory` считается из движений;
+      `IncomingProductRepository::recordArrival` возвращает производный `stock_quantity`;
+      web-заказы (`OrderRepository::createOrder`/`deleteOrder`) больше не списывают/возвращают
+      `product_stocks` (продажа и так в `order_product`, а доступность проверяется расчётом);
+      `ProductRepository::edit` (поле `store_balance`) по-прежнему пишет в legacy `product_stocks`
+      и на остаток больше не влияет — вынести в отдельную задачу (правка склада = движение)
+      → тесты BE: `ProductStockTest` (в т.ч. «приход 5 − продажа 3 = 2», soft-deleted заказ),
+      `ArrivalProductTest` (остаток через производную); `php artisan test` → **140 passed**
 
 > **Четвёртый живой отчёт (29.09.2026, боевой контур).** Мастер `Олег` (APK 1.17, аккаунт на
 > `ledgercraft.ru`) отправил «надо объединить товары и материалы». Сервер принял (#1,

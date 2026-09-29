@@ -11,16 +11,15 @@
 // Кто что пишет:
 //   • клиент — строку прихода (`incoming_products`), закупочную цену
 //     (`buy_product_prices`) и цену продажи товара (`products.base_sale_price`);
-//   • сервер — остаток: `IncomingProductRepository::recordArrival()` создаёт/находит
-//     строку прихода по `uuid_id` и увеличивает склад **ровно один раз**. Поэтому
-//     операции по `product_stocks` не ставим (иначе остаток учтёлся бы дважды),
-//     а локальный остаток обновляем оптимистично (`productStocksRepo.applyLocalArrival`).
+//   • остаток на устройстве **считается из движений** (`productsRepo.getStockQuantity`:
+//     Σ приходов − Σ расходов), а не хранится в `product_stocks`. Приход — это просто
+//     ещё одна строка ленты, поэтому и офлайн остаток виден сразу и всегда сходится
+//     (правка владельца 29.09.2026).
 import { logger } from 'src/utils/logger'
 import { v4 as uuidv4 } from 'uuid'
 import dbAdapter from 'src/database/db.js'
 import queries from 'src/database/queries/incoming_products.js'
 import operationsRepo from 'src/repositories/operationsRepo'
-import * as productStocksRepo from 'src/repositories/productStocksRepo.js'
 import * as buyProductPricesRepo from 'src/repositories/buyProductPricesRepo.js'
 import * as productsRepo from 'src/repositories/productsRepo.js'
 import { normalizeQuantity } from 'src/utils/quantity.js'
@@ -82,7 +81,8 @@ export async function receiveArrival({
       })
     )
 
-    stockQuantity = await productStocksRepo.applyLocalArrival(product.id, quantity, supplier)
+    // Остаток — производный: после вставки прихода он уже включает это движение.
+    stockQuantity = await productsRepo.getStockQuantity(product.id)
     await buyProductPricesRepo.applyLocalArrival(product.id, purchasePrice)
   })
 
@@ -134,11 +134,11 @@ export async function receiveArrival({
  * Что можно менять — диктует сервер (`IncomingProductRepository::recordArrival()`):
  *
  *   • приход ещё **не уехал** (нет `server_id`) — правим всё: количество, закупку,
- *     поставщика. Остаток корректируем на дельту (`productStocksRepo.adjustQuantity`),
- *     а ожидающий INSERT в очереди переписываем: payload операции сериализуется в момент
- *     постановки, поэтому иначе на сервер ушло бы старое количество (и он приходовал бы
- *     не то, что видит мастер);
- *   • приход **уже на сервере** — количество менять нельзя: сервер увеличивает склад по
+ *     поставщика. Остаток отдельно менять не нужно: он считается из движений, поэтому
+ *     правка количества в `incoming_products` пересчитывает его сама. Ожидающий INSERT
+ *     в очереди переписываем: payload операции сериализуется в момент постановки,
+ *     поэтому иначе на сервер ушло бы старое количество;
+ *   • приход **уже на сервере** — количество менять нельзя: сервер приходует склад по
  *     приходу ровно один раз и при повторной отправке только правит строку, остаток не
  *     пересчитывает. Правка количества тихо разошлась бы со складом, поэтому отклоняем
  *     её явной ошибкой, а закупку и поставщика (остаток они не меняют) отправляем обычным
@@ -172,21 +172,19 @@ export async function updateArrival(arrivalId, { quantity, byPrice, supplier } =
 
   let stockQuantity = null
 
-  // Локальные записи — одной транзакцией: либо приход и остаток целиком, либо ничего.
+  // Локальные записи — одной транзакцией: либо приход целиком, либо ничего.
   await dbAdapter.transaction(async () => {
-    if (quantityChanged) {
-      stockQuantity = await productStocksRepo.adjustQuantity(
-        arrival.product_id,
-        nextQuantity - currentQuantity
-      )
-    }
-
     await dbAdapter.execute(queries.updateLocal, [
       nextQuantity,
       nextPrice,
       nextSupplier,
       arrivalId,
     ])
+
+    // Остаток пересчитывается из движений: правка прихода — это правка суммы приходов.
+    if (quantityChanged) {
+      stockQuantity = await productsRepo.getStockQuantity(arrival.product_id)
+    }
   })
 
   // Закупочная цена — та же семантика, что у прихода: одна актуальная цена товара.

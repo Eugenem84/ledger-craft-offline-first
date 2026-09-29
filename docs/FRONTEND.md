@@ -51,8 +51,8 @@ src/
 │   ├── orderProductRepo.js       # товары в заказе (order_product)
 │   ├── materialsRepo.js          # ручные позиции заказа (таблица `materials`, решение D2)
 │   ├── incomingProductsRepo.js   # приходы товара + «приходуем» офлайн (9.2) и правка прихода (15.09.2026)
-│   ├── productStocksRepo.js      # остаток: локально оптимистично, источник истины — сервер (9.2);
-│   │                             #   правка прихода корректирует остаток на дельту (`adjustQuantity`)
+│   ├── productStocksRepo.js      # legacy `product_stocks`: остаток с 29.09.2026 считается из движений
+│   │                             #   (`productsRepo.getStockQuantity`), здесь — только приём выгрузки
 │   ├── buyProductPricesRepo.js   # закупочные цены (9.2; маржа — 9.5)
 │   ├── salesProductPricesRepo.js # цены продажи по заказам (9.3)
 │   ├── analyticsRepo.js          # аналитика страницы: только SELECT, очередь синка не трогает (9.1)
@@ -302,10 +302,9 @@ return id;
   `incomingProductsRepo.receiveArrival()` — «приходуем товар» из `ArrivalProductDialogPage.vue`
   (раньше диалог стучался в `POST /arrival_product` через `boot/axios.js` с фиктивным `baseURL`
   и офлайн не работал вовсе);
-- `product_stocks` (остаток) **ведёт сервер**: приход увеличивает склад ровно один раз
-  (идемпотентность по `uuid_id`), клиент обновляет строку оптимистично и принимает серверное
-  значение выгрузкой (`productStocksRepo.applyServerRecord`, ключ — товар). Исходящих операций
-  по остатку нет — иначе двойной учёт;
+- `product_stocks` — **legacy-строка** (`productStocksRepo.applyServerRecord`, ключ — товар):
+  с 29.09.2026 клиент в неё не пишет, а остаток считает из движений (см. 9.3 ниже). Исходящих
+  операций по остатку нет — иначе двойной учёт;
 - закупочная цена — одна актуальная строка на товар: незаезженный INSERT переписывается, чтобы
   на сервер ушла последняя цена, а не первая.
 
@@ -314,9 +313,11 @@ return id;
   товара (`orderProductRepo.add()` → `salesProductPricesRepo.add()`), снимается вместе со строкой
   заказа (delete по `server_id` или отмена незаезженного INSERT); таблица в синке
   (`order_id` → `orders`, `product_id` → `products`);
-- склад показывает **остаток, закупку, цену продажи и последнюю продажу**: `queries/products.js`
-  джойнит `product_stocks` и скалярными подзапросами достаёт `buy_price`/`last_sale_price`
-  (переносимый SQL — работает и на старом SQLite в Android, и в PostgreSQL);
+- **остаток считается на устройстве** (правка 29.09.2026): `productsRepo.getStockQuantity()` =
+  Σ приходов − Σ расходов — то же значение `queries/products.js` отдаёт в списке склада
+  (`quantity`), рядом `buy_price`/`last_sale_price` скалярными подзапросами (переносимый SQL —
+  работает и на старом SQLite в Android, и в PostgreSQL). Продажа уменьшает остаток, удаление
+  заказа/товара возвращает;
 - дубль «где лежит товар» убран: в остатке больше нет `product_categories_id`.
 
 **Пробелы:**
@@ -369,9 +370,9 @@ return id;
 - **StorePage / CatalogPage** — работают через сторы и репозитории (настройки — модальное окно
   каркаса, `src/components/settings/SettingsDialog.vue`, правка владельца 17.09.2026).
   `StorePage` показывает товары категории с колонками «остаток / закупка / продажа / посл. прод.»:
-  `quantity` берётся из `product_stocks`, `buy_price` — из `buy_product_prices`,
-  `last_sale_price` — из `sales_products_prices` (задача 9.3; раньше `product.quantity`
-  не имел источника и колонка была пустой). Тап по строке открывает карточку товара, где
+  `quantity` — производный остаток (Σ приходов − Σ расходов, правка 29.09.2026), `buy_price` — из
+  `buy_product_prices`, `last_sale_price` — из `sales_products_prices` (задача 9.3; раньше
+  `product.quantity` не имел источника и колонка была пустой). Тап по строке открывает карточку товара, где
   (правка владельца 15.09.2026) есть **история склада** — приходы «+» и расходы «−» одной лентой
   (`useStockHistoryStore` → `stockHistoryRepo`), а цену закупки можно задать прямо в поле
   «Цена закупки, р» (`useProductsStore.saveBuyPrice`) — раньше её задавал только приход, и без

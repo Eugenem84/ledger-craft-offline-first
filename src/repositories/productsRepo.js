@@ -16,6 +16,22 @@ export async function getByCategoryId(categoryId) {
   return rows;
 }
 
+/**
+ * Остаток товара на устройстве (правка владельца 29.09.2026).
+ *
+ * Офлайн-первый расчёт из локальных движений: Σ приходов (`incoming_products`) минус
+ * Σ расходов (`order_product` в не удалённых заказах). Серверный `product_stocks`
+ * остаток больше не определяет — он умел только расти от приходов, поэтому продажа
+ * его не уменьшала («приход 5 → расход 3 → остаток 5»).
+ *
+ * @param {string} productId локальный UUID товара
+ * @returns {Promise<number>}
+ */
+export async function getStockQuantity(productId) {
+  const row = await dbAdapter.queryOne(queries.stockQuantity, [productId]);
+  return Number(row?.quantity ?? 0);
+}
+
 export async function save(product) {
   const id = product.id || uuidv4()
 

@@ -102,10 +102,14 @@ export const useProductsStore = defineStore('products', {
           baseSalePrice,
         })
 
-        // Цена продажи могла измениться приходом — отражаем это в списке склада.
+        // Остаток и цена продажи могли измениться приходом — отражаем это в списке
+        // склада сразу (офлайн-первый подход). Остаток производный, его посчитал
+        // репозиторий (`productsRepo.getStockQuantity`).
         const index = this.items.findIndex(item => item.id === product.id)
-        if (index !== -1 && result.baseSalePrice !== null) {
-          this.items[index] = { ...this.items[index], base_sale_price: result.baseSalePrice }
+        if (index !== -1) {
+          const next = { ...this.items[index], quantity: result.stockQuantity }
+          if (result.baseSalePrice !== null) next.base_sale_price = result.baseSalePrice
+          this.items[index] = next
         }
 
         return result
