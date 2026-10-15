@@ -381,6 +381,19 @@ npx cap add android` (⚠️ проверить, что платформа за�
 > а в манифесте стоит `android:windowSoftInputMode="adjustResize"`. ⚠️ Правка **нативная**:
 > OTA-бандл её не привезёт, нужен новый APK.
 
+> 🎨 **Иконка приложения (задача 13.19).** Своя, а не шаблон Capacitor, и рисуется **кодом**:
+> `npm run icons:generate` (`scripts/generate-app-icons.mjs`, чистый Node — без зависимостей и
+> PNG-исходников) раскладывает `mipmap-*/ic_launcher*.png` (legacy 48…192px, круглая, слой
+> адаптивной иконки 108…432px, монохромный слой для тематических значков Android 13+),
+> фон-градиент `drawable/ic_launcher_background.xml` и мастера 1024px в `src-capacitor/resources/`.
+> Знак — «карточка учёта с галочкой», палитра — фон-«цех» `#1a1a1a → #000` плюс брендовый жёлтый
+> `$secondary` из `src/css/quasar.variables.scss`. Правки — в константах скрипта (`CARD`/`BARS`/`CHECK`),
+> проверки — `test/app-icon.test.js` (размеры, слои, «знак внутри видимой области», совпадение
+> жёлтого с палитрой, валидность XML-комментариев). ⚠️ Иконка — часть APK: OTA-бандл её не привезёт.
+> Если после генерации изменился **набор** файлов ресурсов (добавился/удалился файл), сборке нужен
+> `./gradlew clean` в `src-capacitor/android` — иначе инкрементальный merge ресурсов AGP падает
+> внутренней ошибкой «no data file for changedFile».
+
 > 📶 **На телефоне «Нет связи с сервером», хотя интернет есть** — это почти всегда **CORS**, а не
 > сеть: WebView отдаёт origin `https://localhost` (`androidScheme` в Capacitor по умолчанию
 > `https`), и он должен быть в `allowed_origins` бэкенда (`config/cors.php`). Без него preflight
