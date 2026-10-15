@@ -9,13 +9,22 @@
         android:supportsRtl="true"
         android:theme="@style/AppTheme">
 
+        <!-- Клавиатура и edge-to-edge (задача 14.30, живой отчёт 12.10.2026).
+             На Android 15 (`targetSdk 35`) окно разложено во весь экран, а Capacitor в режиме
+             `adjustMarginsForEdgeToEdge: "auto"` раздаёт отступы только системных панелей —
+             инсет клавиатуры не учитывается, и она перекрывала поля ввода (вход, регистрация,
+             «комментарии» в заказе). Отступ под клавиатуру применяет наш слушатель инсетов
+             в `MainActivity.applyKeyboardInsets()`; `adjustResize` здесь нужен, чтобы система
+             сообщала инсет IME и не «панорамировала» окно вместо этого. -->
+
         <activity
             android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode|navigation"
             android:name=".MainActivity"
             android:label="@string/title_activity_main"
             android:theme="@style/AppTheme.NoActionBarLaunch"
             android:launchMode="singleTask"
-            android:exported="true">
+            android:exported="true"
+            android:windowSoftInputMode="adjustResize">
 
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
