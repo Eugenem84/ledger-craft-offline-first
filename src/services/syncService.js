@@ -138,6 +138,13 @@ class SyncService {
   constructor() {
     this.syncing = false;
 
+    // Идёт полный сброс локальной БД (`fullReset`, смена аккаунта): пока флаг поднят,
+    // проходы синка и досылка отчётов не начинаются — иначе их записи попадают
+    // в удаление и «фоновый писатель» может уронить сброс (живой дефект 15–16.10.2026:
+    // вход другим аккаунтом на экране входа показывал «не удалось очистить данные
+    // прежнего аккаунта», потому что синк стартовал сразу после записи нового токена).
+    this._resetting = false;
+
     // Фоновый запуск (задачи 6.1/6.3): идемпотентный старт + таймер периодического sync().
     this._autoSyncStarted = false;
     this._autoSyncTimer = null;
@@ -264,6 +271,13 @@ class SyncService {
 
     if (this.syncing) {
       logger.log('[Sync] already syncing');
+      return;
+    }
+
+    // Полный сброс (смена аккаунта) переписывает БД целиком: пока он идёт, проход
+    // не начинаем — и записью не помешаем, и «полусброшенное» состояние не отправим.
+    if (this._resetting) {
+      logger.log('[Sync] Идёт полный сброс локальных данных — проход пропущен');
       return;
     }
 
@@ -1531,29 +1545,41 @@ class SyncService {
   async fullReset() {
     logger.log('[Sync] Full reset started');
 
-    await dbAdapter.transaction(async () => {
-      for (const table of FULL_RESET_ORDER) {
-        const repo = this.repos[table];
-        const clearAll = repo?.clearAll;
+    // Пока сброс идёт, фоновые писатели (синк, досылка отчётов) не начинают работу,
+    // а уже начатый проход синка мы дожидаемся — иначе его `INSERT`/`UPDATE` попадут
+    // в нашу транзакцию и сброс сорвётся на середине (деталь разбора живого дефекта
+    // 16.10.2026: «не удалось очистить данные прежнего аккаунта»).
+    this._resetting = true;
 
-        if (typeof clearAll !== 'function') {
-          // Молча пропустить нельзя: таблица останется с данными прежнего аккаунта,
-          // а сброс будет выглядеть успешным. Это видно в консоли и тестах.
-          console.error(`[Sync] Полный сброс: у таблицы ${table} нет clearAll() — данные останутся!`);
-          continue;
+    try {
+      await this._waitForIdleWriter();
+
+      await dbAdapter.transaction(async () => {
+        for (const table of FULL_RESET_ORDER) {
+          const repo = this.repos[table];
+          const clearAll = repo?.clearAll;
+
+          if (typeof clearAll !== 'function') {
+            // Молча пропустить нельзя: таблица останется с данными прежнего аккаунта,
+            // а сброс будет выглядеть успешным. Это видно в консоли и тестах.
+            console.error(`[Sync] Полный сброс: у таблицы ${table} нет clearAll() — данные останутся!`);
+            continue;
+          }
+
+          await clearAll();
         }
+      });
 
-        await clearAll();
-      }
-    });
-
-    // Очередь операций — это outbox, а не сущность: в `this.repos` её нет, поэтому
-    // чистим явно. Иначе после смены аккаунта старые операции уедут под новым токеном.
-    await operationsRepo.clearAll();
-    // Очередь отчётов «Сообщить об ошибке» (Фаза 14) — по той же причине: в отчёте
-    // остаётся аккаунт и профиль, чужие отчёты уезжать не должны.
-    await feedbackRepo.clearAll();
-    await metaRepo.resetLastSyncedAt();
+      // Очередь операций — это outbox, а не сущность: в `this.repos` её нет, поэтому
+      // чистим явно. Иначе после смены аккаунта старые операции уедут под новым токеном.
+      await operationsRepo.clearAll();
+      // Очередь отчётов «Сообщить об ошибке» (Фаза 14) — по той же причине: в отчёте
+      // остаётся аккаунт и профиль, чужие отчёты уезжать не должны.
+      await feedbackRepo.clearAll();
+      await metaRepo.resetLastSyncedAt();
+    } finally {
+      this._resetting = false;
+    }
 
     // Сбрасываем и состояние сети: после полного сброса ждём первой попытки без паузы.
     this._setStatus({ consecutiveFailures: 0, nextRetryAt: 0, lastError: null, pendingCount: 0, blockedCount: 0 });
@@ -1563,6 +1589,31 @@ class SyncService {
 
     logger.log('[Sync] Full reset finished');
   }
+
+  /** Идёт ли полный сброс локальной БД — по этому флагу фоновые писатели встают на паузу. */
+  isResetting() {
+    return this._resetting;
+  }
+
+  /**
+   * Ждёт завершения уже начатого прохода синка (`this.syncing`), не дольше `timeoutMs`.
+   *
+   * Опрос, а не промис-хэндл: `sync()` — длинная процедура с десятками веток, и
+   * оборачивать её целиком ради одного ожидания дороже, чем подождать флаг. Таймаут
+   * страхует от «залипшего» прохода: лучше сброс с риском, чем вечное ожидание.
+   */
+  async _waitForIdleWriter(timeoutMs = 3000) {
+    const startedAt = Date.now();
+
+    while (this.syncing && Date.now() - startedAt < timeoutMs) {
+      await new Promise(resolve => setTimeout(resolve, 50));
+    }
+
+    if (this.syncing) {
+      logger.warn('[Sync] Полный сброс: ждём проход синка дольше обычного, продолжаем');
+    }
+  }
+
 
   async deleteLocalDB() {
     await dbAdapter.deleteDatabase();

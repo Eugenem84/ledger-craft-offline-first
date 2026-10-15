@@ -79,8 +79,14 @@ export const useAuthStore = defineStore('auth', {
 
       try {
         const { data } = await apiClient.post('/login', { email, password })
-        this._applySession(data)
+
+        // ⚠️ Порядок: сначала разбираемся с данными прежнего владельца и только потом
+        // сохраняем токен. Токен в хранилище — это «зелёный свет» для фонового синка
+        // (он читает токен в момент запроса), поэтому записав его раньше, мы давали
+        // синку стартовать прямо во время сброса и уронить его (живой дефект 16.10.2026).
         await this._resetLocalDataIfOwnerChanged(data?.user)
+        this._applySession(data)
+
         return data
       } catch (err) {
         this.error = this._loginErrorText(err)
@@ -111,8 +117,11 @@ export const useAuthStore = defineStore('auth', {
           password_confirmation: passwordConfirmation,
           specializations,
         })
-        this._applySession(data)
+
+        // Тот же порядок, что в `login()`: сброс данных прежнего владельца — до записи
+        // нового токена, иначе фоновый синк успевает начать работу во время сброса.
         await this._resetLocalDataIfOwnerChanged(data?.user)
+        this._applySession(data)
         return data
       } catch (err) {
         this.error = this._registerErrorText(err)
@@ -355,7 +364,9 @@ export const useAuthStore = defineStore('auth', {
           // владельца завершённой: следующий вход повторит попытку сброса.
           this.clearSession()
 
-          const failure = new Error('Не удалось очистить данные прежнего аккаунта — попробуйте ещё раз')
+          const failure = new Error(
+            'Данные прежнего аккаунта остались на устройстве — вход отменён. Попробуйте войти ещё раз; если повторяется, пришлите отчёт об ошибке.'
+          )
           failure.code = 'LOCAL_RESET_FAILED'
           throw failure
         }

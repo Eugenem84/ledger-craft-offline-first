@@ -16,6 +16,8 @@ import { createPinia, setActivePinia } from 'pinia'
 import db from 'src/database/db.js'
 import { setupTestDb } from './helpers/testDb.js'
 import { apiClient } from 'src/services/api.js'
+import feedbackService from 'src/services/feedbackService.js'
+import feedbackRepo from 'src/repositories/feedbackRepo.js'
 import storage from 'src/utils/storage.js'
 import syncService from 'src/services/syncService.js'
 import operationsRepo from 'src/repositories/operationsRepo.js'
@@ -121,6 +123,26 @@ describe('смена аккаунта: локальные данные не пе
     expect(auth.isAuthenticated).toBe(false)
     expect(storage.getItem('auth_owner_id')).toBe('1')
     expect(auth.error).toMatch(/прежнего аккаунта/)
+  })
+
+  // Живой дефект 16.10.2026 (боевой мастер восстанавливал пароль и получил
+  // «не удалось очистить данные прежнего аккаунта»): токен сохранялся ДО сброса,
+  // а фоновый синк читает токен в момент запроса — то есть получал «зелёный свет»
+  // прямо во время удаления таблиц и мог уронить сброс.
+  it('во время сброса токена в хранилище ещё нет — фоновый синк не стартует', async () => {
+    let tokenDuringReset = 'не проверен'
+
+    const reset = vi.spyOn(syncService, 'fullReset').mockImplementation(async () => {
+      tokenDuringReset = storage.getItem('auth_token')
+    })
+    storage.setItem('auth_owner_id', '1')
+
+    const auth = await loginAs({ id: 2, name: 'Другой', email: 'b@example.com' }, 'tok-b')
+
+    expect(reset).toHaveBeenCalledTimes(1)
+    expect(tokenDuringReset).toBe(null)
+    expect(auth.token).toBe('tok-b')
+    expect(storage.getItem('auth_token')).toBe('tok-b')
   })
 })
 
@@ -229,10 +251,56 @@ describe('14.18 полный сброс: очередь, курсоры и ВС�
     await setupTestDb()
   })
 
+  // Моки `db.transaction`/репозиториев из тестов паузы не должны доживать до соседних
+  // тестов: иначе «сброс» проходит вхолостую и проверки становятся ложно-зелёными.
+  afterEach(() => {
+    vi.restoreAllMocks()
+    syncService.syncing = false
+  })
+
   it('у каждой таблицы синка есть clearAll()', () => {
     for (const [table, repo] of Object.entries(syncService.repos)) {
       expect(typeof repo.clearAll, `нет clearAll() у таблицы ${table}`).toBe('function')
     }
+  })
+
+  // Живой дефект 16.10.2026 (боевой мастер восстанавливал пароль и получил «не удалось
+  // очистить данные прежнего аккаунта»). Сброс длинный: пока он идёт, фоновые писатели
+  // (проход синка, досылка отчётов) не должны начинать работу, а уже начатый проход
+  // синка сброс обязан дождаться — иначе их записи попадают в удаление и сброс падает.
+  it('на время сброса синк и отправка отчётов стоят на паузе, а начатый проход дожидается', async () => {
+    const post = vi.spyOn(apiClient, 'post').mockResolvedValue({ data: {} })
+    const clearFeedback = vi.spyOn(feedbackRepo, 'clearAll').mockResolvedValue(undefined)
+
+    // Держим сброс «в процессе»: транзакция не завершается, пока не отпустим.
+    let releaseWipe
+    const wipe = new Promise(resolve => {
+      releaseWipe = resolve
+    })
+    const transaction = vi.spyOn(db, 'transaction').mockImplementation(async () => wipe)
+
+    // Проход синка уже идёт — сброс обязан его дождаться.
+    syncService.syncing = true
+
+    const resetting = syncService.fullReset()
+
+    expect(syncService.isResetting()).toBe(true)
+    expect(transaction).not.toHaveBeenCalled() // ждём проход, а не лезем в его записи
+
+    await syncService.sync()
+    const flushed = await feedbackService.flush()
+
+    expect(flushed).toEqual({ sent: 0, failed: 0, pending: 0 })
+    expect(post).not.toHaveBeenCalled()
+
+    syncService.syncing = false
+    await vi.waitFor(() => expect(transaction).toHaveBeenCalled())
+
+    releaseWipe()
+    await resetting
+
+    expect(syncService.isResetting()).toBe(false)
+    expect(clearFeedback).toHaveBeenCalled()
   })
 
   it('после fullReset() не остаётся ни одной строки — ни заказов, ни клиентов, ни каталога', async () => {
