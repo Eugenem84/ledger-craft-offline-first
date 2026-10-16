@@ -9,6 +9,12 @@
 // «сдавшиеся» операции → ошибка → очередь не пуста → всё синхронизировано. Так
 // пользователь видит самую важную причину текущего состояния.
 //
+// Здесь же живёт всё, что показывает и объясняет значок в шапке (задача 14.33):
+// `syncStatusDetails` — текст для тултипа и диалога, `syncStatusActions` — кнопки
+// диалога, `syncStatusNeedsAttention` — «тап открывает диалог», `syncStatusOutcome` —
+// итог ручной синхронизации. Компоненты (`SyncStatusBar`, `SyncStatusDialog`) только
+// рендерят результат этих функций.
+//
 // Подпись «нет сети» намеренно короткая: чип живёт в шапке (`MainLayout`) и должен
 // оставаться компактным даже на узком экране (задача UX).
 
@@ -78,4 +84,130 @@ export function syncStatusView(status) {
   }
 
   return { kind: 'synced', icon: 'cloud_done', color: 'positive', label: 'синхронизировано', spin: false }
+}
+
+/**
+ * Подробности состояния — построчно, для диалога по тапу на значок (задача 14.33).
+ *
+ * Почему диалог, а не тултип: на телефоне тултип не показывается (у чипа нет наведения),
+ * поэтому живой отчёт мастера 16.10.2026 (боевой контур) звучал так: «горит красным
+ * треугольник и ничего не выдаёт при нажатии». Тот же текст, что был в тултипе, теперь
+ * доступен по тапу — и его видно целиком (без ограничения ширины подсказки).
+ *
+ * @param {{online?: boolean, syncing?: boolean, lastError?: string|null, pendingCount?: number,
+ *   failedCount?: number, blockedCount?: number, requiresAuth?: boolean, nextRetryAt?: number}} status
+ * @param {number} [now] «сейчас» — параметром, чтобы текст о паузе проверялся тестом
+ * @returns {Array<string>}
+ */
+export function syncStatusDetails(status, now = Date.now()) {
+  const s = status || {}
+  const lines = []
+
+  if (s.requiresAuth) {
+    lines.push('Нужен вход в аккаунт — синхронизация недоступна.')
+  }
+  if (s.online === false) {
+    lines.push('Нет подключения к интернету — изменения сохраняются локально.')
+  }
+
+  const pending = Number(s.pendingCount) || 0
+  const failed = Number(s.failedCount) || 0
+  const blocked = Number(s.blockedCount) || 0
+
+  if (pending > 0) {
+    lines.push(`Ждут отправки: ${pending}`)
+  }
+  if (failed > 0) {
+    lines.push(`Не удалось отправить: ${failed} — сами они не повторятся, нажмите «Повторить отправку».`)
+  }
+  if (blocked > 0) {
+    lines.push(`Ждут записи, которой нет на сервере: ${blocked} — нажмите «Починить очередь».`)
+  }
+  if (s.lastError) {
+    lines.push(`Последняя ошибка: ${s.lastError}`)
+  }
+
+  const waitMs = (Number(s.nextRetryAt) || 0) - now
+  if (waitMs > 0) {
+    lines.push(`Повтор через ${Math.ceil(waitMs / 1000)} с`)
+  }
+  if (!lines.length) {
+    lines.push('Все изменения синхронизированы.')
+  }
+
+  return lines
+}
+
+/**
+ * Кнопки для диалога синка: что мастер может сделать сам, не заходя в «Режим
+ * разработчика». Раньше единственным лечением «сдавшихся» и «заблокированных»
+ * операций была отладочная панель — то есть мастер не мог ничего (задача 14.33).
+ *
+ * @param {object} status
+ * @returns {Array<{key: string, label: string, color: string}>}
+ */
+export function syncStatusActions(status) {
+  const s = status || {}
+
+  if (s.requiresAuth === true) {
+    return [{ key: 'login', label: 'Войти', color: 'secondary' }]
+  }
+
+  const actions = []
+
+  if ((Number(s.failedCount) || 0) > 0) {
+    actions.push({ key: 'retry', label: 'Повторить отправку', color: 'secondary' })
+  }
+  if ((Number(s.blockedCount) || 0) > 0) {
+    actions.push({ key: 'repair', label: 'Починить очередь', color: 'warning' })
+  }
+
+  actions.push({ key: 'sync', label: 'Синхронизировать', color: 'secondary' })
+
+  return actions
+}
+
+/**
+ * Нужно ли мастеру объяснение: тап по значку открывает диалог, а не молчаливый
+ * повтор синка (живой отчёт 16.10.2026).
+ *
+ * «Всё в порядке» (`pending`/`syncing`/`synced`/`offline`) объяснять нечем — там тап
+ * остаётся привычным «синхронизировать сейчас» и заканчивается всплывающим итогом.
+ *
+ * @param {object} status
+ * @returns {boolean}
+ */
+export function syncStatusNeedsAttention(status) {
+  return ['failed', 'blocked', 'error'].includes(syncStatusView(status).kind)
+}
+
+/**
+ * Короткий итог ручной синхронизации: тап по значку должен что-то **сказать** —
+ * молчание и было жалобой мастера (задача 14.33).
+ *
+ * @param {object} status снимок после синка (`syncService.getStatus()`)
+ * @returns {{type: string, message: string}}
+ */
+export function syncStatusOutcome(status) {
+  const s = status || {}
+  const failed = Number(s.failedCount) || 0
+  const pending = Number(s.pendingCount) || 0
+
+  if (s.requiresAuth === true) {
+    return { type: 'warning', message: 'Нужен вход в аккаунт — синхронизация недоступна.' }
+  }
+  if (s.online === false) {
+    return { type: 'warning', message: 'Нет сети — изменения сохранены на телефоне.' }
+  }
+  if (failed > 0) {
+    return { type: 'warning', message: `Не удалось отправить: ${failed} — сами они не повторятся.` }
+  }
+  if (s.lastError) {
+    return { type: 'warning', message: `Ошибка синка: ${s.lastError}` }
+  }
+  if (pending > 0) {
+    return { type: 'info', message: `Осталось отправить: ${pending}` }
+  }
+
+  return { type: 'positive', message: 'Изменения синхронизированы.' }
 }

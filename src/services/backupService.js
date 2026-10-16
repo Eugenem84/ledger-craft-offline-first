@@ -44,11 +44,17 @@ function fileStamp(date = new Date()) {
  * @returns {Promise<{ uri: string, directory: string }>}
  */
 async function writeNativeBackup(fileName, json) {
+  // ⚠️ `encoding: Encoding.UTF8` обязателен (задача 14.17): без него плагин считает
+  // `data` **base64** и падает на сыром JSON — «'writeFile' failed with: bad base-64».
+  // Из-за этого на Android не создавался **ни один** бэкап: падала и попытка в
+  // `Documents`, и фолбэк в приватную `Data` (живые отчёты мастеров 14.09.2026 и
+  // 16.10.2026 — обе строки `[Backup] … bad base-64` в хвосте отчёта).
   try {
     const result = await Filesystem.writeFile({
       path: fileName,
       data: json,
       directory: Directory.Documents,
+      encoding: Encoding.UTF8,
       recursive: true,
     })
     return { uri: result.uri, directory: 'Documents' }
@@ -58,6 +64,7 @@ async function writeNativeBackup(fileName, json) {
       path: fileName,
       data: json,
       directory: Directory.Data,
+      encoding: Encoding.UTF8,
       recursive: true,
     })
     return { uri: result.uri, directory: 'Data' }

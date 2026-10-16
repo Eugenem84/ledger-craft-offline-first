@@ -98,3 +98,70 @@ describe('12 (11.6) попытки операции: неисправимое «
     expect(syncService.getStatus().failedCount).toBe(0)
   })
 })
+
+// Живой отчёт мастера 16.10.2026 (**боевой** контур, задача 14.33): «На вкладке заказ, в
+// правом верхнем углу горит красным треугольник. И ничего не выдаёт при нажатии на него».
+//
+// «Сдавшиеся» операции синк не отправляет вовсе, а убрать их мастер мог только через
+// «Режим разработчика» — то есть нажимать было нечего и значок выглядел «мёртвым».
+// Теперь у мастера есть «Повторить отправку»: операция возвращается в очередь (сервер
+// идемпотентен по `uuid_id`, дублей не будет) и счётчик попыток начинается заново.
+describe('14.33 «Повторить отправку»: «сдавшиеся» возвращаются в очередь', () => {
+  beforeEach(async () => {
+    await setupTestDb()
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it('requeueFailed возвращает операцию в pending и обнуляет счётчик попыток', async () => {
+    const op = await enqueueOp()
+    serverError('RECORD_NOT_FOUND')
+    await syncService._sendOperations([op])
+
+    expect(await opRow()).toMatchObject({ status: 'failed', attempts: 1 })
+
+    const count = await operationsRepo.requeueFailed()
+
+    expect(count).toBe(1)
+    expect(await opRow()).toMatchObject({ status: 'pending', attempts: 0 })
+    expect(await operationsRepo.countFailed()).toBe(0)
+    expect(await operationsRepo.countPending()).toBe(1)
+  })
+
+  it('когда «сдавшихся» нет, повтор ничего не делает и синк не запускает', async () => {
+    const syncSpy = vi.spyOn(syncService, 'sync').mockResolvedValue()
+
+    const count = await syncService.retryFailedOperations()
+
+    expect(count).toBe(0)
+    expect(syncSpy).not.toHaveBeenCalled()
+  })
+
+  it('повтор отправки возвращает операцию в очередь и дожимает синк', async () => {
+    const op = await enqueueOp()
+    serverError('RECORD_NOT_FOUND')
+    await syncService._sendOperations([op])
+
+    const syncSpy = vi.spyOn(syncService, 'sync').mockResolvedValue()
+    const count = await syncService.retryFailedOperations()
+
+    expect(count).toBe(1)
+    expect(syncSpy).toHaveBeenCalledWith({ force: true })
+    expect(await operationsRepo.countPending()).toBe(1)
+    expect(await operationsRepo.countFailed()).toBe(0)
+    expect(syncService.getStatus().pendingCount).toBe(1)
+  })
+
+  it('диалог значка получает «сдавшиеся» вместе с причиной отказа', async () => {
+    await enqueueOp()
+    await operationsRepo.registerFailure(OP_ID, 3, true, 'DATABASE_ERROR: bad row')
+
+    const stuck = await syncService.listStuckOperations()
+
+    expect(stuck.failed).toHaveLength(1)
+    expect(stuck.failed[0].last_error).toContain('DATABASE_ERROR')
+    expect(stuck.blocked).toEqual([])
+  })
+})

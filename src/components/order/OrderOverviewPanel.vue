@@ -2,6 +2,12 @@
 // Вкладка «все» (Фаза 8, задача 8.1): выбранные работы, товары (склад + покупки),
 // итоги и комментарий. Данные приходят пропсами, изменения уходят событиями
 // в `useOrderDraftStore` (страница — посредник).
+//
+// Задача 14.34 (живой отчёт мастера 16.10.2026, боевой контур): в режиме правки здесь
+// можно менять **стоимость** работ и товаров — цена у `OrderServicesBlock` и
+// `OrderPartsBlock` стала полем ввода, а событие уходит наверх как `update-service-line` /
+// `update-part-line`. Просьба мастера была именно про стоимость: состав и количество
+// правятся на вкладках «работа»/«товары», а «обзор» нужен для быстрой правки суммы.
 import { computed } from 'vue'
 import LcHint from 'src/components/ui/LcHint.vue'
 import OrderServicesBlock from 'src/components/order/OrderServicesBlock.vue'
@@ -30,6 +36,7 @@ const emit = defineEmits([
   'remove-service',
   'remove-part',
   'update-service-line',
+  'update-part-line',
 ])
 
 /** Есть ли в заказе позиции: работы или товары (склад/покупки). */
@@ -68,7 +75,11 @@ const hasPositions = computed(() => props.services.length + props.parts.length >
       <span class="lc-money">{{ props.servicesTotal }} р</span>
     </div>
 
-    <OrderPartsBlock :parts="props.parts" />
+    <OrderPartsBlock
+      :parts="props.parts"
+      :edit-mode="props.editMode"
+      @update-line="payload => emit('update-part-line', payload)"
+    />
 
     <q-separator dark class="q-my-sm" />
 

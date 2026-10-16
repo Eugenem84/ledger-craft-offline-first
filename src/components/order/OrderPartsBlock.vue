@@ -7,6 +7,12 @@
 //
 // Себестоимость и маржу из карточки заказа убрали (правка владельца 15.09.2026):
 // в ордере — состав и сумма, маржа живёт в «Аналитике». Количество — целое ≥ 1 (14.19).
+//
+// Задача 14.34 (живой отчёт мастера 16.10.2026, боевой контур): «из вкладки заказа
+// обзор надо чтобы была возможность редактировать стоимость работ и запчастей» — в
+// режиме правки цена товара/покупки становится полем ввода, как у работ рядом
+// (`OrderServicesBlock`). Название и количество по-прежнему правятся на вкладке
+// «товары» (`OrderPartsEditor`) — в «обзоре» меняем только стоимость, как просили.
 import { normalizeQuantity } from 'src/utils/quantity.js'
 import { useLexicon } from 'src/domain/lexicon.js'
 
@@ -15,7 +21,11 @@ const { t } = useLexicon()
 const props = defineProps({
   /** Единый список: `{ source: 'store' | 'purchase', index, ...line }`. */
   parts: { type: Array, default: () => [] },
+  /** Правка: цена строки редактируется (состав и порядок списка не меняются). */
+  editMode: { type: Boolean, default: false },
 })
+
+const emit = defineEmits(['update-line'])
 
 const num = value => Number(value || 0)
 
@@ -57,7 +67,25 @@ const sourceTitle = part => (isStore(part) ? 'со склада' : 'покупк
           </q-icon>
         </div>
         <div class="lc-col-name ellipsis">{{ part.name }}</div>
-        <div class="lc-col-num lc-money">{{ part.price }} р</div>
+
+        <!-- Цена: в правке — поле ввода (задача 14.34), в просмотре — только чтение.
+             Источник строки (`store` / `purchase`) уходит событием в стор, чтобы правка
+             попала в нужную таблицу (решение D2). -->
+        <div class="lc-col-num">
+          <q-input
+            v-if="props.editMode"
+            dense
+            outlined
+            type="number"
+            input-class="text-right"
+            :model-value="part.price"
+            @update:model-value="
+              value =>
+                emit('update-line', { source: part.source, index: part.index, field: 'price', value })
+            "
+          />
+          <span v-else class="lc-money">{{ part.price }} р</span>
+        </div>
         <div class="lc-col-qty">× {{ qty(part) }}</div>
         <div class="lc-col-num lc-money">{{ num(part.price) * qty(part) }} р</div>
       </div>

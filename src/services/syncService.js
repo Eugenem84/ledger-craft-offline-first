@@ -855,6 +855,47 @@ class SyncService {
   }
 
   /**
+   * «Повторить отправку» — вернуть «сдавшиеся» операции в очередь и дожать синк
+   * (живой отчёт 16.10.2026, задача 14.33).
+   *
+   * До этого «сдавшиеся» операции умела только убирать отладочная панель: у мастера
+   * значок горел красным треугольником, тап ничего не делал (потому что `failed`
+   * операции не отправляются вовсе), а лечение жило в «Режиме разработчика».
+   * Повтор безопасен: сервер идемпотентен по `uuid_id` (задача 3.5), дублей не будет;
+   * если причина не устранена, операция снова «сдастся» — и её причина видна в диалоге.
+   *
+   * @returns {Promise<number>} сколько операций вернулось в работу
+   */
+  async retryFailedOperations() {
+    const count = await operationsRepo.requeueFailed();
+
+    if (count) {
+      logger.log(`[Sync] Повтор отправки «сдавшихся» операций: ${count}`);
+      await this.sync({ force: true });
+    }
+
+    await this.refreshStatus();
+
+    return count;
+  }
+
+  /**
+   * Операции, которые сами не уедут: «сдавшиеся» (`failed`) и ждущие родителя, которого
+   * нет на сервере (`blocked`). Нужны диалогу по значку синка (задача 14.33), чтобы
+   * мастер видел не только «не отправлено: 1», но и **что именно** и почему.
+   *
+   * @returns {Promise<{failed: Array<object>, blocked: Array<object>}>}
+   */
+  async listStuckOperations() {
+    const [failed, blocked] = await Promise.all([
+      operationsRepo.listByStatus(operationsRepo.STATUS.FAILED),
+      operationsRepo.listByStatus(operationsRepo.STATUS.BLOCKED),
+    ]);
+
+    return { failed, blocked };
+  }
+
+  /**
    * Неисправима ли ошибка сервера: повторять бессмысленно.
    * Помимо известных кодов (см. `PERMANENT_OPERATION_ERRORS`) сюда попадают
    * структурные ошибки — битый payload, неизвестная таблица или тип операции.

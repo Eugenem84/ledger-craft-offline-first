@@ -4,7 +4,13 @@
 // `src/utils/syncStatusView.js`. Проверяем приоритет состояний: интерфейс должен
 // показывать самую важную причину (нет сети важнее ошибки, ошибка важнее очереди).
 import { describe, it, expect } from 'vitest'
-import { syncStatusView } from 'src/utils/syncStatusView.js'
+import {
+  syncStatusActions,
+  syncStatusDetails,
+  syncStatusNeedsAttention,
+  syncStatusOutcome,
+  syncStatusView,
+} from 'src/utils/syncStatusView.js'
 
 describe('6.2 представление состояния синка', () => {
   it('требуется вход — важнее офлайна и очереди (7.4)', () => {
@@ -75,5 +81,86 @@ describe('6.2 представление состояния синка', () => {
   it('неполное состояние не роняет индикатор', () => {
     expect(syncStatusView().kind).toBe('synced')
     expect(syncStatusView({ pendingCount: '2' }).label).toBe('не отправлено: 2')
+  })
+})
+
+// Живой отчёт мастера 16.10.2026 (боевой контур): «на вкладке заказ в правом верхнем
+// углу горит красным треугольник и ничего не выдаёт при нажатии». Значок был «только
+// значком»: объяснение жило в тултипе (на телефоне наведения нет), а тап запускал синк,
+// который «сдавшиеся» операции не отправляет — поэтому визуально не происходило ничего.
+// Теперь объяснение, кнопки и итог тапа описаны чистыми функциями — их и проверяем.
+describe('14.33 значок синка объясняет себя (диалог, кнопки, итог)', () => {
+  it('подробности перечисляют всё, что важно мастеру, включая причины и паузу', () => {
+    const now = 1_000_000
+    const lines = syncStatusDetails(
+      {
+        online: false,
+        pendingCount: 2,
+        failedCount: 1,
+        blockedCount: 3,
+        lastError: 'Network Error',
+        nextRetryAt: now + 5000,
+      },
+      now
+    )
+    const text = lines.join('\n')
+
+    expect(text).toContain('Нет подключения к интернету')
+    expect(text).toContain('Ждут отправки: 2')
+    expect(text).toContain('Не удалось отправить: 1')
+    expect(text).toContain('Повторить отправку')
+    expect(text).toContain('Ждут записи, которой нет на сервере: 3')
+    expect(text).toContain('Починить очередь')
+    expect(text).toContain('Последняя ошибка: Network Error')
+    expect(text).toContain('Повтор через 5 с')
+  })
+
+  it('без проблем подробности простые — диалог не пугает', () => {
+    expect(syncStatusDetails({ online: true, pendingCount: 0 })).toEqual([
+      'Все изменения синхронизированы.',
+    ])
+    expect(syncStatusDetails({ requiresAuth: true }, 0)).toContain(
+      'Нужен вход в аккаунт — синхронизация недоступна.'
+    )
+  })
+
+  it('диалог открывается только там, где есть что объяснять', () => {
+    expect(syncStatusNeedsAttention({ online: true, failedCount: 1 })).toBe(true)
+    expect(syncStatusNeedsAttention({ online: true, blockedCount: 1 })).toBe(true)
+    expect(syncStatusNeedsAttention({ online: true, lastError: 'Server Error' })).toBe(true)
+
+    // Обычные состояния — привычный «синхронизировать сейчас».
+    expect(syncStatusNeedsAttention({ online: true, pendingCount: 3 })).toBe(false)
+    expect(syncStatusNeedsAttention({ online: false, pendingCount: 3 })).toBe(false)
+    expect(syncStatusNeedsAttention({ online: true, syncing: true })).toBe(false)
+    expect(syncStatusNeedsAttention({ online: true })).toBe(false)
+  })
+
+  it('кнопки: повтор отправки и починка очереди; без входа — только «Войти»', () => {
+    expect(syncStatusActions({ failedCount: 1 }).map(action => action.key)).toEqual(['retry', 'sync'])
+    expect(syncStatusActions({ blockedCount: 2 }).map(action => action.key)).toEqual(['repair', 'sync'])
+    expect(syncStatusActions({ failedCount: 1, blockedCount: 2 }).map(action => action.key)).toEqual([
+      'retry',
+      'repair',
+      'sync',
+    ])
+    expect(syncStatusActions({ requiresAuth: true, failedCount: 1 }).map(action => action.key)).toEqual([
+      'login',
+    ])
+  })
+
+  it('ручной синк всегда заканчивается словами (молчание и было жалобой)', () => {
+    expect(syncStatusOutcome({ online: true, pendingCount: 0, failedCount: 0 })).toEqual({
+      type: 'positive',
+      message: 'Изменения синхронизированы.',
+    })
+    expect(syncStatusOutcome({ online: false }).message).toContain('Нет сети')
+    expect(syncStatusOutcome({ online: true, failedCount: 2 }).message).toBe(
+      'Не удалось отправить: 2 — сами они не повторятся.'
+    )
+    expect(syncStatusOutcome({ online: true, lastError: 'Server Error' }).message).toContain(
+      'Server Error'
+    )
+    expect(syncStatusOutcome({ online: true, pendingCount: 4 }).message).toBe('Осталось отправить: 4')
   })
 })

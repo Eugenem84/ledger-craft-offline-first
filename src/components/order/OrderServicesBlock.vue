@@ -7,6 +7,12 @@
 // как у материалов и товаров. Правка владельца (26.09.2026): стрелки «‹ N ›»
 // убраны (занимали почти 100px и выдавливали название), тап по полю открывает
 // список чисел. Количество всегда целое ≥ 1.
+//
+// Задача 14.34 (живой отчёт мастера 16.10.2026, боевой контур): «из вкладки заказа
+// обзор надо чтобы была возможность редактировать стоимость работ и запчастей» — цена
+// стала полем ввода в режиме правки, как у товаров и покупок («обзор» перестал быть
+// экраном «только для чтения» по цене). Значение живёт в черновике и уезжает в БД по
+// «Сохранить», поэтому экономика строки и итог пересчитываются сразу.
 import LcQuantitySelect from 'src/components/ui/LcQuantitySelect.vue'
 import { useLexicon } from 'src/domain/lexicon.js'
 import { normalizeQuantity } from 'src/utils/quantity.js'
@@ -48,7 +54,21 @@ const lineQuantity = line => normalizeQuantity(line?.quantity)
         :class="{ 'lc-linerow--edit': props.editMode }"
       >
         <div class="lc-col-name ellipsis">{{ service.service }}</div>
-        <div class="lc-col-num lc-money">{{ service.price }} р</div>
+
+        <!-- Цена: в правке — поле ввода (задача 14.34), в просмотре — только чтение.
+             Сумма строки считается из цены и количества и обновляется сразу. -->
+        <div class="lc-col-num">
+          <q-input
+            v-if="props.editMode"
+            dense
+            outlined
+            type="number"
+            input-class="text-right"
+            :model-value="service.price"
+            @update:model-value="value => emit('update-line', { index, field: 'price', value })"
+          />
+          <span v-else class="lc-money">{{ service.price }} р</span>
+        </div>
 
         <div class="lc-col-qty">
           <LcQuantitySelect

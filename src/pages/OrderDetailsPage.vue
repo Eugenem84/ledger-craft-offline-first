@@ -349,6 +349,7 @@ const handleShare = async () => {
                   ({ index, field, value }) => draft.updateServiceLine(index, field, value)
                 "
                 @remove-part="draft.removePart($event)"
+                @update-part-line="draft.updatePartLine($event)"
               />
             </q-tab-panel>
 

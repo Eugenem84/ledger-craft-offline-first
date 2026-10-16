@@ -249,6 +249,31 @@ export default {
     return rows.length ? rows[0].count : 0;
   },
 
+  /**
+   * Возвращает «сдавшиеся» операции в работу — «Повторить отправку» из диалога по
+   * значку синка (живой отчёт 16.10.2026, задача 14.33).
+   *
+   * Зачем: операция со статусом `failed` больше не отправляется, и до этого её можно
+   * было только **убрать** из «Режима разработчика» — то есть мастер ничего не мог
+   * сделать сам, а значок горел красным треугольником. Повтор пробует отправить ещё
+   * раз (сервер идемпотентен по `uuid_id`, дублей не будет), а счётчик попыток
+   * сбрасывается — иначе операция «сдалась» бы на первой же неудаче снова.
+   *
+   * @returns {Promise<number>} сколько операций вернулось в `pending`
+   */
+  async requeueFailed() {
+    const failed = await this.listByStatus(STATUS.FAILED);
+    if (!failed.length) return 0;
+
+    await db.execute(
+      `UPDATE operations SET status = ?, attempts = 0, deferred_count = 0, updated_at = ?
+       WHERE status = ?`,
+      [STATUS.PENDING, Date.now(), STATUS.FAILED]
+    );
+
+    return failed.length;
+  },
+
   /** Убирает «сдавшиеся» операции из очереди (действие из отладочной панели). */
   async clearFailed() {
     await db.execute('DELETE FROM operations WHERE status = ?', [STATUS.FAILED]);

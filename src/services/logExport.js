@@ -8,7 +8,7 @@
 //
 // Функция намеренно не бросает при недоступности публичной папки: пробуем Documents,
 // затем приватную `Data` — файл должен сохраниться в любом случае.
-import { Filesystem, Directory } from '@capacitor/filesystem'
+import { Filesystem, Directory, Encoding } from '@capacitor/filesystem'
 import { isNativePlatform } from 'src/utils/platform.js'
 import { logger } from 'src/utils/logger.js'
 
@@ -35,6 +35,9 @@ export async function exportTextFile(fileName, text) {
         path: fileName,
         data: text,
         directory: Directory.Documents,
+        // `encoding: UTF8` обязателен (задача 14.17): без него плагин ждёт base64
+        // и падает на обычном тексте — «'writeFile' failed with: bad base-64».
+        encoding: Encoding.UTF8,
         recursive: true,
       })
 
@@ -46,6 +49,7 @@ export async function exportTextFile(fileName, text) {
         path: fileName,
         data: text,
         directory: Directory.Data,
+        encoding: Encoding.UTF8,
         recursive: true,
       })
 
