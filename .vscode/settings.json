@@ -4,5 +4,17 @@
   "editor.formatOnSave": true,
   "editor.defaultFormatter": "esbenp.prettier-vscode",
   "editor.codeActionsOnSave": ["source.fixAll.eslint"],
-  "eslint.validate": ["javascript", "javascriptreact", "typescript", "vue"]
+  "eslint.validate": ["javascript", "javascriptreact", "typescript", "vue"],
+  "sqltools.connections": [
+    {
+      "name": "Ledger Craft — dev (SSH-туннель)",
+      "driver": "PostgreSQL",
+      "server": "127.0.0.1",
+      "port": 15433,
+      "database": "ledger_craft_db",
+      "username": "root",
+      "previewLimit": 50,
+      "askForPassword": true
+    }
+  ]
 }
