@@ -10,8 +10,11 @@
 // `feedback/.pulled.json`, чтобы повторный запуск не дублировал записи.
 //
 // Запуск: `npm run feedback:pull` (см. `feedback/README.md`).
-// Адрес API и токен — из `.env.local`/`.env` (`VITE_API_URL`, `FEEDBACK_PULL_TOKEN`)
-// или аргументами `--api=`/`--token=`; в git они не попадают.
+// Адрес API — `.env.local` → `.env` (`VITE_API_URL`; `.env` отслеживается git'ом и
+// содержит только безопасный дефолт dev-контура), либо аргумент `--api=`.
+// Токен выгрузки — **только** `.env.local` (`FEEDBACK_PULL_TOKEN`, он в .gitignore) или
+// `--token=`. В `.env` секреты не вписываем никогда: файл лежит в публичном репозитории
+// (гигиена секретов — инфра-репозиторий, docs/04-security.md §10).
 //
 // Флаги: `--all` (выгрузить заново всё), `--since=<ISO/мс>` (только новее),
 // `--file=<путь>` (положить отчёт, присланный вручную — аварийный путь 14.5),
@@ -63,10 +66,17 @@ async function readEnvFile(file) {
   }
 }
 
-/** Значение из окружения: сначала `.env.local`, потом `.env`, потом `process.env`. */
+/** Значение из окружения: адрес — `.env.local` → `.env`, токен — только `.env.local`. */
 async function resolveConfig(cli) {
   const local = await readEnvFile(path.join(root, '.env.local'))
   const base = await readEnvFile(path.join(root, '.env'))
+
+  // Ловушка: `.env` отслеживается git'ом, поэтому токену там не место. Значение не печатаем —
+  // только предупреждаем, что его надо перенести в `.env.local` (и почистить файл).
+  if (base.FEEDBACK_PULL_TOKEN) {
+    console.warn('[feedback:pull] ВНИМАНИЕ: FEEDBACK_PULL_TOKEN найден в .env — этот файл в git!')
+    console.warn('[feedback:pull] Перенесите токен в .env.local и очистите строку в .env.')
+  }
 
   const api = cli.api || process.env.VITE_API_URL || local.VITE_API_URL || base.VITE_API_URL
   const token = cli.token || process.env.FEEDBACK_PULL_TOKEN || local.FEEDBACK_PULL_TOKEN

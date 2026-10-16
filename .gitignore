@@ -62,3 +62,17 @@ yarn-error.log*
 /feedback/INBOX.md
 /feedback/inbox/
 /feedback/.pulled.json
+
+# --- Гигиена секретов (репозиторий публичный; правила — инфра-репо docs/04-security.md §10) ---
+# Уже отслеживается `.env` — это осознанный безопасный шаблон (пустой токен, адрес dev-контура).
+# Секреты в него не вписываем: реальный FEEDBACK_PULL_TOKEN живёт только в `.env.local`.
+# Ключи и сервисные аккаунты в git не попадают никогда:
+google-services.json
+**/google-services.json
+*firebase-adminsdk*.json
+*service-account*.json
+*service_account*.json
+*.p12
+*.pfx
+*.pem
+
