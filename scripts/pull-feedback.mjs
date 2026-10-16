@@ -19,6 +19,20 @@
 // Флаги: `--all` (выгрузить заново всё), `--since=<ISO/мс>` (только новее),
 // `--file=<путь>` (положить отчёт, присланный вручную — аварийный путь 14.5),
 // `--api=<url>`, `--token=<token>`.
+//
+// Разбор отчёта (задача 14.9; доработка 16.10.2026). У отчёта в контуре есть **статус
+// разбора** (`new`/`read`/`accepted`/`rejected`) и заметка «что сделано» (`resolution_note`).
+// Их показывает домашний монитор (`homestatus` → `home-monitor-app`, экран «Фитбек»),
+// поэтому разбор **не закрыт**, пока статус не проставлен в контуре: иначе отчёт числится
+// «не разобран», хотя задача давно сделана и выкачена. Пишем через тот же pull-токен:
+//   `--check`                                что в контуре ещё не разобрано (только чтение);
+//   `--mark=accepted --uuid=<id> --note="…"` проставить статус и заметку; `--uuid` — полный
+//                                            id или префикс, можно несколько раз/через запятую;
+//   `--mark=rejected` без `--uuid`           пометить отчёты, выгруженные этим запуском.
+//
+// Курсор выгрузки ведётся **по контурам** (`feedback/.pulled.json` → `contours.<адрес>`),
+// поэтому выгрузка с dev и prod больше не «съедает» отчёты друг друга (задача 14.31);
+// `--file=` файл отчёта уже не перезаписывается при повторной выгрузке того же uuid.
 import { copyFile, mkdir, readFile, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import process from 'node:process'
@@ -31,16 +45,117 @@ const PULLED_FILE = path.join(root, 'feedback', '.pulled.json')
 
 const KIND_LABELS = { bug: 'Ошибка', suggestion: 'Предложение', question: 'Вопрос', crash: 'Сбой' }
 
-/** Простой разбор аргументов: `--all`, `--since=x`, `--file=x`, `--api=x`, `--token=x`. */
-function parseArgs(argv) {
-  const options = { all: false, since: null, file: null, api: null, token: null }
+/** Статусы разбора отчёта — те же, что принимает `PATCH /api/feedback/{uuid_id}`. */
+export const STATUSES = ['new', 'read', 'accepted', 'rejected']
+
+/** Принимает ли контур такой статус (проверяем до сетевого вызова). */
+export function isValidStatus(value) {
+  return STATUSES.includes(String(value))
+}
+
+/**
+ * Ключ контура для курсора выгрузки: адрес без схемы, пути и хвостового слэша
+ * (`https://ledgercraft.ru/api` → `ledgercraft.ru`). Схему отбрасываем осознанно:
+ * dev и prod различаются доменом, а не протоколом (задача 14.31).
+ */
+export function contourKey(api) {
+  const text = String(api || '').trim()
+
+  return text.replace(/^[a-z]+:\/\//i, '').replace(/\/+$/, '').split('/')[0].toLowerCase()
+}
+
+/**
+ * С какой отметки читать выдачу: явный `--since` важнее курсора, `--all` — читать всё.
+ * Курсор свой у каждого контура: раньше он был один на репозиторий, и выгрузка с prod
+ * «съедала» отчёты dev-контура (они потом не появлялись в инбоксе — задача 14.31).
+ */
+export function resolveSince({ options = {}, state = {}, api } = {}) {
+  if (options.all) return null
+  if (options.since) return String(options.since)
+
+  const contours = state.contours && typeof state.contours === 'object' ? state.contours : {}
+  const entry = contours[contourKey(api)]
+
+  return entry?.lastPulledAt || null
+}
+
+/**
+ * Имя файла отчёта в инбоксе: уже выгруженный отчёт **не переписываем** новым именем.
+ * Иначе `--all` плодил дубликаты файлов одного и того же отчёта (задача 14.31).
+ */
+export function fileNameFor(uuid, existing, stampValue) {
+  return existing?.fileName || `${stampValue}-${shortId(uuid)}.md`
+}
+
+/**
+ * Какие отчёты помечать: явные `--uuid` (полный id или префикс) либо то, что выгружено
+ * этим запуском. Ошибки — заранее и словами: мусор в `--uuid` не должен молча ничего не делать.
+ *
+ * @param {{mark?: string|null, uuid?: Array<string>}} options
+ * @param {Array<{uuid_id?: string, uuidId?: string}>} reports все отчёты контура (из выдачи)
+ * @param {Array<string>} pulledNow uuid, выгруженные этим запуском
+ * @returns {Array<string>} полные uuid для пометки
+ */
+export function resolveMarkTargets(options = {}, reports = [], pulledNow = []) {
+  const available = reports
+    .map(record => String(record.uuid_id || record.uuidId || ''))
+    .filter(Boolean)
+
+  const requested = options.uuid && options.uuid.length ? options.uuid : null
+
+  if (!requested) {
+    if (!pulledNow.length) {
+      throw new Error(
+        'Нечего помечать: этим запуском новых отчётов нет — укажите --uuid=<id|префикс>'
+      )
+    }
+
+    return pulledNow
+  }
+
+  return requested.map(value => {
+    const wanted = String(value).trim().toLowerCase()
+    const matches = available.filter(uuid => uuid.toLowerCase().startsWith(wanted))
+
+    if (!matches.length) throw new Error(`Отчёт «${value}» не найден в контуре`)
+    if (matches.length > 1) throw new Error(`Префикс «${value}» подходит нескольким отчётам: ${matches.join(', ')}`)
+
+    return matches[0]
+  })
+}
+
+/** Простой разбор аргументов: `--all`, `--since=x`, `--file=x`, `--api=x`, `--token=x`, `--check`, `--mark=`, `--uuid=`, `--note=`. */
+export function parseArgs(argv) {
+  const options = {
+    all: false,
+    since: null,
+    file: null,
+    api: null,
+    token: null,
+    check: false,
+    mark: null,
+    note: null,
+    uuid: [],
+  }
 
   for (const arg of argv) {
     if (arg === '--all') options.all = true
+    else if (arg === '--check') options.check = true
     else if (arg.startsWith('--since=')) options.since = arg.slice('--since='.length)
     else if (arg.startsWith('--file=')) options.file = arg.slice('--file='.length)
     else if (arg.startsWith('--api=')) options.api = arg.slice('--api='.length)
     else if (arg.startsWith('--token=')) options.token = arg.slice('--token='.length)
+    else if (arg.startsWith('--mark=')) options.mark = arg.slice('--mark='.length)
+    else if (arg.startsWith('--note=')) options.note = arg.slice('--note='.length)
+    else if (arg.startsWith('--uuid=')) {
+      options.uuid.push(
+        ...arg
+          .slice('--uuid='.length)
+          .split(',')
+          .map(value => value.trim())
+          .filter(Boolean)
+      )
+    }
   }
 
   return options
@@ -234,12 +349,41 @@ async function addManualFile(sourceFile, state) {
   return fileName
 }
 
+/** Печатает состояние разбора: счётчики по статусам и что осталось неразобранным. */
+function printStatuses(reports) {
+  const counts = {}
+
+  for (const record of reports) {
+    const status = String(record.status || 'unknown')
+    counts[status] = (counts[status] || 0) + 1
+  }
+
+  const summary = Object.entries(counts)
+    .map(([status, count]) => `${status}=${count}`)
+    .join(' · ')
+
+  console.log(`  по статусам: ${summary || '—'}`)
+
+  const open = reports.filter(record => String(record.status || 'new') === 'new')
+
+  if (!open.length) {
+    console.log('  неразобранных нет ✔')
+    return
+  }
+
+  for (const record of open) {
+    const kind = record.payload?.kind || ''
+    console.log(`  • не разобран: ${shortId(record.uuid_id)} (${KIND_LABELS[kind] || kind || '—'})`)
+  }
+}
+
 async function main() {
   const options = parseArgs(process.argv.slice(2))
   const { api, token } = await resolveConfig(options)
   const state = await readPulled()
 
   state.reports = state.reports && typeof state.reports === 'object' ? state.reports : {}
+  state.contours = state.contours && typeof state.contours === 'object' ? state.contours : {}
 
   await mkdir(INBOX_DIR, { recursive: true })
 
@@ -264,34 +408,59 @@ async function main() {
     )
   }
 
-  const url = new URL(`${api.replace(/\/$/, '')}/feedback`)
-  url.searchParams.set('limit', '200')
-
-  if (!options.all && state.lastPulledAt) {
-    url.searchParams.set('since', state.lastPulledAt)
+  if (options.mark && !isValidStatus(options.mark)) {
+    throw new Error(`Неизвестный статус «${options.mark}»: допустимы ${STATUSES.join(', ')}`)
   }
 
-  const response = await fetch(url, { headers: { 'X-Feedback-Token': token } })
+  const base = api.replace(/\/$/, '')
+  const key = contourKey(api)
 
-  if (response.status === 403) {
-    throw new Error('Сервер отклонил pull-токен (403): проверьте FEEDBACK_PULL_TOKEN')
+  /** Чтение выдачи: `since` — с какой отметки (без неё — всё, что отдаёт контур). */
+  const read = async since => {
+    const url = new URL(`${base}/feedback`)
+    url.searchParams.set('limit', '200')
+    if (since) url.searchParams.set('since', since)
+
+    const response = await fetch(url, { headers: { 'X-Feedback-Token': token } })
+
+    if (response.status === 403) {
+      throw new Error('Сервер отклонил pull-токен (403): проверьте FEEDBACK_PULL_TOKEN')
+    }
+
+    if (!response.ok) {
+      throw new Error(`Сервер ответил ${response.status} ${response.statusText}`)
+    }
+
+    const body = await response.json()
+
+    return Array.isArray(body?.reports) ? body.reports : []
   }
 
-  if (!response.ok) {
-    throw new Error(`Сервер ответил ${response.status} ${response.statusText}`)
+  // `--check` — только посмотреть состояние разбора (одна выдача, ничего не пишем).
+  if (options.check) {
+    const all = await read(null)
+
+    console.log(`Контур ${key}: отчётов в контуре — ${all.length}`)
+    printStatuses(all)
+
+    if (!options.mark) return
   }
 
-  const body = await response.json()
-  const reports = Array.isArray(body?.reports) ? body.reports : []
-  let added = 0
+  const reports = await read(resolveSince({ options, state, api }))
+  const pulledNow = []
 
   for (const record of reports) {
     const uuid = String(record.uuid_id || record.uuidId || '')
 
-    if (!uuid || (state.reports[uuid] && !options.all)) continue
+    if (!uuid) continue
+
+    const existing = state.reports[uuid]
+
+    if (existing && !options.all) continue
 
     const payload = record.payload || {}
-    const fileName = `${stamp()}-${shortId(uuid)}.md`
+    // Уже выгруженный отчёт сохраняет своё имя файла: иначе `--all` плодил дубликаты (14.31).
+    const fileName = fileNameFor(uuid, existing, stamp())
     const markdown = renderReport(payload, {
       receivedAt: record.created_at || record.createdAt || '',
       serverId: record.server_id ?? record.serverId ?? null,
@@ -310,21 +479,58 @@ async function main() {
       serverId: record.server_id ?? null,
     }
 
-    added += 1
+    pulledNow.push(uuid)
   }
 
-  state.lastPulledAt = new Date().toISOString()
+  // Курсор — свой у каждого контура (задача 14.31): выгрузка с prod больше не «съедает» dev.
+  state.contours[key] = { lastPulledAt: new Date().toISOString() }
+  state.lastPulledAt = state.contours[key].lastPulledAt
 
   await writePulled(state)
   await rebuildIndex(Object.values(state.reports))
 
   console.log(
-    `Выгружено новых отчётов: ${added} (в инбоксе всего: ${Object.keys(state.reports).length})`
+    `Контур ${key}: выгружено новых отчётов ${pulledNow.length} ` +
+      `(в инбоксе всего: ${Object.keys(state.reports).length})`
   )
-  console.log('Инбокс для чтения: feedback/INBOX.md; вердикты — в feedback/DECISIONS.md')
+
+  if (!options.mark) {
+    console.log('Инбокс для чтения: feedback/INBOX.md; вердикты — в feedback/DECISIONS.md')
+    console.log(
+      'Разбор считается закрытым после `--mark=accepted|rejected` — ' +
+        'иначе отчёт числится «не разобран» в домашнем мониторе.'
+    )
+    return
+  }
+
+  // Цели ищем по **всей** выдаче контура: `--uuid` может указывать на отчёт, выгруженный раньше.
+  const targets = resolveMarkTargets(options, await read(null), pulledNow)
+
+  for (const uuid of targets) {
+    const response = await fetch(`${base}/feedback/${uuid}`, {
+      method: 'PATCH',
+      headers: {
+        'X-Feedback-Token': token,
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      },
+      body: JSON.stringify({ status: options.mark, note: options.note || undefined }),
+    })
+    const result = await response.json().catch(() => ({}))
+
+    if (response.ok && result?.ok) {
+      console.log(`  ✓ ${shortId(uuid)} → ${result.status}`)
+    } else {
+      console.log(`  ✖ ${shortId(uuid)} → HTTP ${response.status} ${JSON.stringify(result)}`)
+    }
+  }
+
+  printStatuses(await read(null))
 }
 
-main().catch(error => {
-  console.error(`[feedback:pull] ${error?.message || error}`)
-  process.exitCode = 1
-})
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  main().catch(error => {
+    console.error(`[feedback:pull] ${error?.message || error}`)
+    process.exitCode = 1
+  })
+}
