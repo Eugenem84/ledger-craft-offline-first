@@ -26,8 +26,25 @@ import { getLogBuffer, logger } from 'src/utils/logger.js'
 import { platformName } from 'src/utils/platform.js'
 import { buildFeedbackReport, canSubmitFeedback } from 'src/utils/feedbackView.js'
 
-/** После скольких попыток отчёт «сдаётся» и остаётся только для ручного пути. */
+/**
+ * После скольких **ответов сервера** «попробуй позже» (408/429 и прочие 4xx) отчёт
+ * «сдаётся» и остаётся только для ручного пути.
+ *
+ * Сетевые сбои (нет ответа вовсе) лимитом **не** считаются: офлайн — это штатное
+ * состояние приложения, и отчёт не должен теряться (дефект 14.36 — на боевом
+ * контуре так пропал отчёт `e559e951`: пять `Network Error` подряд, и он больше
+ * не отправлялся никогда). `5xx` тоже не сдаётся — сервер может лежать долго.
+ */
 const MAX_FEEDBACK_ATTEMPTS = 5
+
+/**
+ * Пауза перед следующей попыткой после неудачной отправки (по возрастанию, мс).
+ * Живёт в памяти: в БД отчёт остаётся `pending`, поэтому перезапуск приложения
+ * паузу не наследует — она нужна лишь чтобы не долбить недоступную сеть каждую
+ * минуту. Если платформа сообщает «сеть есть» (`navigator.onLine === true`),
+ * пауза не применяется: она гасит попытки только в реальном офлайне.
+ */
+const RETRY_BACKOFF_MS = [15000, 30000, 60000, 120000, 300000]
 
 /** Периодическая досылка, пока приложение открыто (как у автосинка). */
 const AUTO_FLUSH_INTERVAL_MS = 60000
@@ -38,6 +55,8 @@ class FeedbackService {
     this._autoFlushTimer = null
     this._autoFlushTimeout = null
     this._onlineHandler = null
+    /** id отчёта → момент (мс), раньше которого попытку не повторяем (офлайн-пауза). */
+    this._retryAfter = new Map()
   }
 
   // --- Сборка отчёта ---------------------------------------------------------
@@ -187,6 +206,10 @@ class FeedbackService {
       // Без входа отправлять некуда: отчёт дождётся входа, как очередь синка (7.4).
       if (!hasAuthToken()) break
 
+      // Сеть только что упала: не долбим её чаще, чем раз в паузу (14.36).
+      // Проверка «система говорит, что сеть есть» живёт внутри `_shouldWait`.
+      if (this._shouldWait(record.id)) break
+
       const outcome = await this._send(record)
 
       if (outcome === 'sent') {
@@ -239,17 +262,54 @@ class FeedbackService {
       return 'sent'
     } catch (error) {
       const message = this._errorText(error)
+      const status = error?.response?.status
+      const seenByServer = status != null
 
-      if (this._isPermanent(error) || attempts >= MAX_FEEDBACK_ATTEMPTS) {
+      // «Сдаёмся» только на ответах сервера: неисправимые 4xx — сразу, прочие 4xx
+      // (408/429) — после лимита. Сеть (ответа нет) и 5xx остаются в очереди
+      // навсегда: отчёт мастера не теряется (дефект 14.36).
+      const exhausted =
+        seenByServer && status >= 400 && status < 500 && attempts >= MAX_FEEDBACK_ATTEMPTS
+
+      if (this._isPermanent(error) || exhausted) {
         logger.warn(`[Feedback] Отчёт ${record.id} не будет отправлен: ${message}`)
+        this._retryAfter.delete(record.id)
         await feedbackRepo.markFailed(record.id, message)
         return 'failed'
       }
 
       logger.warn(`[Feedback] Отчёт ${record.id} остался в очереди: ${message}`)
       await feedbackRepo.markPending(record.id, message)
+      this._scheduleRetry(record.id, attempts)
+
       return 'pending'
     }
+  }
+
+  /**
+   * Откладывает следующую попытку отчёта: пауза растёт от 15 с до 5 мин (14.36).
+   *
+   * @param {string} id
+   * @param {number} attempts номер только что провалившейся попытки
+   */
+  _scheduleRetry(id, attempts) {
+    const index = Math.min(Math.max(attempts, 1) - 1, RETRY_BACKOFF_MS.length - 1)
+
+    this._retryAfter.set(id, Date.now() + RETRY_BACKOFF_MS[index])
+  }
+
+  /**
+   * Пора ли пробовать отчёт снова. Пауза не действует, когда платформа сообщает
+   * «сеть есть»: залипший `onLine` (дефект 14.11) тогда не задержит отправку.
+   *
+   * @param {string} id
+   */
+  _shouldWait(id) {
+    if (typeof navigator !== 'undefined' && navigator.onLine === true) return false
+
+    const after = this._retryAfter.get(id)
+
+    return after != null && after > Date.now()
   }
 
   /**
@@ -291,6 +351,8 @@ class FeedbackService {
 
     if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
       this._onlineHandler = () => {
+        // Сеть вернулась — паузы офлайна больше не действуют, пробуем сразу.
+        this._retryAfter.clear()
         void this.flush().catch(e => console.error('[Feedback] Досылка после сети упала:', e))
       }
 
@@ -322,6 +384,7 @@ class FeedbackService {
     }
 
     this._onlineHandler = null
+    this._retryAfter.clear()
     this._autoFlushStarted = false
   }
 

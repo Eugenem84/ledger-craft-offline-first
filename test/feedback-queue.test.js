@@ -5,8 +5,9 @@
 // Проверяем офлайн-первое поведение (как у синка, 6.1): отчёт сначала ложится в
 // локальную очередь, сеть/вход не нужны; при появлении возможности уезжает сам.
 // Идемпотентность — на стороне сервера по `uuid_id`, поэтому повторный `flush()` не
-// отправляет уже принятый отчёт второй раз. Отдельно — «неисправимые» ответы и лимит
-// попыток: отчёт не должен теряться молча, он остаётся виден мастеру.
+// отправляет уже принятый отчёт второй раз. Отдельно — «неисправимые» ответы и предел
+// повторов для ответов сервера: отчёт не должен теряться молча. Сетевой сбой отчёт не
+// «сдаёт» никогда (дефект 14.36 — на боевом контуре так пропал отчёт мастера).
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import db from 'src/database/db.js'
 import { setupTestDb } from './helpers/testDb.js'
@@ -133,10 +134,55 @@ describe('14.4 отчёты об ошибке: офлайн-первая оче�
     expect(await rowById(result.id)).toMatchObject({ status: 'pending', attempts: 2 })
   })
 
-  it('после лимита попыток отчёт «сдаётся»', async () => {
-    vi.spyOn(apiClient, 'post').mockRejectedValue(new Error('Network Error'))
+  it('20 сетевых сбоев подряд не сдают отчёт: он ждёт сеть и уезжает сам (14.36)', async () => {
+    const post = vi.spyOn(apiClient, 'post').mockRejectedValue(new Error('Network Error'))
 
-    const result = await feedbackService.submit({ message: 'сдаётся после лимита' })
+    const result = await feedbackService.submit({ message: 'сеть падала двадцать раз' })
+
+    for (let attempt = 0; attempt < 19; attempt += 1) {
+      await feedbackService.flush()
+    }
+
+    expect(post).toHaveBeenCalledTimes(20)
+    expect(await rowById(result.id)).toMatchObject({
+      status: 'pending',
+      attempts: 20,
+      last_error: 'Network Error',
+    })
+    expect(await feedbackService.pendingCount()).toBe(1)
+
+    // Сеть вернулась — отчёт уходит без действий мастера, хотя попыток было много.
+    post.mockResolvedValue(OK)
+    await feedbackService.flush()
+
+    expect(await rowById(result.id)).toMatchObject({ status: 'sent', server_id: 42 })
+    expect(await feedbackService.pendingCount()).toBe(0)
+  })
+
+  it('5xx не сдаёт отчёт: сервер может лежать долго (14.36)', async () => {
+    vi.spyOn(apiClient, 'post').mockRejectedValue({ response: { status: 503 } })
+
+    const result = await feedbackService.submit({ message: 'сервер отвечает 503' })
+
+    await db.execute('UPDATE feedback_reports SET attempts = ? WHERE id = ?', [
+      MAX_FEEDBACK_ATTEMPTS + 4,
+      result.id,
+    ])
+
+    await feedbackService.flush()
+
+    expect(await rowById(result.id)).toMatchObject({
+      status: 'pending',
+      attempts: MAX_FEEDBACK_ATTEMPTS + 5,
+    })
+  })
+
+  it('лимит остаётся для ответов сервера: 429 после N попыток «сдаётся»', async () => {
+    vi.spyOn(apiClient, 'post').mockRejectedValue({
+      response: { status: 429, data: { message: 'Too Many Attempts.' } },
+    })
+
+    const result = await feedbackService.submit({ message: 'сервер просит позже' })
 
     await db.execute('UPDATE feedback_reports SET attempts = ? WHERE id = ?', [
       MAX_FEEDBACK_ATTEMPTS - 1,
@@ -149,6 +195,30 @@ describe('14.4 отчёты об ошибке: офлайн-первая оче�
       status: 'failed',
       attempts: MAX_FEEDBACK_ATTEMPTS,
     })
+  })
+
+  it('в офлайне пауза между попытками не даёт долбить сеть (14.36)', async () => {
+    setOnline(false)
+    const post = vi.spyOn(apiClient, 'post').mockRejectedValue(new Error('Network Error'))
+
+    const result = await feedbackService.submit({ message: 'офлайн, попытка одна' })
+
+    expect(post).toHaveBeenCalledTimes(1)
+
+    // Пауза первого сбоя — 15 с: ближайшие проходы сеть не трогают.
+    await feedbackService.flush()
+    await feedbackService.flush()
+
+    expect(post).toHaveBeenCalledTimes(1)
+    expect(await rowById(result.id)).toMatchObject({ status: 'pending', attempts: 1 })
+
+    // Платформа сообщила «сеть есть» — пауза снимается, попытка делается сразу.
+    setOnline(true)
+    post.mockResolvedValue(OK)
+    await feedbackService.flush()
+
+    expect(post).toHaveBeenCalledTimes(2)
+    expect(await rowById(result.id)).toMatchObject({ status: 'sent', server_id: 42 })
   })
 
   it('без токена входа отчёты ждут в очереди (в сеть не ходим)', async () => {
