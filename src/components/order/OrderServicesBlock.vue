@@ -53,7 +53,7 @@ const lineQuantity = line => normalizeQuantity(line?.quantity)
         class="lc-linerow"
         :class="{ 'lc-linerow--edit': props.editMode }"
       >
-        <div class="lc-col-name ellipsis">{{ service.service }}</div>
+        <div class="lc-col-name lc-col-name--wrap">{{ service.service }}</div>
 
         <!-- Цена: в правке — поле ввода (задача 14.34), в просмотре — только чтение.
              Сумма строки считается из цены и количества и обновляется сразу. -->

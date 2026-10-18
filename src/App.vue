@@ -4,6 +4,9 @@
        варианта на маршрутах вне каркаса больше нет: на карточке заказа он висел поверх
        контента и перекрывал позиции (отчёт 14.11, живой прогон 13.09.2026). -->
   <UpdateBanner />
+  <!-- Крупное уведомление об обновлении с «Что нового» и кнопками «Установить»/«Позже»
+       (задача 14.37): виден на всех маршрутах, чтобы мастер не пропустил обновление. -->
+  <UpdateNotice />
 </template>
 
 <script setup>
@@ -17,6 +20,7 @@
 // без входа ничего не отправляет, сеть появилась — дожимает без действий мастера.
 import { onBeforeUnmount, onMounted, watch } from 'vue'
 import UpdateBanner from 'src/components/UpdateBanner.vue'
+import UpdateNotice from 'src/components/UpdateNotice.vue'
 import syncService from 'src/services/syncService.js'
 import feedbackService from 'src/services/feedbackService.js'
 import { useAuthStore } from 'src/stores/useAuthStore.js'

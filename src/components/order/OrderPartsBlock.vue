@@ -66,7 +66,7 @@ const sourceTitle = part => (isStore(part) ? 'со склада' : 'покупк
             <q-tooltip class="text-caption">{{ sourceTitle(part) }}</q-tooltip>
           </q-icon>
         </div>
-        <div class="lc-col-name ellipsis">{{ part.name }}</div>
+        <div class="lc-col-name lc-col-name--wrap">{{ part.name }}</div>
 
         <!-- Цена: в правке — поле ввода (задача 14.34), в просмотре — только чтение.
              Источник строки (`store` / `purchase`) уходит событием в стор, чтобы правка

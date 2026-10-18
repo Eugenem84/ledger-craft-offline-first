@@ -740,7 +740,7 @@ return id;
 | ~~`src/boot/liveUpdate.js`~~ | **удалён в 1.10.** В сборке 1.9 OTA-инициализация жила boot-файлом и `await`-ила вызовы плагина: Quasar ждёт boot-файлы перед монтированием, поэтому молчащий плагин давал **чёрный экран**. Теперь инициализация — `useUpdateStore.bind()` (после монтирования), а boot-цепочка осталась как в рабочей 1.8 |
 | `src/services/updateService.js` | нормализация `release.bundle`, `bundleAvailable`/`bundleReady`/`pendingBundle`, `downloadAndApplyBundle({reload})`, `restartNow`, `consumeAppliedBundle`, `canApplyBundle`; «позже» для бандла — отдельный ключ хранилища |
 | `src/utils/appUpdateView.js` | чистая логика: `parseBundleVersion`, `isBundleUpdateAvailable`, новые виды чипа (`ota`, `ota_ready`) и тексты статуса |
-| `src/components/UpdateDialog.vue` / `UpdateBanner.vue` / `src/components/settings/SettingsDialog.vue` | «обновление без установки», прогресс, «Перезапустить сейчас», разовое «обновление N применено», строка «обновление веб-слоя: N» (вкладка «обновление») |
+| `src/components/UpdateDialog.vue` / `UpdateBanner.vue` / `UpdateNotice.vue` / `src/components/settings/SettingsDialog.vue` | «обновление без установки», прогресс, «Перезапустить сейчас», разовое «обновление N применено», строка «обновление веб-слоя: N» (вкладка «обновление»); крупный «пуш» сверху с «Что нового» и кнопками «Установить»/«Позже» (14.37) |
 | `scripts/release-web.sh` + `npm run release:web` | сборка UI (`quasar build -m capacitor -T android --skip-pkg`), zip содержимого `www`, sha256 (в манифест уходит **hex** — его сравнивает плагин; base64 печатается справочно), те же защиты контура, что у `release-apk.sh` |
 
 Правила, которые важно не нарушать:
