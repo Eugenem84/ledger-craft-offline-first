@@ -4414,6 +4414,11 @@ TODO — FE `—` (этот коммит) (см. `git log`).
       sha256 `06b85cff…13914bbc`, `minNativeVersionCode 22`, каталог
       `/opt/projects/ledgercraft-prod/backend`, artisan в `ledgercraft-prod-app`).
       `/api/app-version` обоих контуров отдаёт новые бандлы; `APP_BUNDLE_BUILD=9`.
+- [x] **21.20** Повторный выкат резервного режима (после отчёта `c78ea7c1`). **21.10.2026:**
+      dev — `1.21.10.261021-0958` (1 212 874 байт, sha256 `0dd94634…8836477`);
+      prod — `1.21.10.261021-0959` (1 212 876 байт, sha256 `bd465c5e…e0a9bcc`);
+      оба `minNativeVersionCode 22`, скачивание с контуров сверил по sha256; `APP_BUNDLE_BUILD=10`.
+      (Первая попытка dev-выката 09:54 сорвалась на `ssh` — туннель до шлюза лёг; сервер не тронут.)
 - [x] **21.15** Причина первого сбоя подтверждена боем (отчёт `c78ea7c1`, 21.10.2026, TECNO CN5
       / **Android 16**): нативный плагин не инициализируется вовсе — `load()` ловит исключение с
       `getMessage() == null` (`null`-NPE), и **каждый** вызов отвечает `CapacitorSQLitePlugin: null`.
