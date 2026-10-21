@@ -251,6 +251,11 @@ function renderReport(payload, meta = {}) {
 
   lines.push('')
   lines.push(`## ошибки (${(report.errors || []).length})`)
+
+  if (report.bundle_version) {
+    lines.push(`> бандл: \`${report.bundle_version}\``)
+    lines.push('')
+  }
   lines.push('')
   for (const entry of report.errors || []) {
     lines.push(`- ${entry.time || ''} [${entry.level || 'error'}] ${entry.message || ''}`)

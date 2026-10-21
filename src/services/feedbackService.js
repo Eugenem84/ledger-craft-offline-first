@@ -121,6 +121,10 @@ class FeedbackService {
           // Состояние локальной БД (Фаза 21): без него разбор отчёта 19.10.2026
           // упирался в «База не открыта» без причины — что именно не открылось и почему.
           db: getDbState(),
+          // Какой OTA-бандл реально работает (Фаза 21): без этого нельзя понять,
+          // доехало ли исправление до устройства (отчёт 21.10.2026: `lastPullRecords: 0`
+          // при неясном наборе правок).
+          bundle: updateService.getStatus()?.currentBundleId || null,
           account,
           profile,
           sync: syncService.getStatus(),

@@ -48,6 +48,7 @@ export const FEEDBACK_FIELDS = [
   'schema_version',
   'schema_stored',
   'db',
+  'bundle_version',
   'account',
   'profile',
   'sync',
@@ -101,6 +102,33 @@ export function canSubmitFeedback(text) {
   }
 
   return { ok: true, reason: '' }
+}
+
+/**
+ * Технический шум адаптеров в списке ошибок.
+ *
+ * Живой отчёт `9311933e` (21.10.2026): 50 из 50 записей «ошибок» были SQL-логами
+ * (`[SQLJS] Executing SQL …`, `[StorageAdapter] DB dump saved …`) — они вытеснили из
+ * отчёта важное. В логи (`logs`) такие строки попадать должны, в ошибки — нет.
+ */
+const TECHNICAL_NOISE = [
+  /^\[SQLJS\] Executing SQL/,
+  /^\[SQLJS\] Executed successfully/,
+  /^\[SQLJS\] Database initialized/,
+  /^\[SQLJS\] Deleting local database/,
+  /^\[StorageAdapter\] DB dump saved/,
+  /^\[StorageAdapter\] Local storage cleared/,
+]
+
+/** Убирает технический шум из списка ошибок (логи не трогаем). */
+export function dropTechnicalErrors(entries) {
+  if (!Array.isArray(entries)) return []
+
+  return entries.filter(entry => {
+    const message = String(entry?.message || '')
+
+    return !TECHNICAL_NOISE.some(pattern => pattern.test(message))
+  })
 }
 
 /** Хвост буфера: не больше `limit` записей, у каждой обрезано сообщение. */
@@ -193,10 +221,12 @@ export function buildFeedbackReport({
     schema_version: diag.schemaVersion ?? null,
     schema_stored: diag.schemaStored ?? null,
     db: normalizeDb(diag.db),
+    // Версия работающего OTA-бандла: по ней видно, доехало ли исправление до устройства.
+    bundle_version: diag.bundle ? clipText(diag.bundle, 60) : null,
     account: diag.account ? String(diag.account) : '',
     profile: diag.profile ? String(diag.profile) : '',
     sync: normalizeSync(diag.sync),
-    errors: limitEntries(errors, FEEDBACK_ERRORS_LIMIT),
+    errors: limitEntries(dropTechnicalErrors(errors), FEEDBACK_ERRORS_LIMIT),
     logs: limitEntries(logs, FEEDBACK_LOGS_LIMIT),
     client_created_at: time.toISOString(),
   }
@@ -285,6 +315,11 @@ export function feedbackTextFromReport(report) {
             ? `${report.db.ready ? 'открыта' : 'не открыта'}${report.db.adapter ? ` · адаптер ${report.db.adapter}` : ''}` +
               `${report.db.ready ? '' : `: ${report.db.error || 'причина неизвестна'}`}`
             : '—',
+        },
+        {
+          // Какое исправление реально работает на устройстве (OTA-бандл).
+          label: 'бандл',
+          value: report.bundle_version || 'неизвестен',
         },
         { label: 'аккаунт', value: report.account || '—' },
         { label: 'профиль', value: report.profile || '—' },

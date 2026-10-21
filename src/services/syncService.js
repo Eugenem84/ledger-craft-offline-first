@@ -1638,7 +1638,12 @@ class SyncService {
    * @returns {Promise<boolean>} true — идентификатор сменили и выгрузку повторили
    */
   async _reissueDeviceIdIfDatabaseEmpty() {
-    if (storage.getItem(EMPTY_DB_REISSUE_KEY) === '1') return false;
+    const currentId = getSyncId();
+
+    // Под этим id уже пробовали и данные так и не пришли — второй раз не меняем
+    // (аккаунт может быть действительно пустым; иначе получили бы «новое устройство»
+    // на каждом синке).
+    if (storage.getItem(EMPTY_DB_REISSUE_KEY) === currentId) return false;
 
     if (!(await this._localDatabaseIsEmpty())) {
       // Данные есть — прошлый инцидент (если был) закрыт, маркер снимаем.
@@ -1646,19 +1651,25 @@ class SyncService {
       return false;
     }
 
-    storage.trySetItem(EMPTY_DB_REISSUE_KEY, '1');
-
-    const previousId = getSyncId();
     const nextId = rotateSyncId();
+
+    // Маркер ставим ДО повторной выгрузки: если она упадёт по сети, снимем его ниже.
+    storage.trySetItem(EMPTY_DB_REISSUE_KEY, nextId);
 
     await metaRepo.resetLastSyncedAt();
 
     logger.warn(
-      '[Sync] Локальная БД пуста — вероятно, сервер скрывает наши же записи ' +
-        `(last_sync_id == X-Sync-ID). Меняю id устройства ${previousId} → ${nextId} и выгружаю заново.`
+      '[Sync] Локальная БД пуста (нет заказов/клиентов/работ/товаров) — вероятно, сервер ' +
+        `скрывает наши же записи (last_sync_id == X-Sync-ID). Меняю id устройства ${currentId} → ${nextId} и выгружаю заново.`
     );
 
-    await this._syncServerToLocal();
+    try {
+      await this._syncServerToLocal();
+    } catch (error) {
+      // Выгрузка сорвалась (сеть/сервер) — даём шанс следующему проходу.
+      storage.removeItem(EMPTY_DB_REISSUE_KEY);
+      throw error;
+    }
 
     return true;
   }
@@ -1666,14 +1677,18 @@ class SyncService {
   /**
    * В локальной БД нет ни одной сущности мастерской?
    *
-   * Пустой считается БД без профиля, клиентов, работ и заказов. Служебные строки
-   * (`product_stocks`, `meta`) не в счёт: они приходят с сервера без метки эха и
-   * появляются даже тогда, когда все «наши» записи скрыты фильтром.
+   * Пустой считаем БД **без деловых данных**: заказов, клиентов, работ и товаров.
+   * Профиль (`specializations`) намеренно не учитываем — после пересоздания БД мастер
+   * мог заново выбрать нишу (именно так было у Олега: профиль есть, а заказов нет),
+   * и из-за этого прошлая версия проверки не срабатывала.
+   *
+   * Служебные строки (`product_stocks`, `meta`) тоже не в счёт: они приходят с сервера
+   * без метки эха и появляются даже тогда, когда все «наши» записи скрыты фильтром.
    *
    * @returns {Promise<boolean>}
    */
   async _localDatabaseIsEmpty() {
-    for (const table of ['specializations', 'clients', 'services', 'orders']) {
+    for (const table of ['orders', 'clients', 'services', 'products']) {
       const rows = await dbAdapter.query(`SELECT COUNT(*) AS count FROM ${table}`);
       const count = rows.length ? Number(rows[0].count) : 0;
 

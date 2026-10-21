@@ -101,7 +101,7 @@ describe('21.3 анти-эхо: пустая выдача при пустой л
     expect(getSyncId()).toBe(OLD_ID)
   })
 
-  it('у пустого аккаунта не зацикливаемся: смена — ровно один раз', async () => {
+  it('пустой аккаунт не зацикливаемся: смена — ровно один раз', async () => {
     mockEchoServer()
 
     await syncService.sync()
@@ -113,5 +113,31 @@ describe('21.3 анти-эхо: пустая выдача при пустой л
     await syncService.sync()
 
     expect(getSyncId()).toBe(afterFirst)
+  })
+
+  // Живой случай Олега (отчёт `9311933e`): после пересоздания БД мастер заново выбрал
+  // нишу, поэтому локальный профиль есть, а заказов/клиентов нет. Прошлая проверка
+  // «пусто» опиралась на `specializations` и не срабатывала — данные так и не приехали.
+  it('локальный профиль не мешает: ориентируемся на деловые данные', async () => {
+    await db.execute(
+      `INSERT INTO specializations (id, name) VALUES (?, ?)`,
+      ['local-profile', 'Ремонт велосипедов']
+    )
+
+    const seeded = server.seed('clients', {
+      uuid_id: 'server-client-3',
+      name: 'Пётр',
+      phone: '222',
+      specialization_id: null,
+    })
+
+    mockEchoServer()
+
+    await syncService.sync()
+
+    expect(getSyncId()).not.toBe(OLD_ID)
+    expect(
+      await db.queryOne('SELECT * FROM clients WHERE server_id = ?', [seeded.id])
+    ).toMatchObject({ name: 'Пётр' })
   })
 })

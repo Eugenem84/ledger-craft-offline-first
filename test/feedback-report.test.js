@@ -14,6 +14,7 @@ import {
   buildFeedbackReport,
   canSubmitFeedback,
   clipText,
+  dropTechnicalErrors,
   feedbackStatusView,
   feedbackTextFromReport,
   limitEntries,
@@ -36,6 +37,8 @@ function makeReport(overrides = {}) {
       apiUrl: 'https://dev.example/api',
       schemaVersion: 30,
       schemaStored: 30,
+      // Версия работающего OTA-бандла (Фаза 21): видно, доехало ли исправление.
+      bundle: '1.21.11.261021-1015',
       // Фаза 21: состояние локальной БД — теперь тоже часть отчёта.
       db: {
         ready: false,
@@ -139,5 +142,33 @@ describe('14.3 отчёт «Сообщить об ошибке»: контрак
     expect(text).toContain('## ошибки (1)')
     expect(text).toContain('boom')
     expect(feedbackTextFromReport(null)).toBe('')
+  })
+
+  // Живой отчёт 9311933e (21.10.2026): 50 из 50 «ошибок» были SQL-логами адаптеров —
+  // они вытеснили из отчёта то, ради чего он отправлялся.
+  it('технический шум адаптеров не вытесняет ошибки из отчёта', () => {
+    const report = makeReport({
+      errors: [
+        { time: '2026-10-21T11:52:56.000Z', level: 'error', message: '[SQLJS] Executing SQL: SELECT 1' },
+        {
+          time: '2026-10-21T11:52:57.000Z',
+          level: 'error',
+          message: '[StorageAdapter] DB dump saved (217088 bytes).',
+        },
+        { time: '2026-10-21T11:52:58.000Z', level: 'warn', message: '[DB] Локальная БД не открыта: boom' },
+      ],
+    })
+
+    expect(report.errors).toHaveLength(1)
+    expect(report.errors[0].message).toContain('Локальная БД не открыта')
+    expect(dropTechnicalErrors([{ message: '[SQLJS] Executed successfully' }])).toHaveLength(0)
+    expect(dropTechnicalErrors(null)).toEqual([])
+  })
+
+  it('в отчёт и в текст для буфера попадает версия бандла', () => {
+    const report = makeReport()
+
+    expect(report.bundle_version).toBe('1.21.11.261021-1015')
+    expect(feedbackTextFromReport(report)).toContain('1.21.11.261021-1015')
   })
 })
