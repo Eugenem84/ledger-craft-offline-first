@@ -28,6 +28,9 @@ beforeEach(async () => {
   await setupTestDb()
   storage.setItem('auth_token', 'test-token')
   storage.setItem('sync_id', OLD_ID)
+  // Одноразовый переход 21.25 уже выполнен — иначе первый же синк сменил бы id,
+  // а эти тесты проверяют именно эвристику «БД пуста» (21.21/21.24).
+  storage.setItem('sync_session_version', '2')
   storage.removeItem('sync_id_reissued_for_empty_db')
 
   server = createFakeServer()
@@ -52,6 +55,7 @@ beforeEach(async () => {
 afterEach(() => {
   storage.removeItem('auth_token')
   storage.removeItem('sync_id_reissued_for_empty_db')
+  storage.removeItem('sync_session_version')
   vi.restoreAllMocks()
 })
 

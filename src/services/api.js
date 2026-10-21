@@ -132,12 +132,14 @@ export default {
     return res.data
   },
 
-  async fetchUpdates({ table, since }) {
+  async fetchUpdates({ table, since, full = false }) {
     const mockApi = await loadMockApi()
     if (mockApi) return mockApi.fetchUpdates({ table, since })
 
     const res = await apiClient.get('/sync-updates', {
-      params: { table, since },
+      // `full` — полная выдача без анти-эха (задача 21.25): устройство с восстановленной
+      // копией БД имеет тот же `X-Sync-ID`, и сервер скрывал от него его же записи.
+      params: { table, since, full: full ? 1 : undefined },
     })
 
     const serverData = res.data

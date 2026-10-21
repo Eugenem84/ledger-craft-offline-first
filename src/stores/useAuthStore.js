@@ -87,6 +87,11 @@ export const useAuthStore = defineStore('auth', {
         await this._resetLocalDataIfOwnerChanged(data?.user)
         this._applySession(data)
 
+        // Задача 21.25: вход — это новое устройство для сервера. Меняем `X-Sync-ID`
+        // и просим полную выдачу: иначе восстановленная копия приложения (тот же id)
+        // остаётся со старым локальным снимком — сервер скрывает от неё её же записи.
+        await syncService.startNewSession()
+
         return data
       } catch (err) {
         this.error = this._loginErrorText(err)
@@ -122,6 +127,11 @@ export const useAuthStore = defineStore('auth', {
         // нового токена, иначе фоновый синк успевает начать работу во время сброса.
         await this._resetLocalDataIfOwnerChanged(data?.user)
         this._applySession(data)
+
+        // Тот же смысл, что в `login()`: после входа (в т.ч. регистрации) устройство
+        // новое для сервера и получает полную выдачу (21.25).
+        await syncService.startNewSession()
+
         return data
       } catch (err) {
         this.error = this._registerErrorText(err)

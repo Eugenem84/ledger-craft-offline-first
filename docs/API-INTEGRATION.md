@@ -158,8 +158,9 @@ buy_product_prices, sales_products_prices`
 Реализация: `SyncController::fetchUpdates()`.
 
 ```
-GET /api/sync-updates?table=<table>&since=<ms>
+GET /api/sync-updates?table=<table>&since=<ms>[&full=1]
 Headers: X-Sync-ID: <uuid устройства>
+         X-Sync-Full: 1                              // альтернатива ?full=1
          Authorization: Bearer <sanctum-токен>      // задача 3.10
 ```
 
@@ -169,6 +170,10 @@ Headers: X-Sync-ID: <uuid устройства>
   `specializations.user_id` / `orders.user_id`), «ничьи» legacy-строки — тоже;
 - ✅ фильтр анти-эха (задача 3.6): записи с `last_sync_id == X-Sync-ID` исключаются — устройство
   не получает свои же изменения; правка чужого устройства вернёт запись автору;
+- ✅ **`full=1` (задача 21.25)** — анти-эхо отключается (и для записей, и для tombstone'ов):
+  нужно устройству, чья локальная БД — восстановленная копия другого (Android-бэкап копирует
+  `sync_id`), иначе сервер скрывает от него его же записи. Клиент зовёт после входа; применение
+  LWW идемпотентно, дублей нет;
 - ✅ **удаления (задача 3.9)**: soft-deleted строки приходят с `deleted: true` и `deleted_at`
   (у `clients`, `products`, `services`, `categories`, `equipment_models`, `orders`, `order_service`),
   а у таблиц без `deleted_at` добавляются tombstones

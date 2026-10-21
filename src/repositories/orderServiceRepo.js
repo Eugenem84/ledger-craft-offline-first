@@ -125,7 +125,7 @@ export async function applyServerRecord(record) {
   )
   if (!orders.length) {
     logger.warn(`[Sync] Не найден локальный заказ для order_service (server order_id=${record.order_id}). Запись пропущена.`)
-    return
+    return false
   }
   const localOrderId = orders[0].id
 
@@ -136,7 +136,7 @@ export async function applyServerRecord(record) {
   )
   if (!services.length) {
     logger.warn(`[Sync] Не найдена локальная услуга для order_service (server service_id=${record.service_id}). Запись пропущена.`)
-    return
+    return false
   }
   const localServiceId = services[0].id
 
@@ -168,12 +168,12 @@ export async function applyServerRecord(record) {
       updatedAt,
     })
     await dbAdapter.execute(queries.insertFromServer, params)
-    return
+    return true
   }
 
   // Обновление существующей записи: побеждает более свежий updated_at (last-write-wins).
   if (updatedAt <= toEpochSeconds(existing[0].updated_at, 0)) {
-    return
+    return true
   }
 
   const updateParams = orderServiceLineUpdateFromServerParams({
@@ -187,6 +187,8 @@ export async function applyServerRecord(record) {
     localLineId: existing[0].id, // WHERE id = ? (локальный UUID строки связки)
   })
   await dbAdapter.execute(queries.updateFromServer, updateParams)
+
+  return true
 }
 
 export async function updateServerId(localId, serverId) {

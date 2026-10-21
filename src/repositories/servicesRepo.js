@@ -81,7 +81,7 @@ export async function applyServerRecord(record) {
 
   if (!category) {
     console.error(`[Sync] Не удалось найти локальную категорию с server_id: ${record.category_id}. Услуга "${record.service}" пропущена.`);
-    return;
+    return false;
   }
   const localCategoryId = category.id;
 
@@ -101,7 +101,7 @@ export async function applyServerRecord(record) {
     });
 
     await dbAdapter.execute(queries.insertFromServer, params);
-    return;
+    return true;
   }
 
   const local = existing[0];
@@ -118,6 +118,8 @@ export async function applyServerRecord(record) {
     });
     await dbAdapter.execute(queries.updateFromServer, updateParams);
   }
+
+  return true;
 }
 
 export async function clearAll() {

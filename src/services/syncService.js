@@ -143,6 +143,26 @@ const PERMANENT_OPERATION_ERRORS = new Set([
  */
 const EMPTY_DB_REISSUE_KEY = 'sync_id_reissued_for_empty_db';
 
+/**
+ * Маркер «следующая выгрузка — полная и без анти-эха» (задача 21.25).
+ *
+ * Ставится при входе (`startNewSession()`), снимается после удачного прохода.
+ * Живёт в `storage`, поэтому переживает перезапуск приложения: если вход был до
+ * открытия локальной БД (или приложение закрыли сразу после входа), первый же
+ * синк всё равно прочитает сервер с нуля.
+ */
+const FULL_PULL_PENDING_KEY = 'sync_full_pull_pending';
+
+/**
+ * Версия «сессии устройства» (задача 21.25). Пока маркер в `storage` не равен текущей
+ * версии, первый синк после обновления приложения делает одноразовый переход: новый
+ * `X-Sync-ID` + полная выдача без анти-эха. Так лечатся уже установленные приложения,
+ * где вход не повторится (телефон Олега, планшет Евгения): обновился бандл — и данные
+ * приехали сами. Поднимать версию, если понадобится ещё один такой переход.
+ */
+const SESSION_VERSION_KEY = 'sync_session_version';
+const SESSION_VERSION = '2';
+
 class SyncService {
   constructor() {
     this.syncing = false;
@@ -346,6 +366,10 @@ class SyncService {
 
     this.syncing = true;
     this._setStatus({ syncing: true });
+
+    // Одноразовый переход на 21.25: у уже установленных приложений вход не повторится,
+    // поэтому новый `X-Sync-ID` и полную выдачу включаем сами — ровно один раз.
+    this._ensureSessionUpgrade();
 
     // Фаза 21 (живой дефект 19.10.2026, новый телефон).
     //
@@ -1531,19 +1555,41 @@ class SyncService {
    * упавшая таблица сохраняет свой курсор и до-получает изменения в следующий раз, остальные
    * при этом не страдают.
    *
-   * @param {{tables?: string[]|null, since?: number|null}} [options] `tables` — ограничить
-   *   набор таблиц, `since` — читать выдачу «с нуля» (нужно «починке очереди»: записи,
-   *   приехавшие раньше курсора, обычной выдачей уже не вернутся).
+   * Задача 21.25:
+   *   • маркер полной выдачи (`FULL_PULL_PENDING_KEY`) просит `since = null` и `full: true` —
+   *     без анти-эха; иначе устройство, чья БД восстановлена из копии другого, с тем же
+   *     `X-Sync-ID` никогда не получит записи, созданные «собой» (живой отчёт `bab73721`);
+   *   • курсор двигается по времени **серверных** записей (`maxRecord.updated_at + 1`), а не
+   *     по `Date.now()`: иначе теряются записи, созданные между запросом и записью курсора
+   *     (и всё, что попало «в будущее» из-за спешащих часов устройства);
+   *   • если запись пропущена (нет локального родителя), курсор таблицы **не двигается**:
+   *     иначе строка не вернётся никогда. Пропущенные повторяем в конце прохода.
+   *
+   * @param {{tables?: string[]|null, since?: number|null, full?: boolean}} [options] `tables` —
+   *   ограничить набор таблиц, `since` — читать выдачу «с нуля» (нужно «починке очереди»:
+   *   записи, приехавшие раньше курсора, обычной выдачей уже не вернутся), `full` — без анти-эха.
    */
   async _syncServerToLocal(options = {}) {
     const tables = Array.isArray(options.tables) && options.tables.length
       ? options.tables
       : Object.keys(this.repos);
 
+    // Полная выдача после входа (21.25). Маркер переживает перезапуск приложения.
+    const fullPull = Boolean(options.full) || storage.getItem(FULL_PULL_PENDING_KEY) === '1';
+
+    // Курсор двигаем в обычном режиме и после полной выдачи (тогда следующий синк —
+    // инкрементальный). «Починка очереди» (`since: 0`) курсор не трогает.
+    const advanceCursor = options.since == null || fullPull;
+
     // Сколько записей реально приехало за проход. Нужно, чтобы отличить «сервер
     // отдал 0» от «выгрузка не выполнялась вовсе» (живой дефект 19.10.2026: на новом
     // телефоне база осталась пустой, и по отчёту нельзя было понять, почему).
     let received = 0;
+    let failed = false;
+
+    // Таблицы, где запись сослалась на ещё не приехавшего родителя: повторяем их
+    // после основного прохода, а курсор двигаем только если всё применилось.
+    const pending = [];
 
     for (const table of tables) {
       const repo = this.repos[table];
@@ -1551,18 +1597,16 @@ class SyncService {
       if (!repo) continue;
 
       try {
-        const since = options.since ?? (await metaRepo.getLastSyncedAt(table));
+        const since = fullPull ? null : (options.since ?? (await metaRepo.getLastSyncedAt(table)));
 
-        const response = await api.fetchUpdates({
-          table,
-          since
-        });
+        const response = await api.fetchUpdates({ table, since, full: fullPull });
 
         const records = Array.isArray(response) ? response : (Array.isArray(response?.records) ? response.records : []);
 
         received += records.length;
 
         let maxRecordMs = 0;
+        const skipped = [];
 
         for (const record of records) {
           maxRecordMs = Math.max(maxRecordMs, toEpochMs(record.updated_at, 0));
@@ -1580,18 +1624,24 @@ class SyncService {
             continue;
           }
 
-          await repo.applyServerRecord(record);
+          // `false` — репозиторий не смог применить запись: нет локального родителя
+          // (категория у услуги, заказ/услуга у строки заказа). Курсор тогда не двигаем.
+          if ((await repo.applyServerRecord(record)) === false) skipped.push(record);
         }
 
         // Ответ сервера получен — снимаем «нет сети», даже если WebView считает иначе.
         this._registerSuccess();
 
-        // Курсор двигаем только после того, как всю выдачу таблицы разобрали.
-        // Берём максимум из «нашего сейчас» и времени последней записи: если часы устройства
-        // отстают от серверных, курсор всё равно не «застрянет» на уже полученных записях.
-        if (options.since == null) {
-          await metaRepo.setLastSyncedAt(table, Math.max(Date.now(), maxRecordMs + 1));
+        if (skipped.length) {
+          pending.push({ table, repo, records: skipped, maxRecordMs, since });
+          logger.warn(
+            `[Sync] Таблица ${table}: ${skipped.length} записей ждут родителя — курсор не двигаю, повторю в конце прохода.`
+          );
+          continue;
         }
+
+        // Курсор двигаем только после того, как всю выдачу таблицы разобрали.
+        if (advanceCursor) await this._advanceCursor(table, maxRecordMs, since);
       } catch (e) {
         // Поломка локальной БД — не «ошибка одной таблицы»: остальные упадут так же,
         // а мастеру нужно увидеть общее состояние («база не открыта»), а не 14
@@ -1601,6 +1651,7 @@ class SyncService {
           throw e;
         }
 
+        failed = true;
         console.error(`[Sync] Ошибка при получении обновлений для таблицы "${table}":`, e);
 
         // Сеть действительно недоступна: не долбим остальные таблицы — они упадут так же,
@@ -1615,7 +1666,121 @@ class SyncService {
       }
     }
 
+    // Второй проход по «сиротам»: родитель мог приехать из таблицы, которая идёт позже
+    // (порядок `this.repos` не гарантирует FK-порядок для всех пар). Если и теперь
+    // родителя нет — курсор не двигаем, записи придут в следующий sync().
+    for (const item of pending) {
+      const left = [];
+
+      for (const record of item.records) {
+        try {
+          if ((await item.repo.applyServerRecord(record)) === false) left.push(record);
+        } catch (e) {
+          left.push(record);
+          console.error(`[Sync] Повтор записи таблицы "${item.table}" не удался:`, e);
+        }
+      }
+
+      if (left.length) {
+        failed = true;
+        logger.warn(
+          `[Sync] Таблица ${item.table}: ${left.length} записей так и не нашли родителя — курсор не двигаю, придут в следующий раз.`
+        );
+        continue;
+      }
+
+      if (advanceCursor) await this._advanceCursor(item.table, item.maxRecordMs, item.since);
+    }
+
     this._setStatus({ lastPullRecords: received });
+
+    // Полная выдача после входа удалась — маркер снимаем, дальше обычный инкремент.
+    if (fullPull && !failed && advanceCursor) storage.removeItem(FULL_PULL_PENDING_KEY);
+  }
+
+  /**
+   * Сдвигает курсор таблицы по времени **серверных** записей (задача 21.25).
+   *
+   * Раньше курсор брался как `max(Date.now(), maxRecord + 1)`: всё, что сервер записал
+   * между выполнением запроса и записью курсора (и всё, что оказалось «в будущем»
+   * из-за спешащих часов устройства), больше никогда не попадало в выдачу. Теперь
+   * курсор — строго за последней полученной записью; если записей не было, курсор
+   * остаётся прежним (повторный запрос того же окна безопасен и идемпотентен).
+   *
+   * @param {string} table
+   * @param {number} maxRecordMs время последней записи выдачи (0 — записей нет)
+   * @param {number|null} since прежний курсор таблицы
+   */
+  async _advanceCursor(table, maxRecordMs, since) {
+    const next = maxRecordMs > 0 ? maxRecordMs + 1 : since;
+
+    if (next) await metaRepo.setLastSyncedAt(table, next);
+  }
+
+  /**
+   * Новый вход в аккаунт (задача 21.25): устройство представляется серверу **новым**
+   * и просит полную выдачу без анти-эха.
+   *
+   * Почему не «проверить, пуста ли БД» (21.21/21.24): локальная БД может быть
+   * **непустым** снимком другого устройства — Android-бэкап и Smart Switch копируют
+   * WebView localStorage вместе с `sync_id`. Тогда мастер видит старые заказы, а всё
+   * созданное позже сервер скрывает по `last_sync_id == X-Sync-ID` (живой отчёт
+   * `bab73721`, 21.10.2026: планшет с копией телефона получал `orders` 0 из 2 и
+   * `order_service` 2 из 3). Пустота БД при этом — ложь, и смена id не запускалась.
+   *
+   * Что делает: новый `X-Sync-ID`, маркер полной выдачи (переживает перезапуск) и
+   * сброс курсоров таблиц. Вход не падает, если БД ещё не открыта: маркер всё равно
+   * заставит первый же синк прочитать сервер с нуля.
+   *
+   * @returns {Promise<string>} новый `X-Sync-ID`
+   */
+  async startNewSession() {
+    const previous = getSyncId();
+    const next = rotateSyncId();
+
+    storage.trySetItem(FULL_PULL_PENDING_KEY, '1');
+    storage.trySetItem(SESSION_VERSION_KEY, SESSION_VERSION);
+
+    try {
+      await metaRepo.resetLastSyncedAt();
+    } catch (error) {
+      // БД ещё не открыта (вход возможен до первого синка) — не беда: полную выдачу
+      // задаёт маркер, а курсоры досбрасываются при следующей удачной выгрузке.
+      logger.warn('[Sync] Не удалось сбросить курсоры после входа:', error?.message || error);
+    }
+
+    logger.log(
+      `[Sync] Новый вход: X-Sync-ID ${previous} → ${next}; следующая выгрузка — полная, без анти-эха.`
+    );
+
+    return next;
+  }
+
+  /**
+   * Одноразовый переход на «новую сессию устройства» (задача 21.25) для приложений,
+   * которые уже установлены: после OTA входа не будет, а старый `X-Sync-ID` может быть
+   * общим с другим устройством (восстановленная копия) — тогда сервер скрывает записи.
+   *
+   * При первом синке после обновления: новый `X-Sync-ID`, маркер полной выдачи и версия
+   * сессии в `storage`. Дальше не повторяется: маркер версии совпадает.
+   *
+   * @returns {boolean} true — переход выполнен в этом проходе
+   */
+  _ensureSessionUpgrade() {
+    if (storage.getItem(SESSION_VERSION_KEY) === SESSION_VERSION) return false;
+
+    const previous = getSyncId();
+    const next = rotateSyncId();
+
+    storage.trySetItem(FULL_PULL_PENDING_KEY, '1');
+    storage.trySetItem(SESSION_VERSION_KEY, SESSION_VERSION);
+
+    logger.warn(
+      `[Sync] Обновление 21.25 (первый запуск после обновления): X-Sync-ID ${previous} → ${next}; ` +
+        'выгрузка — полная, без анти-эха.'
+    );
+
+    return true;
   }
 
   /**
