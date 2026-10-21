@@ -104,6 +104,11 @@
 а при неудаче курсор не двигается. Тесты: `test/sync-restored-copy.test.js` (5), BE
 `SyncControllerTest::test_full_param_disables_anti_echo_filter`; FE-прогон 82 файла / 727 тестов,
 lint 0. Описание — `docs/FRONTEND.md` §14.3.
+**Выкачено 21.10.2026:** бэкенд dev + prod (`1727ea1`, `config:clear`/`route:clear`), живая проверка
+`full=1` на dev (0 → 1, и через `X-Sync-Full`); OTA dev `1.21.13.261021-1602` (sha256 `c7023a67…`),
+prod `1.21.14.261021-1602` (sha256 `d523fb80…`), `minNativeVersionCode 22`; дамп прод-БД перед
+выкатом — `/opt/projects/ledgercraft-prod/backup-pre-2125-20261021-1602.sql.gz`. Бандл применяется
+при следующем запуске приложения.
 
 Формат вердикта: **баг** → ID задачи в `TODO.md` (с приоритетом и критерием «Готово»);
 **не баг / предложение** → объяснение, почему не берём или куда отложили (по возможности ID задачи).
