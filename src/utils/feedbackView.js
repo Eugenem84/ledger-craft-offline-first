@@ -143,6 +143,7 @@ function normalizeDb(db) {
   return {
     ready: db.ready === true,
     error: db.error ? clipText(db.error) : null,
+    adapter: db.adapter ? clipText(db.adapter, 50) : null,
     attempts: Number(db.attempts) || 0,
     source: db.source ? clipText(db.source, 50) : null,
   }
@@ -281,9 +282,8 @@ export function feedbackTextFromReport(report) {
           // открылась ли локальная БД и почему нет.
           label: 'локальная БД',
           value: report.db
-            ? report.db.ready
-              ? 'открыта'
-              : `не открыта: ${report.db.error || 'причина неизвестна'}`
+            ? `${report.db.ready ? 'открыта' : 'не открыта'}${report.db.adapter ? ` · адаптер ${report.db.adapter}` : ''}` +
+              `${report.db.ready ? '' : `: ${report.db.error || 'причина неизвестна'}`}`
             : '—',
         },
         { label: 'аккаунт', value: report.account || '—' },

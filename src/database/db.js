@@ -25,9 +25,16 @@ let active = webAdapter
  * `syncService` показывает его в индикаторе, а фидбек всё равно может отправить
  * отчёт (см. `utils/feedbackOutbox.js`).
  *
- * @type {{ready: boolean, error: string|null, attempts: number, source: string|null, lastAttemptAt: number}}
+ * @type {{ready: boolean, error: string|null, attempts: number, source: string|null, adapter: string|null, lastAttemptAt: number}}
  */
-let state = { ready: false, error: null, attempts: 0, source: null, lastAttemptAt: 0 }
+let state = {
+  ready: false,
+  error: null,
+  attempts: 0,
+  source: null,
+  adapter: null,
+  lastAttemptAt: 0,
+}
 
 /** Текст, которым нативный адаптер сообщает «соединения нет» (см. `requireConnection`). */
 export const DB_NOT_READY_MESSAGE =
@@ -44,8 +51,14 @@ export function setAdapter(adapter) {
 }
 
 /** БД открыта и готова к работе (миграции уже прошли). */
-export function markDbReady() {
-  state = { ...state, ready: true, error: null, lastAttemptAt: Date.now() }
+export function markDbReady(meta = {}) {
+  state = {
+    ...state,
+    ready: true,
+    error: null,
+    adapter: meta.adapter || state.adapter || null,
+    lastAttemptAt: Date.now(),
+  }
 }
 
 /**
@@ -62,13 +75,14 @@ export function markDbFailed(error, meta = {}) {
     error: message,
     attempts: state.attempts + 1,
     source: meta.source || state.source || null,
+    adapter: meta.adapter || state.adapter || null,
     lastAttemptAt: Date.now(),
   }
 
   return getDbState()
 }
 
-/** @returns {{ready: boolean, error: string|null, attempts: number, source: string|null, lastAttemptAt: number}} */
+/** @returns {{ready: boolean, error: string|null, attempts: number, source: string|null, adapter: string|null, lastAttemptAt: number}} */
 export function getDbState() {
   return { ...state }
 }
@@ -80,7 +94,14 @@ export function isDbReady() {
 
 /** Сброс состояния инициализации — только для тестов. */
 export function resetDbStateForTests() {
-  state = { ready: false, error: null, attempts: 0, source: null, lastAttemptAt: 0 }
+  state = {
+    ready: false,
+    error: null,
+    attempts: 0,
+    source: null,
+    adapter: null,
+    lastAttemptAt: 0,
+  }
 }
 
 /**

@@ -11,15 +11,29 @@
 // `database/init.js`. Раньше ошибка `init()` глоталась (`console.error`), приложение
 // стартовало «нормально», и дальше каждая операция падала «База не открыта»: синк не
 // мог ни отправить очередь, ни скачать данные с сервера, а отчёт об ошибке не уходил.
-// Теперь есть повторы, запись причины в постоянный буфер и автоматическое
-// восстановление файла БД (данные приезжают с сервера при первом же синке).
+//
+// Живой отчёт 21.10.2026 (TECNO, Android 16): нативный плагин вообще не
+// инициализировался (`CapacitorSQLitePlugin: null` на каждом вызове), поэтому теперь
+// `boot` пробует адаптеры **по порядку** и при провале нативного включает sql.js —
+// приложение работает, первый же синк забирает все данные с сервера.
 import { logger } from 'src/utils/logger'
 import { boot } from 'quasar/wrappers'
 import { runMigrations, checkSchemaVersion } from 'src/database/migrate.js'
 import { setAdapter } from 'src/database/db.js'
-import { initDatabase } from 'src/database/init.js'
+import { openDatabase } from 'src/database/init.js'
 import { autoBackupIfDue } from 'src/services/backupService.js'
 import { isNativePlatform } from 'src/utils/platform'
+import storage from 'src/utils/storage.js'
+
+/**
+ * Запоминаем, что на этом устройстве нативный SQLite не поднялся.
+ *
+ * Зачем: провал плагина системный (например, Android 16 + `@capacitor-community/sqlite`
+ * 7.0.3 → `CapacitorSQLitePlugin: null`), поэтому на следующем запуске нет смысла снова
+ * биться в него 3 раза и рисковать тем, что данные, уже накопленные в резервном режиме,
+ * «спрячутся» за пустым нативным файлом. Пока флаг стоит — работаем на sql.js.
+ */
+const FALLBACK_KEY = 'db_adapter_fallback'
 
 // Выбор адаптера по платформе:
 //  • нативный Capacitor (Android) → sqlite-capacitor-adapter.js — файл SQLite на диске
@@ -29,37 +43,43 @@ import { isNativePlatform } from 'src/utils/platform'
 // в вебе он не скачивается, а в приложении подгружается по требованию. Важно: прежний
 // вариант «путь в переменной» Vite не мог проанализировать, и в нативном приложении
 // модуль просто не находился (фолбэк на sql.js).
-async function resolveAdapter() {
-  if (isNativePlatform()) {
+async function resolveAdapters() {
+  const adapters = []
+  const fallbackRemembered = storage.getItem(FALLBACK_KEY) === '1'
+
+  if (isNativePlatform() && !fallbackRemembered) {
     try {
       const { default: adapter } = await import(
         '../database/adapters/sqlite-capacitor-adapter.js'
       )
-      logger.log('[DB] ВЫБРАН адаптер: sqlite (Capacitor, настоящий файл SQLite)')
-      return adapter
+      adapters.push(adapter)
+      logger.log('[DB] Адаптер №1: sqlite (Capacitor, настоящий файл SQLite)')
     } catch (err) {
-      logger.warn('[DB] Нативный адаптер недоступен — фолбэк на sql.js:', err?.message)
+      logger.warn('[DB] Нативный адаптер недоступен:', err?.message)
     }
+  } else if (fallbackRemembered) {
+    logger.log('[DB] Включён запомненный резервный режим (sql.js): нативный SQLite на этом устройстве не работал')
   }
 
-  const { default: adapter } = await import('../database/adapters/sqljs-web-adapter.js')
-  logger.log('[DB] ВЫБРАН адаптер: sql.js (веб, localStorage)')
-  return adapter
+  const { default: webAdapter } = await import('../database/adapters/sqljs-web-adapter.js')
+  adapters.push(webAdapter)
+  logger.log('[DB] Адаптер-резерв: sql.js (localStorage/IndexedDB)')
+
+  return adapters
 }
 
 export default boot(async () => {
   logger.log('[DB] Boot start') // 1️⃣ запуск boot-файла
 
-  const adapter = await resolveAdapter()
-  setAdapter(adapter)
+  const adapters = await resolveAdapters()
 
-  const result = await initDatabase(adapter, {
+  const { adapter, result, fallback } = await openDatabase(adapters, {
     migrate: runMigrations,
     schemaCheck: checkSchemaVersion,
     log: logger,
   })
 
-  if (!result.ok) {
+  if (!adapter || !result.ok) {
     // Причина уже записана в постоянный буфер (`initDatabase` → `logger.error`).
     // Приложение продолжаем запускать: без БД часть экранов работает, а фидбек
     // умеет отправить отчёт и без неё (`utils/feedbackOutbox.js`). Индикатор синка
@@ -68,11 +88,23 @@ export default boot(async () => {
     return
   }
 
-  logger.log(`[DB] Миграций применено в этом запуске: ${result.applied}`)
+  setAdapter(adapter)
 
-  // Автобэкап (4.4) — только нативно: у sql.js копия данных уже лежит в
-  // localStorage, а на Android бэкап — это файл, который делает плагин.
-  if (isNativePlatform()) {
+  if (fallback) {
+    // Запоминаем на будущие запуски: нативный SQLite на этом устройстве не работает,
+    // а данные уже живут в резервном хранилище (sql.js → localStorage/IndexedDB).
+    storage.trySetItem(FALLBACK_KEY, '1')
+  }
+
+  logger.log(
+    `[DB] Рабочий адаптер: ${adapter.name}` +
+      `${fallback ? ' (резервный режим: нативный SQLite недоступен)' : ''}` +
+      ` · миграций применено: ${result.applied}`
+  )
+
+  // Автобэкап (4.4) — только нативным адаптером: у sql.js копия данных уже лежит в
+  // localStorage, а на Android бэкап — файл, который делает плагин.
+  if (isNativePlatform() && adapter.name === 'sqlite-capacitor') {
     await autoBackupIfDue()
   }
 

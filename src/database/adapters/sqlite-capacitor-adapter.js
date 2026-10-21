@@ -180,9 +180,16 @@ async function openConnection(name) {
   return connection
 }
 
-/** Сообщение нативного плагина, после которого соединение считается «застрявшим». */
-function isStuckConnectionError(error) {
-  return /already exists|not opened|close all connections/i.test(String(error?.message || error))
+/** Ошибки, при которых имеет смысл новый файл БД (а не резервный адаптер). */
+function canRecoverFromError(error) {
+  const message = String(error?.message || error || '')
+
+  // «Застрявшее» соединение в плагине, несовпадение соединений, повреждённый файл.
+  // Провал самого плагина (`CapacitorSQLitePlugin: null`, «not implemented») сюда
+  // НЕ входит: новый файл его не лечит — нужен резервный адаптер (см. `openDatabase`).
+  return /already exists|not opened|close all connections|not a database|malformed|disk image|readonly database|attempt to re-open/i.test(
+    message
+  )
 }
 
 export default {
@@ -197,29 +204,22 @@ export default {
   isOpen,
 
   /**
+   * Стоит ли лечить проблему новым файлом БД (решает `initDatabase`).
+   * @param {*} error
+   */
+  canRecover(error) {
+    return canRecoverFromError(error)
+  },
+
+  /**
    * Открывает (или создаёт) файл БД, переиспользуя живое соединение, если плагин его знает.
+   *
+   * Ротацию файла здесь **не делаем** (она может случиться только один раз за запуск и
+   * только по решению `initDatabase`): раньше внутренняя ротация на каждый сбой дала
+   * `ledgercraft24 … ledgercraft28` при провале нативного плагина (отчёт 21.10.2026).
    */
   async init() {
-    try {
-      connection = await openConnection(dbName)
-    } catch (error) {
-      if (!isStuckConnectionError(error)) {
-        throw error
-      }
-
-      logger.warn(
-        '[SQLITE] Соединение застряло в нативном плагине — открываю резервный файл БД:',
-        error?.message || error
-      )
-
-      const rotated = rotateDatabaseName(error)
-
-      if (!rotated) {
-        throw error
-      }
-
-      connection = await openConnection(dbName)
-    }
+    connection = await openConnection(dbName)
 
     logger.log(`[SQLITE] База «${dbName}» открыта (нативный SQLite, файл на диске)`)
   },

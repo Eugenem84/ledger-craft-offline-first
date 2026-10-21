@@ -37,7 +37,14 @@ function makeReport(overrides = {}) {
       schemaVersion: 30,
       schemaStored: 30,
       // Фаза 21: состояние локальной БД — теперь тоже часть отчёта.
-      db: { ready: false, error: 'database ledgercraft not opened', attempts: 3, source: 'boot', лишнее: 1 },
+      db: {
+        ready: false,
+        error: 'database ledgercraft not opened',
+        adapter: 'sqlite-capacitor',
+        attempts: 3,
+        source: 'boot',
+        лишнее: 1,
+      },
       account: 'master@example.com',
       profile: 'Велосервис',
       sync: { online: false, pendingCount: 3, lastError: 'Network Error', лишнее: 'не берём' },
@@ -67,8 +74,13 @@ describe('14.3 отчёт «Сообщить об ошибке»: контрак
       'pendingCount',
     ])
     // Состояние БД — только по контракту (без «лишних» полей состояния).
-    expect(Object.keys(report.db).sort()).toEqual(['attempts', 'error', 'ready', 'source'])
-    expect(report.db).toMatchObject({ ready: false, attempts: 3, source: 'boot' })
+    expect(Object.keys(report.db).sort()).toEqual(['adapter', 'attempts', 'error', 'ready', 'source'])
+    expect(report.db).toMatchObject({
+      ready: false,
+      attempts: 3,
+      source: 'boot',
+      adapter: 'sqlite-capacitor',
+    })
     expect(serialized).not.toContain('лишнее')
     expect(serialized).not.toContain('client_id')
     expect(serialized).not.toContain('client_name')

@@ -100,11 +100,10 @@ export async function createBackup() {
   const createdAt = new Date().toISOString()
   const stamp = fileStamp()
 
-  if (isNativePlatform()) {
-    if (typeof adapter.exportDatabaseJson !== 'function') {
-      throw new Error('[Backup] Активный адаптер не умеет выгружать БД в JSON')
-    }
-
+  // Ветку выбираем по **фактическому** адаптеру, а не только по платформе (Фаза 21):
+  // при резервном режиме на Android работает sql.js — у него нет `exportToJson`, зато
+  // есть байтовый дамп. Иначе кнопка «Создать бэкап» падала бы с TypeError.
+  if (isNativePlatform() && typeof adapter.exportDatabaseJson === 'function') {
     const json = await adapter.exportDatabaseJson()
     const fileName = `${BACKUP_PREFIX}${stamp}.json`
     const { uri, directory } = await writeNativeBackup(fileName, json)

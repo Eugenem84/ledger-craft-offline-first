@@ -38,6 +38,22 @@ export const DB_OPEN_RETRY_DELAY_MS = 250
 export const DB_OPEN_ATTEMPTS = 3
 
 /**
+ * Аварийное восстановление (ротация файла БД) — **один раз за запуск приложения**.
+ *
+ * Живой отчёт 21.10.2026 показал, почему это критично: при провале самого нативного
+ * плагина (`CapacitorSQLitePlugin: null`) `init()` вызывался синком каждую минуту,
+ * и каждая неудача создавала новый файл — в журнале `ledgercraft24 … ledgercraft28`.
+ * Ротация имеет смысл только когда дело в файле/соединении, и повторять её
+ * бессмысленно: если причина инфраструктурная, работает резервный адаптер (sql.js).
+ */
+let recoveryAttempted = false
+
+/** Сброс флага восстановления — только для тестов. */
+export function resetRecoveryForTests() {
+  recoveryAttempted = false
+}
+
+/**
  * Открывает БД и прогоняет миграции.
  *
  * @param {object} adapter активный адаптер (`init()` обязателен)
@@ -61,6 +77,7 @@ export async function initDatabase(adapter, options = {}) {
     retryDelayMs = DB_OPEN_RETRY_DELAY_MS,
     delay = ms => new Promise(resolve => setTimeout(resolve, ms)),
     source = 'boot',
+    allowRecovery = true,
     log = defaultLogger,
   } = options
 
@@ -91,10 +108,15 @@ export async function initDatabase(adapter, options = {}) {
     }
   }
 
-  // Все попытки сорвались: адаптер может уметь аварийное восстановление
-  // (нативный переключает имя файла БД — старое соединение «застряло» в плагине
-  // и не отпускает приложение, см. `sqlite-capacitor-adapter.js`).
-  if (!opened && typeof adapter.recover === 'function') {
+  // Все попытки сорвались. Аварийное восстановление (новый файл БД) возможно, только
+  // если адаптер сам подтвердит, что дело в файле/соединении, и только один раз за
+  // запуск — иначе при поломке нативного плагина мы бесконечно плодили бы файлы
+  // (живой отчёт 21.10.2026: `ledgercraft24 … ledgercraft28`).
+  const canRecover = typeof adapter.canRecover === 'function' ? adapter.canRecover(lastError) : false
+
+  if (!opened && allowRecovery && !recoveryAttempted && canRecover) {
+    recoveryAttempted = true
+
     try {
       const rotated = await adapter.recover(lastError)
 
@@ -111,7 +133,7 @@ export async function initDatabase(adapter, options = {}) {
   }
 
   if (!opened) {
-    markDbFailed(lastError, { source })
+    markDbFailed(lastError, { source, adapter: adapter.name || null })
 
     // Именно `logger.error` (а не `console.error`): запись обязана попасть в
     // постоянный буфер `utils/errorLog.js` — иначе причина поломки теряется
@@ -121,7 +143,7 @@ export async function initDatabase(adapter, options = {}) {
     return { ok: false, applied: 0, attempts: usedAttempts, error: lastError, recovered: false }
   }
 
-  markDbReady()
+  markDbReady({ adapter: adapter.name || null })
 
   let applied = 0
 
@@ -138,6 +160,45 @@ export async function initDatabase(adapter, options = {}) {
   }
 
   return { ok: true, applied, attempts: usedAttempts, error: null, recovered }
+}
+
+/**
+ * Открывает первую рабочую БД из списка адаптеров.
+ *
+ * Зачем список (живой отчёт 21.10.2026): на новом телефоне (TECNO, Android 16) нативный
+ * плагин `@capacitor-community/sqlite` не инициализировался вовсе — каждый его метод
+ * отвечал `CapacitorSQLitePlugin: null` (провал `load()` внутри плагина). Никакие повторы
+ * и ротация файла тут не помогают: плагина фактически нет. Приложение при этом обязано
+ * работать, поэтому `boot` передаёт `[нативный, sql.js]` — и если нативный не поднялся,
+ * включается sql.js (данные в localStorage/IndexedDB), а первый же синк тянет всё с сервера.
+ *
+ * @param {Array<object|null|undefined>} adapters адаптеры в порядке приоритета
+ * @param {object} [options] как у `initDatabase`
+ * @returns {Promise<{adapter: object|null, result: object, fallback: boolean}>}
+ */
+export async function openDatabase(adapters, options = {}) {
+  const list = (Array.isArray(adapters) ? adapters : [adapters]).filter(Boolean)
+  let lastResult = { ok: false, applied: 0, attempts: 0, error: null, recovered: false }
+
+  for (let index = 0; index < list.length; index += 1) {
+    const adapter = list[index]
+    const fallback = index > 0
+
+    if (fallback) {
+      options.log?.warn?.(
+        `[DB] Переключаюсь на резервный адаптер «${adapter.name || 'unknown'}»: ` +
+          'нативный SQLite недоступен на этом устройстве'
+      )
+    }
+
+    lastResult = await initDatabase(adapter, { ...options, allowRecovery: !fallback })
+
+    if (lastResult.ok) {
+      return { adapter, result: lastResult, fallback }
+    }
+  }
+
+  return { adapter: null, result: lastResult, fallback: false }
 }
 
 /** Идёт ли повторное открытие БД (не запускаем два параллельно). */
@@ -164,6 +225,9 @@ export async function ensureDatabase(options = {}) {
     migrate: runMigrations,
     schemaCheck: checkSchemaVersion,
     source: 'sync',
+    // Новый файл БД здесь не создаём: восстановление — один раз за запуск (в boot),
+    // иначе при поломке плагина получались «ledgercraft24 … ledgercraft28».
+    allowRecovery: false,
     ...options,
   }).finally(() => {
     ensuring = null
