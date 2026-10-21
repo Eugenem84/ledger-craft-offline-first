@@ -18,14 +18,49 @@ async function loadMockApi() {
 
 // --- Уникальный ID клиента для синхронизации ---
 // Хранилище универсальное (задача 7.3): localStorage в браузере/WebView, память — фолбэк.
-let syncId = storage.getItem('sync_id')
+//
+// ⚠️ Фаза 21 (живой отчёт 21.10.2026): сервер по этому id **скрывает наши же записи**
+// из выдачи (`last_sync_id == X-Sync-ID` — защита от эха). Если локальная БД потеряна
+// (пересоздана после падения нативного плагина, «полный сброс», смена аккаунта), тот же
+// id означает «сервер ничего не отдаст»: у Олега все 5 заказов имели
+// `last_sync_id = c20ee90b…`, ровно его `X-Sync-ID`, и выгрузка приходила пустой
+// (`lastPullRecords: 0`). Поэтому при пересоздании БД зовём `rotateSyncId()` —
+// устройство представляется новым и получает всё заново.
+const SYNC_ID_KEY = 'sync_id'
+
+let syncId = storage.getItem(SYNC_ID_KEY)
 
 if (!syncId) {
   syncId = crypto.randomUUID()
-  storage.trySetItem('sync_id', syncId)
+  storage.trySetItem(SYNC_ID_KEY, syncId)
 }
 
 logger.log(`[API] Sync ID: ${syncId}`)
+
+/** Текущий `X-Sync-ID` (читается из хранилища — его можно сменить без перезагрузки). */
+export function getSyncId() {
+  return storage.getItem(SYNC_ID_KEY) || syncId
+}
+
+/**
+ * Новый идентификатор устройства.
+ *
+ * Когда нужен: локальная БД создана заново (резервный режим sql.js, аварийное
+ * восстановление файла, «полный сброс»). Иначе сервер считает все записи «своими» и
+ * выдача пустая — база «не подгружается», хотя данные на сервере есть.
+ *
+ * @returns {string} новый id
+ */
+export function rotateSyncId() {
+  syncId = crypto.randomUUID()
+  storage.trySetItem(SYNC_ID_KEY, syncId)
+
+  logger.warn(
+    `[API] Новый X-Sync-ID: ${syncId} — локальная БД пересоздана, сервер должен отдать все записи`
+  )
+
+  return syncId
+}
 
 // --- Токен доступа к синку (задачи 3.10/7.4) ---------------------------------
 // Раньше токен читался один раз при импорте модуля, поэтому после входа заголовок
@@ -53,7 +88,6 @@ const apiClient = axios.create({
   baseURL: API_URL,
   headers: {
     'Content-Type': 'application/json',
-    'X-Sync-ID': syncId, // Добавляем ID в заголовки по умолчанию
   },
 })
 
@@ -63,6 +97,11 @@ apiClient.interceptors.request.use(config => {
   if (token) {
     config.headers.Authorization = `Bearer ${token}`
   }
+
+  // `X-Sync-ID` подставляем в момент запроса (как и токен): id может смениться
+  // после пересоздания локальной БД (`rotateSyncId()`), и без перезагрузки страницы
+  // сервер должен видеть уже новое устройство.
+  config.headers['X-Sync-ID'] = getSyncId()
 
   return config
 })

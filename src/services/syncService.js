@@ -4,7 +4,8 @@ import { logger } from 'src/utils/logger'
 import { v4 as uuidv4 } from 'uuid'
 import dbAdapter, { DB_NOT_READY_MESSAGE, isDbNotReadyError, isDbReady } from 'src/database/db.js';
 import { ensureDatabase } from 'src/database/init.js';
-import api, { hasAuthToken } from 'src/services/api';
+import storage from 'src/utils/storage.js';
+import api, { getSyncId, hasAuthToken, rotateSyncId } from 'src/services/api';
 import * as metaRepo from 'src/repositories/metaRepo';
 import operationsRepo from 'src/repositories/operationsRepo';
 // Очередь отчётов «Сообщить об ошибке» (Фаза 14): чистится полным сбросом, но в синк
@@ -135,6 +136,12 @@ const PERMANENT_OPERATION_ERRORS = new Set([
   'MISSING_ID_FOR_UPDATE',
   'MISSING_ID_FOR_DELETE',
 ]);
+
+/**
+ * Маркер «смену X-Sync-ID из-за пустой БД уже делали» — чтобы не зациклиться, если у
+ * аккаунта действительно нет данных (или сервер их не отдаёт по другой причине).
+ */
+const EMPTY_DB_REISSUE_KEY = 'sync_id_reissued_for_empty_db';
 
 class SyncService {
   constructor() {
@@ -359,6 +366,17 @@ class SyncService {
 
     try {
       await this._syncServerToLocal();
+    } catch (e) {
+      phaseErrors.push(e);
+    }
+
+    // Фаза 21, отчёт 43559f91 (21.10.2026): если локальная БД пуста, а сервер отдал 0
+    // записей — почти наверняка сервер скрывает **наши же** записи по `X-Sync-ID`
+    // (`last_sync_id == X-Sync-ID`, защита от эха). Так выглядит потеря локальных данных
+    // на том же устройстве: у Олега все 5 заказов имели его же `last_sync_id`.
+    // Лечение — новый идентификатор устройства и повторная полная выгрузка.
+    try {
+      await this._reissueDeviceIdIfDatabaseEmpty();
     } catch (e) {
       phaseErrors.push(e);
     }
@@ -1601,6 +1619,71 @@ class SyncService {
   }
 
   /**
+   * Локальная БД пуста, а сервер отдал ноль записей → меняем `X-Sync-ID` и выгружаем заново.
+   *
+   * Почему так (живой отчёт `43559f91`, 21.10.2026): сервер по фильтру анти-эха не отдаёт
+   * записи, у которых `last_sync_id == X-Sync-ID`. Пока локальная БД жива, это правильно.
+   * Но если она пересоздана (резервный режим sql.js после падения нативного плагина,
+   * «полный сброс», восстановление файла), устройство остаётся «тем же» и выгрузка
+   * приходит пустой — «база не подгружается», хотя данные на сервере есть. У Олега все
+   * 5 заказов и товары имели его же `last_sync_id`, а `product_stocks` (серверные строки
+   * без метки) приезжали — отсюда и предупреждения «Нет локального товара для остатка».
+   *
+   * Признак «надо менять id» — **пустая локальная БД** (нет ни профиля, ни клиентов, ни
+   * работ, ни заказов), а не количество полученных записей: серверные строки без метки
+   * (`product_stocks`) приходят даже тогда, когда все наши записи скрыты.
+   *
+   * Новый id = сервер видит новое устройство и отдаёт всё. Повторяем один раз.
+   *
+   * @returns {Promise<boolean>} true — идентификатор сменили и выгрузку повторили
+   */
+  async _reissueDeviceIdIfDatabaseEmpty() {
+    if (storage.getItem(EMPTY_DB_REISSUE_KEY) === '1') return false;
+
+    if (!(await this._localDatabaseIsEmpty())) {
+      // Данные есть — прошлый инцидент (если был) закрыт, маркер снимаем.
+      storage.removeItem(EMPTY_DB_REISSUE_KEY);
+      return false;
+    }
+
+    storage.trySetItem(EMPTY_DB_REISSUE_KEY, '1');
+
+    const previousId = getSyncId();
+    const nextId = rotateSyncId();
+
+    await metaRepo.resetLastSyncedAt();
+
+    logger.warn(
+      '[Sync] Локальная БД пуста — вероятно, сервер скрывает наши же записи ' +
+        `(last_sync_id == X-Sync-ID). Меняю id устройства ${previousId} → ${nextId} и выгружаю заново.`
+    );
+
+    await this._syncServerToLocal();
+
+    return true;
+  }
+
+  /**
+   * В локальной БД нет ни одной сущности мастерской?
+   *
+   * Пустой считается БД без профиля, клиентов, работ и заказов. Служебные строки
+   * (`product_stocks`, `meta`) не в счёт: они приходят с сервера без метки эха и
+   * появляются даже тогда, когда все «наши» записи скрыты фильтром.
+   *
+   * @returns {Promise<boolean>}
+   */
+  async _localDatabaseIsEmpty() {
+    for (const table of ['specializations', 'clients', 'services', 'orders']) {
+      const rows = await dbAdapter.query(`SELECT COUNT(*) AS count FROM ${table}`);
+      const count = rows.length ? Number(rows[0].count) : 0;
+
+      if (count > 0) return false;
+    }
+
+    return true;
+  }
+
+  /**
    * Проставляет локальный `server_id` записи, созданной офлайн, по её `uuid_id`
    * (на сервере он лежит в колонке `uuid_id`, локально — в `id`).
    *
@@ -1755,6 +1838,12 @@ class SyncService {
       await feedbackRepo.clearAll();
       feedbackOutbox.clear();
       await metaRepo.resetLastSyncedAt();
+
+      // Локальные данные стёрты — устройство «новое» и для сервера тоже (Фаза 21):
+      // иначе фильтр анти-эха по `X-Sync-ID` не отдаст нам наши же записи, и после
+      // сброса база осталась бы пустой (как в отчёте `43559f91`).
+      rotateSyncId();
+      storage.removeItem(EMPTY_DB_REISSUE_KEY);
     } finally {
       this._resetting = false;
     }
