@@ -15,6 +15,7 @@ import operationsRepo from 'src/repositories/operationsRepo'
 import * as salesProductPricesRepo from 'src/repositories/salesProductPricesRepo.js'
 import { toEpochSeconds } from 'src/utils/timestamps.js'
 import { normalizeQuantity } from 'src/utils/quantity.js'
+import { uniqueBy } from 'src/utils/uniqueLines.js'
 import {
   orderProductLineInsertParams,
   orderProductLineInsertFromServerParams,
@@ -116,7 +117,52 @@ export async function remove(line) {
 }
 
 /**
- * Удаляет все товары заказа (страница правки делает «удалить и добавить заново»).
+ * Приводит товары заказа к составу черновика без пересоздания совпадающих (21.27).
+ *
+ * Ключ — `product_id` (в строке заказа товар один раз; количество живёт в `quantity`).
+ * Дубли в черновике схлопываются, неизменённые строки не создают операций, поэтому
+ * повторное сохранение больше не множит позиции (отчёт `a8df6cf1`, 21.10.2026).
+ *
+ * @param {string} orderId
+ * @param {Array<{id?: string, product_id?: string, amount: number, price: number, buy_price?: number|null}>} draftLines
+ */
+export async function syncLines(orderId, draftLines = []) {
+  const productKey = line => String(line?.product_id ?? line?.id ?? '')
+  const draft = uniqueBy(draftLines, productKey).filter(line => productKey(line))
+  const wanted = new Set(draft.map(productKey))
+  const current = await dbAdapter.query(queries.getLinesByOrderId, [orderId])
+
+  for (const line of current) {
+    if (!wanted.has(String(line.product_id))) await remove(line)
+  }
+
+  const byProduct = new Map(current.map(line => [String(line.product_id), line]))
+
+  for (const line of draft) {
+    const amount = normalizeQuantity(line.amount)
+    const price = line.price ?? line.sale_price ?? 0
+    const buyPrice = line.buy_price ?? null
+    const existing = byProduct.get(productKey(line))
+
+    if (!existing) {
+      await add(orderId, line.product_id ?? line.id, amount, price, buyPrice)
+      continue
+    }
+
+    const same =
+      Number(existing.quantity ?? 1) === amount &&
+      Number(existing.sale_price ?? 0) === Number(price ?? 0) &&
+      Number(existing.buy_price ?? 0) === Number(buyPrice ?? 0)
+
+    if (same) continue
+
+    await remove(existing)
+    await add(orderId, existing.product_id, amount, price, buyPrice)
+  }
+}
+
+/**
+ * Удаляет все товары заказа (полный сброс/очистка, не «правка заказа»).
  */
 export async function removeByOrderId(orderId) {
   const lines = await dbAdapter.query(queries.getLinesByOrderId, [orderId])

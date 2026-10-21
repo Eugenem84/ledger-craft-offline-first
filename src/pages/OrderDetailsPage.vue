@@ -4,7 +4,7 @@
 // инициализация через `useOrderDraftStore`, уведомления Quasar, навигация и диалоги.
 //
 // ⚠️ Критерий 8.2: в этом файле (и вообще в `*.vue`) нет ни одного вызова `*Repo`.
-import { computed, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useQuasar } from 'quasar'
 import { storeToRefs } from 'pinia'
@@ -22,6 +22,7 @@ import OrderServiceDialog from 'src/components/order/dialogs/OrderServiceDialog.
 import OrderServicesPanel from 'src/components/order/OrderServicesPanel.vue'
 import OrderStoreProductDialog from 'src/components/order/dialogs/OrderStoreProductDialog.vue'
 import { useOrderDraftStore } from 'src/stores/useOrderDraftStore.js'
+import syncService from 'src/services/syncService.js'
 import { shareLinkErrorView } from 'src/utils/shareLinkError.js'
 // Правка владельца 17.09.2026: отчёт клиенту — либо ссылкой (сервер, задача 9.4),
 // либо текстом целиком (работает офлайн, внизу подпись ledgerCraft.ru). Формат
@@ -130,6 +131,26 @@ onMounted(async () => {
     notify('negative', 'Ошибка загрузки заказа')
   }
 })
+
+// Задача 21.26: позиции могли приехать уже после открытия заказа. Когда синк что-то
+// привёз, перечитываем состав — иначе мастер видит устаревший список до перезахода
+// в заказ (живой отчёт `8fe15cbd`, 21.10.2026: строка «Прокладка трассы» приехала
+// полной выдачей, а в открытом заказе её не было).
+let wasSyncing = false
+const unsubscribeSync = syncService.subscribe(status => {
+  if (status?.syncing) {
+    wasSyncing = true
+    return
+  }
+
+  if (!wasSyncing) return
+
+  wasSyncing = false
+
+  if ((Number(status?.lastPullRecords) || 0) > 0) void draft.reloadPositions()
+})
+
+onBeforeUnmount(() => unsubscribeSync())
 
 // --- Справочники вкладок ---
 

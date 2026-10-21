@@ -5,6 +5,7 @@ import queries from 'src/database/queries/order_service'
 import operationsRepo from 'src/repositories/operationsRepo'
 import { toEpochSeconds } from 'src/utils/timestamps.js'
 import { normalizeQuantity } from 'src/utils/quantity.js'
+import { uniqueBy } from 'src/utils/uniqueLines.js'
 import {
   orderServiceLineInsertParams,
   orderServiceLineInsertFromServerParams,
@@ -73,6 +74,51 @@ export async function removeByOrderId(orderId) {
 
   for (const line of lines) {
     await removeLine(line)
+  }
+}
+
+/**
+ * Приводит строки работ к составу черновика **без пересоздания неизменённых** (21.27).
+ *
+ * Раньше страница делала «удалить всё и добавить заново»: каждое сохранение меняло
+ * `uuid_id` строк, а другие устройства получали это как удаление + вставку. Если
+ * удаление и вставка расходились (или черновик уже содержал копии), у мастера
+ * множились работы и товары (отчёт `a8df6cf1`, 21.10.2026).
+ *
+ * Теперь: лишние строки удаляем, недостающие добавляем, изменённые пересоздаём,
+ * а совпадающие не трогаем вовсе — повторное сохранение не создаёт операций.
+ *
+ * @param {string} orderId локальный id заказа
+ * @param {Array<{id: string, sale_price?: number|null, price?: number, quantity?: number}>} draftLines
+ */
+export async function syncLines(orderId, draftLines = []) {
+  const draft = uniqueBy(draftLines, line => String(line?.id ?? '')).filter(line => line?.id)
+  const wanted = new Set(draft.map(line => String(line.id)))
+  const current = await dbAdapter.query(queries.getLinesByOrderId, [orderId])
+
+  for (const line of current) {
+    if (!wanted.has(String(line.service_id))) await removeLine(line)
+  }
+
+  const byService = new Map(current.map(line => [String(line.service_id), line]))
+
+  for (const line of draft) {
+    const price = line.sale_price ?? line.price ?? null
+    const quantity = normalizeQuantity(line.quantity ?? 1)
+    const existing = byService.get(String(line.id))
+
+    if (!existing) {
+      await add(orderId, line.id, price, quantity)
+      continue
+    }
+
+    const samePrice = Number(existing.sale_price ?? 0) === Number(price ?? 0)
+    const sameQuantity = Number(existing.quantity ?? 1) === quantity
+
+    if (samePrice && sameQuantity) continue
+
+    await removeLine(existing)
+    await add(orderId, line.id, price, quantity)
   }
 }
 

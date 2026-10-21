@@ -32,6 +32,7 @@ import { logger } from 'src/utils/logger'
 import { ORDER_NOT_SYNCED } from 'src/utils/shareLinkError.js'
 import { ORDER_STATUSES } from 'src/utils/analytics.js'
 import { normalizeQuantity, normalizeQuantityInput } from 'src/utils/quantity.js'
+import { uniqueBy } from 'src/utils/uniqueLines.js'
 import { useOrdersStore } from 'src/stores/useOrdersStore.js'
 import { useModelsStore } from 'src/stores/useModelsStore.js'
 import { useCategoriesStore } from 'src/stores/useCategoriesStore.js'
@@ -53,6 +54,27 @@ const emptyOrder = () => ({ status: 'waiting', paid: false, clientId: null, mode
  * мастер продал (дефект разобран 15.09.2026 вместе с обнулением маржи).
  */
 const lineQuantity = line => normalizeQuantity(line?.amount ?? line?.quantity)
+
+/**
+ * Позиции заказа из локальной БД **без дублей** (задача 21.27).
+ *
+ * Ключи: работа — её id, товар — его id, «купленное по пути» — содержимое строки
+ * (`name|price|buy_price|amount`). Дубли появлялись от повторных выгрузок, и раньше
+ * они попадали в UI и в сохранение (отчёт `a8df6cf1`, 21.10.2026: «двойные работы»,
+ * 4 копии товара на сервере).
+ *
+ * @param {string} orderId локальный id заказа
+ */
+async function readPositions(orderId) {
+  return {
+    services: uniqueBy(await orderServiceRepo.getByOrderId(orderId), line => String(line.id)),
+    materials: uniqueBy(
+      await materialsRepo.getByOrderId(orderId),
+      line => `${line.name ?? ''}|${Number(line.price ?? 0)}|${Number(line.buy_price ?? 0)}|${line.amount ?? 1}`
+    ),
+    products: uniqueBy(await orderProductRepo.getByOrderId(orderId), line => String(line.id)),
+  }
+}
 
 export const useOrderDraftStore = defineStore('orderDraft', {
   state: () => ({
@@ -250,6 +272,35 @@ export const useOrderDraftStore = defineStore('orderDraft', {
       await this.loadCatalogs()
     },
 
+    /**
+     * Перечитывает позиции текущего заказа из локальной БД (задача 21.26).
+     *
+     * Зачем: фоновая синхронизация может привезти строки заказа уже после того, как
+     * экран открыли. Раньше позиции читались один раз в `init()`, и мастер видел
+     * устаревший состав до перезахода в заказ (живой отчёт `8fe15cbd`, 21.10.2026:
+     * планшет получил строку «Прокладка трассы» полной выдачей, а в открытом заказе
+     * её не было).
+     *
+     * Не трогаем данные, пока идёт правка (`editMode`) или создаётся новый заказ:
+     * иначе можно потерять несохранённые изменения.
+     *
+     * @returns {Promise<boolean>} true — позиции перечитаны
+     */
+    async reloadPositions() {
+      if (!this.order?.id || this.editMode || this.isNewOrder) return false
+
+      Object.assign(this, await readPositions(this.order.id))
+
+      // Диагностика для отчёта «Сообщить об ошибке»: что реально лежит в заказе
+      // после синка (только строки и цены, без персональных данных).
+      logger.log(
+        `[Order] позиции ${this.order.id}: услуг ${this.services.length} ` +
+          this.services.map(line => `${line.line_id}/${line.sale_price ?? line.price}`).join(', ')
+      )
+
+      return true
+    },
+
     /** Заполняет стор существующим заказом (и подтягивает его позиции). */
     async loadOrder(selectedOrder) {
       this.order = { ...selectedOrder }
@@ -270,9 +321,7 @@ export const useOrderDraftStore = defineStore('orderDraft', {
         }
       }
 
-      this.services = await orderServiceRepo.getByOrderId(this.order.id)
-      this.materials = await materialsRepo.getByOrderId(this.order.id)
-      this.products = await orderProductRepo.getByOrderId(this.order.id)
+      Object.assign(this, await readPositions(this.order.id))
     },
 
     /** Справочники формы: клиенты, модели, категории работ, категории товаров. */
@@ -570,7 +619,16 @@ export const useOrderDraftStore = defineStore('orderDraft', {
       return orderId
     },
 
-    /** Обновляет заказ и перезаписывает его позиции («удалить и добавить заново»). */
+    /**
+     * Обновляет заказ и приводит его позиции к составу черновика.
+     *
+     * Задача 21.27: раньше здесь было «удалить всё и добавить заново» — каждое
+     * сохранение меняло `uuid_id` строк, и повторная выгрузка привозила удаления и
+     * вставки как разные события. Если черновик уже содержал копии (их притащили
+     * повторные выгрузки), все они уезжали на сервер: у мастера множились работы и
+     * товары (отчёт `a8df6cf1`, 21.10.2026 — 4 копии товара). Теперь `syncLines`
+     * трогает только реально изменённые строки.
+     */
     async updateOrder() {
       await useOrdersStore().update(this.order.id, {
         client_id: this.client?.id ?? null,
@@ -582,40 +640,13 @@ export const useOrderDraftStore = defineStore('orderDraft', {
         status: this.status,
       })
 
-      await orderServiceRepo.removeByOrderId(this.order.id)
-      for (const service of this.services) {
-        await orderServiceRepo.add(
-          this.order.id,
-          service.id,
-          service.price,
-          lineQuantity(service)
-        )
-      }
+      await orderServiceRepo.syncLines(this.order.id, this.services)
 
-      await materialsRepo.removeByOrderId(this.order.id)
-      for (const material of this.materials) {
-        // ⚠️ `buy_price` обязателен и при правке: строки пересоздаются («удалить и
-        // добавить заново»), и раньше себестоимость здесь терялась — «Аналитика»
-        // показывала закупку 0 и наценку прочерком, хотя товар был заведён с ценой
-        // закупки (дефект разобран 15.09.2026).
-        await materialsRepo.add(this.order.id, {
-          name: material.name,
-          price: material.price,
-          amount: material.amount,
-          buy_price: material.buy_price ?? null,
-        })
-      }
+      // ⚠️ `buy_price` обязателен и при правке: строки пересоздаются только при
+      // изменении, но себестоимость должна пережить и это (дефект 15.09.2026).
+      await materialsRepo.syncLines(this.order.id, this.materials)
 
-      await orderProductRepo.removeByOrderId(this.order.id)
-      for (const product of this.products) {
-        await orderProductRepo.add(
-          this.order.id,
-          product.id,
-          product.amount,
-          product.price,
-          product.buy_price ?? null
-        )
-      }
+      await orderProductRepo.syncLines(this.order.id, this.products)
     },
 
     /** Сохраняет заказ: новый — создаёт, существующий — обновляет. */

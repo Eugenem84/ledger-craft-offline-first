@@ -13,6 +13,7 @@ import queries from 'src/database/queries/materials.js'
 import operationsRepo from 'src/repositories/operationsRepo'
 import { toEpochSeconds } from 'src/utils/timestamps.js'
 import { normalizeQuantity } from 'src/utils/quantity.js'
+import { uniqueBy } from 'src/utils/uniqueLines.js'
 import {
   materialLineInsertParams,
   materialLineInsertFromServerParams,
@@ -87,6 +88,53 @@ export async function removeByOrderId(orderId) {
 
   for (const line of lines) {
     await remove(line)
+  }
+}
+
+/**
+ * Приводит ручные позиции к составу черновика без пересоздания совпадающих (21.27).
+ *
+ * Ключ у «купленного по пути» — содержимое (`name|price|buy_price|amount`): у строки
+ * нет внешнего идентификатора, а дубли в базе выглядят именно как одинаковые позиции.
+ *
+ * @param {string} orderId
+ * @param {Array<{id?: string, name: string, price: number, amount: number, buy_price?: number|null}>} draftLines
+ */
+export async function syncLines(orderId, draftLines = []) {
+  const signatureOf = line =>
+    `${line?.name ?? ''}|${Number(line?.price ?? 0)}|${Number(line?.buy_price ?? 0)}|${normalizeQuantity(line?.amount)}`
+
+  const draft = uniqueBy(draftLines, signatureOf)
+  const current = await dbAdapter.query(queries.getByOrderId, [orderId])
+  const byId = new Map(current.map(line => [String(line.id), line]))
+  const wantedIds = new Set(draft.map(line => line?.id).filter(Boolean))
+
+  for (const line of current) {
+    if (!wantedIds.has(line.id)) await remove(line)
+  }
+
+  for (const line of draft) {
+    if (!line?.name) continue
+
+    const existing = line.id ? byId.get(String(line.id)) : null
+    const amount = normalizeQuantity(line.amount)
+
+    const same =
+      existing &&
+      String(existing.name ?? '') === String(line.name) &&
+      Number(existing.price ?? 0) === Number(line.price ?? 0) &&
+      Number(existing.amount ?? 1) === amount &&
+      Number(existing.buy_price ?? 0) === Number(line.buy_price ?? 0)
+
+    if (same) continue
+    if (existing) await remove(existing)
+
+    await add(orderId, {
+      name: line.name,
+      price: line.price,
+      amount,
+      buy_price: line.buy_price ?? null,
+    })
   }
 }
 
