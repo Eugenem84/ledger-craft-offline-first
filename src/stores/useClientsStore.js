@@ -54,6 +54,9 @@ export const useClientsStore = defineStore('clients', {
         this.error = err
         // Откат в случае ошибки
         this.items = this.items.filter(c => c.id !== newItem.id)
+        // Пробрасываем: без этого диалог «успешно» закрывался, а клиент не сохранялся
+        // (в т.ч. когда имя пустое — репозиторий его не принимает).
+        throw err
       }
     },
 
@@ -72,6 +75,7 @@ export const useClientsStore = defineStore('clients', {
       } catch (err) {
         this.error = err
         this.items[index] = oldItem // Откат
+        throw err
       }
     },
 

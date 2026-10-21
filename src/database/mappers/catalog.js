@@ -54,7 +54,18 @@ export function clientInsertFromServerParams({
   createdAt,
   updatedAt,
 }) {
-  return [localId, serverId, localSpecializationId, specializationServerId, name, phone, createdAt, updatedAt]
+  // `?? null` — страховка от `undefined`: sql.js (и нативный биндинг) отвергают
+  // значение неизвестного типа, и вся выдача таблицы падала бы целиком.
+  return [
+    localId,
+    serverId,
+    localSpecializationId ?? null,
+    specializationServerId ?? null,
+    name,
+    phone ?? '',
+    createdAt,
+    updatedAt,
+  ]
 }
 
 /**

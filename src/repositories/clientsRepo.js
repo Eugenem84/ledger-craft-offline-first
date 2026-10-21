@@ -15,6 +15,37 @@ import {
 //logger.log('queries.insert:', queries.insert)
 logger.log('!!! queries object:', queries)
 
+/** Текст ошибки «клиент без имени» — его показывает интерфейс. */
+export const CLIENT_NAME_REQUIRED_MESSAGE =
+  'Укажите имя клиента — без имени запись не сохранится и не уедет на сервер'
+
+/**
+ * Приводит имя клиента к пригодному для сервера виду.
+ *
+ * Зачем проверка в репозитории, а не только в форме (живой лог 19.10.2026):
+ * мастер создал клиента с пустым именем, локальная таблица допускает `''`,
+ * а Laravel превращает пустую строку в `null` (middleware `ConvertEmptyStringsToNull`)
+ * и PostgreSQL отвечает `23502 not-null constraint`. Операция висела в очереди и
+ * уходила на сервер снова и снова, забивая журнал одинаковыми ошибками.
+ *
+ * @param {*} name
+ * @returns {string}
+ * @throws {Error} с кодом `CLIENT_NAME_REQUIRED`, если имени нет
+ */
+export function normalizeClientName(name) {
+  const text = String(name ?? '')
+    .replace(/\s+/g, ' ')
+    .trim()
+
+  if (!text) {
+    const error = new Error(CLIENT_NAME_REQUIRED_MESSAGE)
+    error.code = 'CLIENT_NAME_REQUIRED'
+    throw error
+  }
+
+  return text
+}
+
 export async function getAll() {
   const rows =  await dbAdapter.query(queries.getAll)
   logger.log('repo rows: ',rows)
@@ -59,8 +90,12 @@ export async function save(client) {
   // Если клиент уже имеет id (например, при редактировании), используется существующий.
   const id = client.id || uuidv4()
 
+  // Имя обязательно и на клиенте (см. `normalizeClientName`): без него сервер
+  // отвечает `not-null constraint`, а операция крутится в очереди бесконечно.
+  const normalized = { ...client, name: normalizeClientName(client.name) }
+
   // Готовим параметры для SQL-запроса на вставку (порядок колонок — в маппере, 8.3).
-  const params = clientInsertParams({ id, client })
+  const params = clientInsertParams({ id, client: normalized })
 
   // Выполняем SQL-запрос для сохранения клиента в локальной базе данных.
   await dbAdapter.execute(queries.insert, params)
@@ -70,7 +105,7 @@ export async function save(client) {
   // Но нам нужно знать этот id, чтобы потом обновить запись, когда сервер вернет server_id.
   // Поэтому мы сохраняем его в payload под ключом `local_id`,
   // который будет удален перед отправкой на сервер.
-  const payloadForServer = { ...client };
+  const payloadForServer = { ...normalized };
   delete payloadForServer.id;
   const opId = uuidv4();
   const opPayload = JSON.stringify({ local_id: id, ...payloadForServer });
@@ -99,33 +134,45 @@ export async function update(client) {
   // 1. Получаем текущую запись из БД, чтобы не потерять server_id и др. поля
   const existingClient = await dbAdapter.queryOne(queries.getById, [client.id]);
 
-  // 2. Обновляем локальную запись в БД только переданными полями
-  const params = clientUpdateParams({ id: client.id, client });
-  await dbAdapter.execute(queries.update, params); // Убедитесь, что queries.update обновляет только нужные поля
+  if (!existingClient) {
+    const error = new Error('Клиент не найден — обновите список и попробуйте снова');
+    error.code = 'CLIENT_NOT_FOUND';
+    throw error;
+  }
 
-  // 3. Готовим операцию для сервера
-  if (existingClient && existingClient.server_id) {
+  // 2. Собираем итоговые значения: поля, которых нет в правке, остаются прежними.
+  //    Раньше частичное обновление (`{ phone }`) записывало `name = undefined`:
+  //    локально это падало на NOT NULL, а в payload уезжал `name: null` — сервер
+  //    отвечал `23502 not-null constraint` и операция повторялась бесконечно.
+  const merged = {
+    name: normalizeClientName(client.name ?? existingClient.name),
+    phone: client.phone ?? existingClient.phone ?? '',
+    specialization_id: client.specialization_id ?? existingClient.specialization_id ?? null,
+    specialization_server_id:
+      client.specialization_server_id ?? existingClient.specialization_server_id ?? null,
+  };
+
+  // 3. Обновляем локальную запись итоговыми значениями (не «только переданными»).
+  await dbAdapter.execute(queries.update, clientUpdateParams({ id: client.id, client: merged }));
+
+  // 4. Готовим операцию для сервера
+  if (existingClient.server_id) {
     // Если есть server_id, значит, запись синхронизирована.
     // Готовим операцию 'update' для сервера.
     const opId = uuidv4();
     // В payload для сервера используем server_id как 'id'
     const payloadForServer = {
       id: existingClient.server_id,
-      name: client.name,
-      phone: client.phone,
-      specialization_id: client.specialization_id,
-      specialization_server_id: client.specialization_server_id
+      ...merged
     };
     const opPayload = JSON.stringify(payloadForServer);
     const opParams = [opId, 'update', 'clients', opPayload, Date.now()];
     await operationsRepo.enqueue(opParams);
   } else {
-    // Если server_id нет, значит, это новая, еще не синхронизированная запись.
-    // Операция 'insert' для нее уже должна быть в очереди.
-    // Нам нужно найти эту операцию и обновить ее payload.
-    // (Этот код предполагает, что у вас есть метод для обновления операции в operationsRepo)
-    logger.log('Запись еще не на сервере. Обновление произойдет в рамках операции INSERT.');
-    // await operationsRepo.updatePayloadByLocalId('clients', client.id, client);
+    // Запись создана офлайн: на сервер поедет операция `insert`, и её payload надо
+    // обновить — иначе правка (например, исправленное пустое имя) не уедет никогда,
+    // а сервер будет отклонять старую версию записи (живой лог 19.10.2026).
+    await operationsRepo.updateInsertPayload('clients', client.id, merged);
   }
 }
 

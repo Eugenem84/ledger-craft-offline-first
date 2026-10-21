@@ -164,3 +164,24 @@ describe('14.33 значок синка объясняет себя (диало�
     expect(syncStatusOutcome({ online: true, pendingCount: 4 }).message).toBe('Осталось отправить: 4')
   })
 })
+
+describe('21.6 индикатор синка: «база не открыта»', () => {
+  it('состояние БД важнее остальных: не «синхронизировано»', () => {
+    const view = syncStatusView({ dbError: true, online: true, pendingCount: 0 })
+
+    expect(view).toMatchObject({ kind: 'db', icon: 'storage', color: 'negative', spin: false })
+    expect(view.label).toBe('база не открыта')
+    expect(syncStatusNeedsAttention({ dbError: true })).toBe(true)
+  })
+
+  it('диалог объясняет, что делать, и не требует «лишних кнопок»', () => {
+    const text = syncStatusDetails({ dbError: true }).join('\n')
+
+    expect(text).toContain('Локальная база данных не открылась')
+    expect(text).toContain('установите его заново')
+    expect(text).toContain('база для этого больше не нужна')
+    expect(syncStatusActions({ dbError: true }).map(action => action.key)).toEqual(['sync'])
+    expect(syncStatusOutcome({ dbError: true }).message).toContain('перезапустите приложение')
+  })
+})
+

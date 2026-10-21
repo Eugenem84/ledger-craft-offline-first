@@ -185,7 +185,13 @@ export function createFakeServer() {
 
         const forcedError = config.errorFor?.(op)
         if (forcedError) {
-          errors.push({ local_id: localId, error: forcedError })
+          // Строка — прежний контракт; объект позволяет передать и `details`
+          // (server-side разбор: `DATABASE_ERROR` + `SQLSTATE[23502]`).
+          errors.push(
+            typeof forcedError === 'string'
+              ? { local_id: localId, error: forcedError }
+              : { local_id: localId, ...forcedError }
+          )
           continue
         }
 

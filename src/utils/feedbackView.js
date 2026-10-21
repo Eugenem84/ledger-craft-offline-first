@@ -47,6 +47,7 @@ export const FEEDBACK_FIELDS = [
   'api_url',
   'schema_version',
   'schema_stored',
+  'db',
   'account',
   'profile',
   'sync',
@@ -55,8 +56,21 @@ export const FEEDBACK_FIELDS = [
   'client_created_at',
 ]
 
-/** Поля снимка синка, которые попадают в отчёт. */
-const SYNC_FIELDS = ['online', 'pendingCount', 'failedCount', 'consecutiveFailures', 'lastError']
+/**
+ * Снимок синка: только известные поля (никаких «лишних» объектов из состояния).
+ *
+ * `dbError` и `lastPullRecords` добавлены в Фазе 21: по отчёту 19.10.2026 нельзя было
+ * понять, выполнялась ли выгрузка вообще и знала ли она, что локальная БД не открыта.
+ */
+const SYNC_FIELDS = [
+  'online',
+  'pendingCount',
+  'failedCount',
+  'consecutiveFailures',
+  'lastError',
+  'dbError',
+  'lastPullRecords',
+]
 
 /** Обрезка строки по лимиту (с «…» в конце). */
 export function clipText(value, limit = FEEDBACK_LINE_LIMIT) {
@@ -120,6 +134,21 @@ function normalizeSync(sync) {
 }
 
 /**
+ * Снимок локальной БД: открылась ли она, с какой попытки и почему нет.
+ * Поля фиксированы, текст причины обрезан — в отчёт не попадает ничего лишнего.
+ */
+function normalizeDb(db) {
+  if (!db || typeof db !== 'object') return null
+
+  return {
+    ready: db.ready === true,
+    error: db.error ? clipText(db.error) : null,
+    attempts: Number(db.attempts) || 0,
+    source: db.source ? clipText(db.source, 50) : null,
+  }
+}
+
+/**
  * Собирает payload отчёта. Поля перечислены явно (см. `FEEDBACK_FIELDS`), поэтому
  * посторонние данные в отчёт попасть не могут.
  *
@@ -162,6 +191,7 @@ export function buildFeedbackReport({
     api_url: diag.apiUrl ? String(diag.apiUrl) : null,
     schema_version: diag.schemaVersion ?? null,
     schema_stored: diag.schemaStored ?? null,
+    db: normalizeDb(diag.db),
     account: diag.account ? String(diag.account) : '',
     profile: diag.profile ? String(diag.profile) : '',
     sync: normalizeSync(diag.sync),
@@ -245,6 +275,16 @@ export function feedbackTextFromReport(report) {
             report.schema_stored == null
               ? `эталон ${report.schema_version ?? '?'} · в БД неизвестно`
               : `эталон ${report.schema_version ?? '?'} · в БД ${report.schema_stored}`,
+        },
+        {
+          // Фаза 21: без этой строки в отчёте 19.10.2026 не было видно главного —
+          // открылась ли локальная БД и почему нет.
+          label: 'локальная БД',
+          value: report.db
+            ? report.db.ready
+              ? 'открыта'
+              : `не открыта: ${report.db.error || 'причина неизвестна'}`
+            : '—',
         },
         { label: 'аккаунт', value: report.account || '—' },
         { label: 'профиль', value: report.profile || '—' },

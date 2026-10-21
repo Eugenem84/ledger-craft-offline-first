@@ -15,6 +15,25 @@ import webAdapter from './adapters/sqljs-web-adapter.js'
 let active = webAdapter
 
 /**
+ * Состояние инициализации локальной БД.
+ *
+ * Зачем это отдельно от адаптера: на устройстве SQLite может не открыться (сбой
+ * плагина, «отравленное» соединение, повреждённый файл), и раньше приложение
+ * продолжало работать «как обычно»: каждая операция падала текстом
+ * «База не открыта», синк молчал, а индикатор показывал «синхронизировано».
+ * Теперь факт неудачи виден всему приложению: `boot/db.js` помечает состояние,
+ * `syncService` показывает его в индикаторе, а фидбек всё равно может отправить
+ * отчёт (см. `utils/feedbackOutbox.js`).
+ *
+ * @type {{ready: boolean, error: string|null, attempts: number, source: string|null, lastAttemptAt: number}}
+ */
+let state = { ready: false, error: null, attempts: 0, source: null, lastAttemptAt: 0 }
+
+/** Текст, которым нативный адаптер сообщает «соединения нет» (см. `requireConnection`). */
+export const DB_NOT_READY_MESSAGE =
+  'Локальная база данных не открылась. Перезапустите приложение — данные загрузятся с сервера.'
+
+/**
  * Делает адаптер активным (вызывается из boot после выбора по платформе).
  * @param {object} adapter
  */
@@ -22,6 +41,59 @@ export function setAdapter(adapter) {
   active = adapter || webAdapter
   logger.log(`[DB] Активный адаптер: ${active.name || 'unknown'}`)
   return active
+}
+
+/** БД открыта и готова к работе (миграции уже прошли). */
+export function markDbReady() {
+  state = { ...state, ready: true, error: null, lastAttemptAt: Date.now() }
+}
+
+/**
+ * БД открыть не удалось: причина сохраняется, чтобы её увидели индикатор синка,
+ * отчёт «Сообщить об ошибке» и журнал (после перезапуска — `utils/errorLog.js`).
+ * @param {Error|string} error
+ * @param {{source?: string}} [meta] откуда пришла неудача (`boot`/`recovery`)
+ */
+export function markDbFailed(error, meta = {}) {
+  const message = typeof error === 'string' ? error : error?.message || String(error ?? 'неизвестная ошибка')
+
+  state = {
+    ready: false,
+    error: message,
+    attempts: state.attempts + 1,
+    source: meta.source || state.source || null,
+    lastAttemptAt: Date.now(),
+  }
+
+  return getDbState()
+}
+
+/** @returns {{ready: boolean, error: string|null, attempts: number, source: string|null, lastAttemptAt: number}} */
+export function getDbState() {
+  return { ...state }
+}
+
+/** Быстрая проверка «можно ли сейчас ходить в БД» без исключений. */
+export function isDbReady() {
+  return state.ready === true
+}
+
+/** Сброс состояния инициализации — только для тестов. */
+export function resetDbStateForTests() {
+  state = { ready: false, error: null, attempts: 0, source: null, lastAttemptAt: 0 }
+}
+
+/**
+ * Это ошибка «БД не открыта»? Нужна, чтобы отличить поломку локальной БД от
+ * сетевой/серверной ошибки и не пытаться лечить её повтором запроса.
+ * @param {*} error
+ */
+export function isDbNotReadyError(error) {
+  if (error?.code === 'DB_NOT_READY') return true
+
+  const message = String(error?.message || error || '')
+
+  return /База не открыта|database .*not opened|Database not initialized/i.test(message)
 }
 
 /** @returns {object} активный адаптер */

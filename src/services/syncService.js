@@ -2,13 +2,15 @@
 
 import { logger } from 'src/utils/logger'
 import { v4 as uuidv4 } from 'uuid'
-import dbAdapter from 'src/database/db.js';
+import dbAdapter, { DB_NOT_READY_MESSAGE, isDbNotReadyError, isDbReady } from 'src/database/db.js';
+import { ensureDatabase } from 'src/database/init.js';
 import api, { hasAuthToken } from 'src/services/api';
 import * as metaRepo from 'src/repositories/metaRepo';
 import operationsRepo from 'src/repositories/operationsRepo';
 // Очередь отчётов «Сообщить об ошибке» (Фаза 14): чистится полным сбросом, но в синк
 // не входит (решение D7 — отдельный транспорт).
 import feedbackRepo from 'src/repositories/feedbackRepo';
+import feedbackOutbox from 'src/utils/feedbackOutbox.js';
 import { toEpochMs } from 'src/utils/timestamps.js';
 
 import * as clientsRepo from 'src/repositories/clientsRepo';
@@ -247,6 +249,12 @@ class SyncService {
       blockedCount: 0,
       // «Нужен вход» (задача 7.4): без токена синк недоступен — индикатор это покажет.
       requiresAuth: false,
+      // Локальная БД не открылась (Фаза 21): синк физически невозможен — индикатор
+      // покажет это отдельным состоянием, а не «синхронизировано».
+      dbError: false,
+      // Сколько записей пришло с сервера за последний проход (диагностика: отличить
+      // «сервер отдал 0» от «выгрузка не выполнялась»).
+      lastPullRecords: 0,
     };
 
     // Кэш «есть ли у таблицы колонка server_id» — нужен «примирению» записей по
@@ -304,6 +312,24 @@ class SyncService {
 
     this._setStatus({ requiresAuth: false });
 
+    // Локальная БД не открылась на старте (Фаза 21): пробуем открыть ещё раз —
+    // именно здесь, потому что синк возможен только с базой. На первом запуске
+    // после установки нативная часть иногда готова не сразу; повтор без действий
+    // мастера возвращает приложение в рабочее состояние, а вместе с ним приезжают
+    // данные с сервера (курсоры пусты → полная выдача).
+    if (!isDbReady()) {
+      const reopened = await ensureDatabase();
+
+      if (!reopened.ok) {
+        this._setStatus({ dbError: true, lastError: DB_NOT_READY_MESSAGE });
+        logger.error(
+          '[Sync] Локальная БД не открыта — синхронизация невозможна:',
+          reopened.error?.message || reopened.error
+        );
+        return;
+      }
+    }
+
     const waitMs = this.status.nextRetryAt - Date.now();
 
     if (!options.force && waitMs > 0) {
@@ -314,26 +340,79 @@ class SyncService {
     this.syncing = true;
     this._setStatus({ syncing: true });
 
+    // Фаза 21 (живой дефект 19.10.2026, новый телефон).
+    //
+    // Раньше обе фазы стояли в одном `try`, и ошибка отправки **отменяла приём**:
+    // на новом устройстве (пустая БД) это выглядело как «база с сервера не
+    // подгрузилась» — хотя сервер был доступен. Теперь фазы независимы: даже если
+    // одна операция не уехала, данные с сервера всё равно приедут.
+    const phaseErrors = [];
+
     try {
       // Отправляем локальные операции на сервер. Порядок «родитель → ребёнок» и
       // «дожим» отложенных операций внутри одного прогона — в _syncLocalToServer()
       // (граф FK-зависимостей + топологическая сортировка, задача 3.2).
       await this._syncLocalToServer();
+    } catch (e) {
+      phaseErrors.push(e);
+    }
 
+    try {
       await this._syncServerToLocal();
     } catch (e) {
-      console.error('[SyncService] Ошибка синхронизации:', e);
-    } finally {
-      this.syncing = false;
-      logger.log('[Sync] end');
+      phaseErrors.push(e);
+    }
 
+    this.syncing = false;
+    logger.log('[Sync] end');
+
+    try {
       this._setStatus({
         syncing: false,
+        dbError: false,
         pendingCount: await this._countPending(),
         failedCount: await this._countFailed(),
         blockedCount: await this._countBlocked(),
       });
+    } catch (e) {
+      // Счётчики живут в БД: если она не открыта, проход всё равно должен корректно
+      // завершиться — иначе `sync()` «зависает» в состоянии `syncing` и индикатор врёт.
+      this._setStatus({ syncing: false, pendingCount: 0, failedCount: 0, blockedCount: 0 });
+      phaseErrors.push(e);
     }
+
+    // Ошибки ставим последними: успешный приём в `_syncServerToLocal()` сбрасывает
+    // `lastError` (это правильно для сетевого сбоя), но неудачная отправка не должна
+    // из-за этого исчезнуть из индикатора. Ошибка БД важнее остальных.
+    if (phaseErrors.length) {
+      const dbError = phaseErrors.find(isDbNotReadyError);
+
+      this._registerSyncError(dbError ?? phaseErrors[0]);
+    }
+  }
+
+  /**
+   * Ошибка прохода синка: в журнал (постоянный буфер) и в состояние индикатора.
+   *
+   * Раньше здесь был только `console.error`: на боевом APK консоли нет, а
+   * `status.lastError` не заполнялся — индикатор показывал «синхронизировано»,
+   * хотя не выполнено ничего (живой отчёт 19.10.2026).
+   *
+   * @param {*} error
+   */
+  _registerSyncError(error) {
+    const message = error?.message || String(error ?? 'неизвестная ошибка');
+
+    if (isDbNotReadyError(error)) {
+      // Поломка локальной БД — не сетевая ошибка: повторять запрос бессмысленно,
+      // поэтому отдельное состояние индикатора и подсказка, что делать мастеру.
+      this._setStatus({ dbError: true, lastError: DB_NOT_READY_MESSAGE });
+      logger.error('[Sync] Локальная БД не открыта — синхронизация невозможна:', message);
+      return;
+    }
+
+    this._setStatus({ lastError: message });
+    logger.error('[Sync] Ошибка синхронизации:', message);
   }
 
   // --- Состояние синка для UI (задачи 6.2/6.3) ---------------------------------
@@ -359,10 +438,24 @@ class SyncService {
    * @returns {Promise<object>} актуальный снимок состояния
    */
   async refreshStatus() {
-    const pendingCount = await this._countPending();
-    const failedCount = await this._countFailed();
-    const blockedCount = await this._countBlocked();
-    this._setStatus({ pendingCount, failedCount, blockedCount, requiresAuth: !hasAuthToken() });
+    try {
+      const pendingCount = await this._countPending();
+      const failedCount = await this._countFailed();
+      const blockedCount = await this._countBlocked();
+      this._setStatus({
+        pendingCount,
+        failedCount,
+        blockedCount,
+        dbError: false,
+        requiresAuth: !hasAuthToken(),
+      });
+    } catch (e) {
+      // БД не открыта: счётчики не прочитать, но индикатор должен сказать правду
+      // (живой дефект 19.10.2026: он показывал «синхронизировано»).
+      this._registerSyncError(e);
+      this._setStatus({ requiresAuth: !hasAuthToken() });
+    }
+
     return this.getStatus();
   }
 
@@ -900,14 +993,35 @@ class SyncService {
    * Помимо известных кодов (см. `PERMANENT_OPERATION_ERRORS`) сюда попадают
    * структурные ошибки — битый payload, неизвестная таблица или тип операции.
    *
+   * Фаза 21 (живой лог 19.10.2026): добавились нарушения целостности данных.
+   * Операция «клиент без имени» приходила на сервер как `name = null`, PostgreSQL
+   * отвечал `DATABASE_ERROR` / `SQLSTATE[23502] not-null constraint`, а клиент считал
+   * ошибку временной и отправлял ту же строку каждые несколько секунд: очередь не
+   * убывала, последовательность id на сервере росла, а постоянный буфер ошибок
+   * забивался одинаковыми записями (и настоящая причина поломки БД терялась).
+   * Такие ошибки повторением не лечатся — их нужно показать мастеру.
+   *
    * @param {string} error код ошибки из ответа `/sync`
+   * @param {string} [detailsMessage] текст от сервера (`details.message`)
    * @returns {boolean}
    */
-  _isPermanentOperationError(error) {
+  _isPermanentOperationError(error, detailsMessage = '') {
     if (!error) return false;
     if (PERMANENT_OPERATION_ERRORS.has(error)) return true;
+    if (/Invalid operation structure|Unsupported operation type/i.test(String(error))) return true;
 
-    return /Invalid operation structure|Unsupported operation type/i.test(String(error));
+    const text = `${error} ${detailsMessage || ''}`.toUpperCase();
+
+    // 23502 — not-null, 23503 — нарушение FK, 22P02 — неверный тип в PostgreSQL.
+    // Для конкретной строки это не «временная недоступность сервера», а данные,
+    // которые сервер не примет никогда, поэтому операция сразу «сдаётся».
+    return (
+      text.includes('23502') ||
+      text.includes('23503') ||
+      text.includes('22P02') ||
+      text.includes('NOT NULL') ||
+      text.includes('NOT-NULL')
+    );
   }
 
   /**
@@ -1358,8 +1472,12 @@ class SyncService {
         // Учитываем попытку (Фаза 12): неисправимую ошибку или исчерпанный лимит —
         // «сдаёмся» (status `failed`), иначе вернём в pending и повторим.
         const attempts = (Number(op.attempts) || 0) + 1;
-        const permanent = this._isPermanentOperationError(errorResult.error);
+        const permanent = this._isPermanentOperationError(errorResult.error, details?.message);
         const giveUp = permanent || attempts >= MAX_OPERATION_ATTEMPTS;
+        // Мастеру нужен не код PostgreSQL, а действие: «исправьте запись».
+        const storedReason = permanent
+          ? `${failureText} — запись не пройдёт проверку сервера, исправьте данные`
+          : failureText;
 
         logger.error(
           `[Sync] Сервер отклонил операцию (${failureText}). ` +
@@ -1374,7 +1492,7 @@ class SyncService {
           }
         );
 
-        await operationsRepo.registerFailure(op.id, attempts, giveUp, failureText);
+        await operationsRepo.registerFailure(op.id, attempts, giveUp, storedReason);
         continue;
       }
 
@@ -1404,6 +1522,11 @@ class SyncService {
       ? options.tables
       : Object.keys(this.repos);
 
+    // Сколько записей реально приехало за проход. Нужно, чтобы отличить «сервер
+    // отдал 0» от «выгрузка не выполнялась вовсе» (живой дефект 19.10.2026: на новом
+    // телефоне база осталась пустой, и по отчёту нельзя было понять, почему).
+    let received = 0;
+
     for (const table of tables) {
       const repo = this.repos[table];
 
@@ -1418,6 +1541,8 @@ class SyncService {
         });
 
         const records = Array.isArray(response) ? response : (Array.isArray(response?.records) ? response.records : []);
+
+        received += records.length;
 
         let maxRecordMs = 0;
 
@@ -1450,6 +1575,14 @@ class SyncService {
           await metaRepo.setLastSyncedAt(table, Math.max(Date.now(), maxRecordMs + 1));
         }
       } catch (e) {
+        // Поломка локальной БД — не «ошибка одной таблицы»: остальные упадут так же,
+        // а мастеру нужно увидеть общее состояние («база не открыта»), а не 14
+        // одинаковых записей в журнале.
+        if (isDbNotReadyError(e)) {
+          this._setStatus({ lastPullRecords: received });
+          throw e;
+        }
+
         console.error(`[Sync] Ошибка при получении обновлений для таблицы "${table}":`, e);
 
         // Сеть действительно недоступна: не долбим остальные таблицы — они упадут так же,
@@ -1463,6 +1596,8 @@ class SyncService {
         // Не прерываем синхронизацию других таблиц.
       }
     }
+
+    this._setStatus({ lastPullRecords: received });
   }
 
   /**
@@ -1615,8 +1750,10 @@ class SyncService {
       // чистим явно. Иначе после смены аккаунта старые операции уедут под новым токеном.
       await operationsRepo.clearAll();
       // Очередь отчётов «Сообщить об ошибке» (Фаза 14) — по той же причине: в отчёте
-      // остаётся аккаунт и профиль, чужие отчёты уезжать не должны.
+      // остаётся аккаунт и профиль, чужие отчёты уезжать не должны. Резервная очередь
+      // (localStorage) тоже чистится: она нужна только когда SQLite не открылся.
       await feedbackRepo.clearAll();
+      feedbackOutbox.clear();
       await metaRepo.resetLastSyncedAt();
     } finally {
       this._resetting = false;

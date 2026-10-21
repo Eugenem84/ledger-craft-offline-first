@@ -26,6 +26,19 @@
 export function syncStatusView(status) {
   const s = status || {}
 
+  // Локальная БД не открылась (Фаза 21): без неё не работает ни отправка, ни приём,
+  // поэтому состояние важнее всего остального. Раньше в этом случае индикатор
+  // показывал «синхронизировано» — мастер был уверен, что данные на сервере.
+  if (s.dbError === true) {
+    return {
+      kind: 'db',
+      icon: 'storage',
+      color: 'negative',
+      label: 'база не открыта',
+      spin: false,
+    }
+  }
+
   // Без входа синк невозможен даже при сети (задача 7.4) — это самое важное
   // состояние, поэтому проверяем его первым.
   if (s.requiresAuth === true) {
@@ -103,6 +116,16 @@ export function syncStatusDetails(status, now = Date.now()) {
   const s = status || {}
   const lines = []
 
+  if (s.dbError === true) {
+    lines.push(
+      'Локальная база данных не открылась — ни отправить, ни загрузить данные не получится.'
+    )
+    lines.push(
+      'Закройте приложение полностью и откройте снова. Если не поможет — установите его заново: ' +
+        'данные загрузятся с сервера.'
+    )
+    lines.push('Отчёт об ошибке можно отправить: база для этого больше не нужна.')
+  }
   if (s.requiresAuth) {
     lines.push('Нужен вход в аккаунт — синхронизация недоступна.')
   }
@@ -149,6 +172,12 @@ export function syncStatusDetails(status, now = Date.now()) {
 export function syncStatusActions(status) {
   const s = status || {}
 
+  if (s.dbError === true) {
+    // Кнопок восстановления не добавляем: приложение поднимает БД само (повторы +
+    // резервный файл), а мастеру достаточно «Повторить» — обычный запуск синка.
+    return [{ key: 'sync', label: 'Повторить', color: 'secondary' }]
+  }
+
   if (s.requiresAuth === true) {
     return [{ key: 'login', label: 'Войти', color: 'secondary' }]
   }
@@ -178,7 +207,7 @@ export function syncStatusActions(status) {
  * @returns {boolean}
  */
 export function syncStatusNeedsAttention(status) {
-  return ['failed', 'blocked', 'error'].includes(syncStatusView(status).kind)
+  return ['db', 'failed', 'blocked', 'error'].includes(syncStatusView(status).kind)
 }
 
 /**
@@ -193,6 +222,12 @@ export function syncStatusOutcome(status) {
   const failed = Number(s.failedCount) || 0
   const pending = Number(s.pendingCount) || 0
 
+  if (s.dbError === true) {
+    return {
+      type: 'warning',
+      message: 'Локальная база не открыта — перезапустите приложение, данные загрузятся с сервера.',
+    }
+  }
   if (s.requiresAuth === true) {
     return { type: 'warning', message: 'Нужен вход в аккаунт — синхронизация недоступна.' }
   }

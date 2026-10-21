@@ -240,6 +240,57 @@ export default {
     return false;
   },
 
+  /**
+   * Обновляет payload ещё не отправленной вставки записи.
+   *
+   * Зачем (живой дефект 19.10.2026): запись, созданная офлайн, уезжает на сервер
+   * операцией `insert`. Если её поправить до синка, правка раньше **не попадала в
+   * очередь** («обновление произойдёт в рамках операции INSERT» — но код этого не
+   * делал). В результате сервер получал старую версию: у клиента с пустым именем
+   * это была вечная ошибка `23502 not-null constraint`, которую не мог исправить
+   * даже мастер, вписавший имя.
+   *
+   * Операция при этом возвращается в `pending` со сброшенными попытками — после
+   * правки данных её нужно попробовать заново.
+   *
+   * @param {string} table
+   * @param {string} localId локальный UUID записи (`payload.local_id`)
+   * @param {object} payload новые поля записи
+   * @returns {Promise<number>} сколько операций обновлено
+   */
+  async updateInsertPayload(table, localId, payload) {
+    const operations = await db.query(
+      `SELECT id, payload FROM operations
+       WHERE "table" = ? AND type = 'insert' AND status IN (?, ?, ?, ?)`,
+      [table, STATUS.PENDING, STATUS.SENDING, STATUS.BLOCKED, STATUS.FAILED]
+    );
+
+    let updated = 0;
+
+    for (const op of operations) {
+      let parsed;
+
+      try {
+        parsed = JSON.parse(op.payload);
+      } catch {
+        continue; // битый payload починит обычный синк
+      }
+
+      if (parsed?.local_id !== localId) continue;
+
+      await db.execute(
+        `UPDATE operations
+         SET payload = ?, status = ?, attempts = 0, last_error = NULL, updated_at = ?
+         WHERE id = ?`,
+        [JSON.stringify({ ...payload, local_id: localId }), STATUS.PENDING, Date.now(), op.id]
+      );
+
+      updated += 1;
+    }
+
+    return updated;
+  },
+
   /** Сколько операций «сдалось» (для индикатора и «Режима разработчика»). */
   async countFailed() {
     const rows = await db.query(

@@ -13,7 +13,7 @@
 import initSqlJs from 'sql.js'
 import { createRequire } from 'node:module'
 import path from 'node:path'
-import { setAdapter } from 'src/database/db.js'
+import { markDbReady, setAdapter } from 'src/database/db.js'
 import { runMigrations } from 'src/database/migrate.js'
 import { SCHEMA_VERSION } from 'src/database/schema-version.js'
 
@@ -145,6 +145,10 @@ export async function setupTestDb({ migrate = true } = {}) {
     await runMigrations(adapter)
     await adapter.setSchemaVersion(SCHEMA_VERSION)
   }
+
+  // Как `boot/db.js` после успешного открытия: приложение считает БД готовой
+  // (по этому флагу `sync()` не пытается открывать её заново).
+  markDbReady()
 
   return adapter
 }

@@ -16,9 +16,10 @@
 // быть тем, при котором мастер увидел проблему.
 import { apiClient, hasAuthToken } from 'src/services/api.js'
 import { API_URL } from 'src/config.js'
-import db from 'src/database/db.js'
+import db, { getDbState } from 'src/database/db.js'
 import { SCHEMA_VERSION } from 'src/database/schema-version.js'
 import feedbackRepo from 'src/repositories/feedbackRepo.js'
+import feedbackOutbox from 'src/utils/feedbackOutbox.js'
 import syncService from 'src/services/syncService.js'
 import updateService from 'src/services/updateService.js'
 import { getErrors } from 'src/utils/errorLog.js'
@@ -117,6 +118,9 @@ class FeedbackService {
           apiUrl: API_URL,
           schemaVersion: SCHEMA_VERSION,
           schemaStored: await this._schemaStored(),
+          // Состояние локальной БД (Фаза 21): без него разбор отчёта 19.10.2026
+          // упирался в «База не открыта» без причины — что именно не открылось и почему.
+          db: getDbState(),
           account,
           profile,
           sync: syncService.getStatus(),
@@ -165,14 +169,31 @@ class FeedbackService {
     const id = options.id || (globalThis.crypto?.randomUUID?.() ?? `feedback-${Date.now()}`)
     const report = await this.preview({ ...options, uuidId: id })
 
-    await feedbackRepo.enqueue({
-      id,
-      kind: report.kind,
-      message: report.message,
-      payload: report,
-    })
+    try {
+      await feedbackRepo.enqueue({
+        id,
+        kind: report.kind,
+        message: report.message,
+        payload: report,
+      })
 
-    logger.log(`[Feedback] Отчёт ${id} сохранён локально (${report.kind})`)
+      logger.log(`[Feedback] Отчёт ${id} сохранён локально (${report.kind})`)
+    } catch (error) {
+      // Локальная БД не открылась (Фаза 21): отчёт об этой поломке обязан уйти.
+      // Раньше `enqueue` падал с `[SQLITE] База не открыта`, и мастер не мог
+      // сообщить ни о чём — канал обратной связи ломался вместе с базой.
+      feedbackOutbox.add({
+        id,
+        kind: report.kind,
+        message: report.message,
+        payload: report,
+      })
+
+      logger.warn(
+        '[Feedback] Локальная БД недоступна — отчёт ждёт отправки в резервной очереди:',
+        error?.message || error
+      )
+    }
 
     const result = await this.flush()
 
@@ -200,7 +221,7 @@ class FeedbackService {
     // ⚠️ Гейта «WebView считает, что офлайн» здесь нет: флаг залипает (дефект 14.11),
     // и тогда отчёты не уходили бы вовсе. Пробуем отправить, а сетевой сбой ниже сам
     // останавливает проход — недоступный сервер мы не «долбим».
-    const records = await feedbackRepo.listPending()
+    const records = await this._pendingRecords()
 
     for (const record of records) {
       // Без входа отправлять некуда: отчёт дождётся входа, как очередь синка (7.4).
@@ -225,31 +246,117 @@ class FeedbackService {
       break
     }
 
-    state.pending = await feedbackRepo.countPending()
+    state.pending = await this.pendingCount()
 
     return state
   }
 
+  /**
+   * Все отчёты, ждущие отправки: основная очередь в SQLite + резервная в
+   * `localStorage`.
+   *
+   * Записи из резервной очереди помечаются `_outbox: true`, чтобы `_send()` знал,
+   * куда писать статус. Если SQLite не открыт, `feedbackRepo` просто не читается —
+   * отчёты всё равно уедут.
+   *
+   * @returns {Promise<Array<object>>}
+   */
+  async _pendingRecords() {
+    let stored = []
+
+    try {
+      stored = await feedbackRepo.listPending()
+    } catch (error) {
+      logger.warn('[Feedback] Очередь отчётов в БД недоступна:', error?.message || error)
+    }
+
+    const memory = feedbackOutbox
+      .list()
+      // `sending` тоже берём: приложение могло закрыться между запросом и ответом,
+      // и отчёт иначе «завис» бы в резервной очереди навсегда.
+      .filter(record => record.status === 'pending' || record.status === 'sending')
+      .map(record => ({ ...record, _outbox: true }))
+
+    return [...stored, ...memory]
+  }
+
   /** Сколько отчётов ждёт отправки (для подписи под кнопкой в настройках). */
   async pendingCount() {
-    return feedbackRepo.countPending()
+    let stored = 0
+
+    try {
+      stored = await feedbackRepo.countPending()
+    } catch (error) {
+      logger.warn('[Feedback] Не удалось прочитать очередь отчётов:', error?.message || error)
+    }
+
+    return stored + feedbackOutbox.count()
   }
 
   /** Вся очередь отчётов для диагностики и тестов (в UI не показывается — правка владельца
    *  17.09.2026: из диалога «Сообщить об ошибке» список последних отчётов убран). */
   async listAll() {
-    return feedbackRepo.listAll()
+    let stored = []
+
+    try {
+      stored = await feedbackRepo.listAll()
+    } catch (error) {
+      logger.warn('[Feedback] Не удалось прочитать историю отчётов:', error?.message || error)
+    }
+
+    return [...stored, ...feedbackOutbox.list().map(record => ({ ...record, _outbox: true }))]
+  }
+
+  /** Статусные записи: для отчёта из резервной очереди — в localStorage, иначе в БД. */
+  async _markSending(record) {
+    if (record._outbox) {
+      feedbackOutbox.update(record.id, { status: 'sending' })
+      return
+    }
+
+    await feedbackRepo.markSending(record.id)
+  }
+
+  async _markSent(record, serverId = null) {
+    if (record._outbox) {
+      feedbackOutbox.remove(record.id)
+      return
+    }
+
+    await feedbackRepo.markSent(record.id, serverId)
+  }
+
+  async _markFailed(record, message = null) {
+    if (record._outbox) {
+      feedbackOutbox.update(record.id, { status: 'failed', lastError: message ? String(message) : null })
+      return
+    }
+
+    await feedbackRepo.markFailed(record.id, message)
+  }
+
+  async _markPending(record, message = null, attempts = null) {
+    if (record._outbox) {
+      feedbackOutbox.update(record.id, {
+        status: 'pending',
+        lastError: message ? String(message) : null,
+        attempts: attempts ?? record.attempts ?? 0,
+      })
+      return
+    }
+
+    await feedbackRepo.markPending(record.id, message)
   }
 
   async _send(record) {
-    await feedbackRepo.markSending(record.id)
+    await this._markSending(record)
 
     let payload
 
     try {
       payload = JSON.parse(record.payload)
     } catch {
-      await feedbackRepo.markFailed(record.id, 'Битый payload отчёта')
+      await this._markFailed(record, 'Битый payload отчёта')
       return 'failed'
     }
 
@@ -257,7 +364,7 @@ class FeedbackService {
 
     try {
       const response = await apiClient.post('/feedback', payload)
-      await feedbackRepo.markSent(record.id, response?.data?.server_id ?? null)
+      await this._markSent(record, response?.data?.server_id ?? null)
       logger.log(`[Feedback] Отчёт ${record.id} принят сервером`)
       return 'sent'
     } catch (error) {
@@ -274,12 +381,12 @@ class FeedbackService {
       if (this._isPermanent(error) || exhausted) {
         logger.warn(`[Feedback] Отчёт ${record.id} не будет отправлен: ${message}`)
         this._retryAfter.delete(record.id)
-        await feedbackRepo.markFailed(record.id, message)
+        await this._markFailed(record, message)
         return 'failed'
       }
 
       logger.warn(`[Feedback] Отчёт ${record.id} остался в очереди: ${message}`)
-      await feedbackRepo.markPending(record.id, message)
+      await this._markPending(record, message, attempts)
       this._scheduleRetry(record.id, attempts)
 
       return 'pending'

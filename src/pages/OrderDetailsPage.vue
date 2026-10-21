@@ -176,7 +176,7 @@ const handleAddClient = async payload => {
     showClientDialog.value = false
   } catch (err) {
     logger.error('[Order] Не удалось добавить клиента:', err)
-    notify('negative', 'Ошибка добавления клиента')
+    notify('negative', err?.message || 'Ошибка добавления клиента')
   }
 }
 

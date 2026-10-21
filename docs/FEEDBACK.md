@@ -64,6 +64,7 @@
   "api_url": "https://dev.medovf2h.beget.tech/api",
   "schema_version": 30,
   "schema_stored": 30,
+  "db": { "ready": true, "error": null, "attempts": 0, "source": null },
   "account": "master@example.com",
   "profile": "Велосервис",
   "sync": {
@@ -91,6 +92,7 @@
 | `device`                          | модель устройства (пока `null`)                    | появится с `@capacitor/device`                 |
 | `api_url`                         | контур (dev/prod)                                  | `src/config.js`                                |
 | `schema_version`, `schema_stored` | эталон схемы и то, что в БД                        | `SCHEMA_VERSION`, `adapter.getSchemaVersion()` |
+| `db`                              | открылась ли локальная БД и почему нет (Фаза 21)    | `database/db.js` → `getDbState()`              |
 | `account`, `profile`              | аккаунт и активный профиль                         | `useAuthStore`, `useSpecializationsStore` (D4) |
 | `sync`                            | состояние синка на момент отчёта                   | `SyncService.getStatus()`                      |
 | `errors`                          | хвост постоянного буфера ошибок (≤ 50)             | `src/utils/errorLog.js`                        |

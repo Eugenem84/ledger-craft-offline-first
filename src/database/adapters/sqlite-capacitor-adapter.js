@@ -20,11 +20,48 @@
 //    внутри своей транзакции это дало бы вложенный BEGIN — поэтому передаём false.
 import { CapacitorSQLite, SQLiteConnection } from '@capacitor-community/sqlite'
 import { logger } from 'src/utils/logger'
+import storage from 'src/utils/storage.js'
 
 // Имя БД. Плагин добавляет суффикс «SQLite» и расширение .db, поэтому файл на
 // Android называется `ledgercraftSQLite.db` и лежит в
 // data/data/<package>/databases/.
-const DB_NAME = 'ledgercraft'
+//
+// Фаза 21: имя больше не константа. Если соединение «застряло» в нативном
+// плагине (см. `recover()`), приложение открывает следующий файл
+// (`ledgercraft2`, `ledgercraft3`, …), а имя запоминает в `localStorage`, чтобы
+// после перезапуска работать с тем же файлом.
+const DEFAULT_DB_NAME = 'ledgercraft'
+const DB_NAME_KEY = 'sqlite_db_name'
+
+const storedName = String(storage.getItem(DB_NAME_KEY) || '').trim()
+let dbName = /^ledgercraft\d*$/.test(storedName) ? storedName : DEFAULT_DB_NAME
+
+/** Следующее имя файла БД: `ledgercraft` → `ledgercraft2` → `ledgercraft3`. */
+function nextDatabaseName(name) {
+  const match = /^(.*?)(\d+)?$/.exec(name)
+  const base = match?.[1] || DEFAULT_DB_NAME
+  const index = Number(match?.[2] || 1)
+
+  return `${base}${index + 1}`
+}
+
+/**
+ * Ошибка «соединения нет».
+ *
+ * `code: 'DB_NOT_READY'` нужен вызывающему коду (`syncService`, `feedbackService`),
+ * чтобы отличить поломку локальной БД от сетевой/серверной ошибки: такую ошибку
+ * бессмысленно повторять запросом, её видно в индикаторе синка, а отчёт об ошибке
+ * уходит через резервную очередь.
+ */
+function notReadyError() {
+  const error = new Error(
+    `[SQLITE] База не открыта: init() не вызван или соединение закрыто (${dbName})`
+  )
+
+  error.code = 'DB_NOT_READY'
+
+  return error
+}
 
 // Шифрование файла (SQLCipher) требует хранения пароля (setEncryptionSecret) и UI
 // для его ввода — это задача Фазы 7 (безопасность). Пока файл не шифруем.
@@ -41,36 +78,165 @@ let connection = null
 // Признак своей транзакции: нативный SQLite не терпит вложенных BEGIN.
 let inTransaction = false
 
+/** Открыто ли соединение в этом JS-контексте (для UI/диагностики). */
+function isOpen() {
+  return connection !== null
+}
+
+/**
+ * Переключает приложение на следующий файл БД (см. подробности в `recover()`).
+ * Вынесено в модульную функцию: `init()` может вызывать её без привязки к `this`.
+ * @param {*} [cause]
+ * @returns {boolean}
+ */
+function rotateDatabaseName(cause = null) {
+  const previous = dbName
+
+  dbName = nextDatabaseName(dbName)
+  connection = null
+  storage.trySetItem(DB_NAME_KEY, dbName)
+
+  logger.error(
+    `[SQLITE] Локальная БД «${previous}» недоступна (${cause?.message || cause || 'без причины'}) — ` +
+      `создаю новую «${dbName}». Данные будут загружены с сервера.`
+  )
+
+  return true
+}
+
 function requireConnection() {
   if (!connection) {
-    throw new Error('[SQLITE] База не открыта: init() не вызван или соединение закрыто')
+    throw notReadyError()
   }
   return connection
+}
+
+/**
+ * Открывает (или создаёт) файл БД по имени.
+ *
+ * Почему так осторожно (живой дефект 19.10.2026, новый телефон):
+ * `checkConnectionsConsistency()` в плагине 7.0.3 при пустой JS-карте вызывает
+ * нативное `closeAllConnections()`, а тот бросает `database <name> not opened`,
+ * если в словаре плагина осталось соединение, которое ещё не открывали. Ошибка
+ * не чистит словарь, поэтому **каждый** следующий `init()` падал так же — до
+ * перезапуска процесса. Здесь сбой сверки не считается приговором: идём своим
+ * путём (`isConnection` → `retrieveConnection`/`createConnection`), а если и это
+ * не выйдет, `init()` переключится на резервный файл БД (см. `recover()`).
+ *
+ * @param {string} name имя БД (без суффикса `SQLite.db`)
+ * @returns {Promise<object>} открытое соединение
+ */
+async function openConnection(name) {
+  try {
+    await sqlite.checkConnectionsConsistency()
+  } catch (error) {
+    logger.warn('[SQLITE] Сверка соединений плагина не удалась (продолжаем):', error?.message || error)
+  }
+
+  let connection = null
+
+  try {
+    const existing = await sqlite.isConnection(name, false)
+
+    if (existing?.result) {
+      connection = await sqlite.retrieveConnection(name, false)
+    }
+  } catch (error) {
+    logger.warn('[SQLITE] Не удалось переиспользовать соединение:', error?.message || error)
+    connection = null
+  }
+
+  if (!connection) {
+    try {
+      connection = await sqlite.createConnection(
+        name,
+        DB_ENCRYPTED,
+        DB_MODE,
+        DB_CONNECTION_VERSION,
+        false
+      )
+    } catch (error) {
+      const message = String(error?.message || error || '')
+
+      // Нативная запись жива, а JS-карта пуста (перезагрузка WebView): забираем
+      // существующее соединение вместо создания нового.
+      if (/already exists/i.test(message)) {
+        connection = await sqlite.retrieveConnection(name, false)
+      } else {
+        throw error
+      }
+    }
+  }
+
+  try {
+    await connection.open()
+  } catch (error) {
+    // Повторный `open()` уже открытого соединения плагин отвергает — это не поломка.
+    if (!/already open/i.test(String(error?.message || error))) {
+      throw error
+    }
+  }
+
+  return connection
+}
+
+/** Сообщение нативного плагина, после которого соединение считается «застрявшим». */
+function isStuckConnectionError(error) {
+  return /already exists|not opened|close all connections/i.test(String(error?.message || error))
 }
 
 export default {
   name: 'sqlite-capacitor',
 
+  /** Имя файла БД, с которым работает приложение (диагностика/бэкап). */
+  get databaseName() {
+    return dbName
+  },
+
+  /** Открыто ли соединение в этом JS-контексте. */
+  isOpen,
+
   /**
    * Открывает (или создаёт) файл БД, переиспользуя живое соединение, если плагин его знает.
    */
   async init() {
-    const consistency = await sqlite.checkConnectionsConsistency()
-    const existing = await sqlite.isConnection(DB_NAME, false)
+    try {
+      connection = await openConnection(dbName)
+    } catch (error) {
+      if (!isStuckConnectionError(error)) {
+        throw error
+      }
 
-    connection =
-      consistency.result && existing.result
-        ? await sqlite.retrieveConnection(DB_NAME, false)
-        : await sqlite.createConnection(
-            DB_NAME,
-            DB_ENCRYPTED,
-            DB_MODE,
-            DB_CONNECTION_VERSION,
-            false
-          )
+      logger.warn(
+        '[SQLITE] Соединение застряло в нативном плагине — открываю резервный файл БД:',
+        error?.message || error
+      )
 
-    await connection.open()
-    logger.log(`[SQLITE] База «${DB_NAME}» открыта (нативный SQLite, файл на диске)`)
+      const rotated = rotateDatabaseName(error)
+
+      if (!rotated) {
+        throw error
+      }
+
+      connection = await openConnection(dbName)
+    }
+
+    logger.log(`[SQLITE] База «${dbName}» открыта (нативный SQLite, файл на диске)`)
+  },
+
+  /**
+   * Аварийное восстановление: следующее имя файла БД.
+   *
+   * Когда нужно: нативное соединение «застряло» (плагин не отдаёт и не закрывает
+   * его), либо файл повреждён. В обоих случаях прочитать старую БД нельзя, поэтому
+   * приложение открывает новый файл, прогоняет миграции и при первом же синке
+   * получает все данные с сервера (курсоры пусты → `since = 0`).
+   *
+   * @param {*} [cause] причина — попадает в постоянный буфер ошибок
+   * @returns {Promise<boolean>} true — имя переключено, можно пробовать `init()` снова
+   */
+  async recover(cause = null) {
+    return rotateDatabaseName(cause)
   },
 
   /**
@@ -184,12 +350,31 @@ export default {
       connection = null
     }
 
-    await sqlite.importFromJson(json)
+    // После аварийного восстановления приложение работает с другим файлом
+    // (`ledgercraft2`), а в бэкапе записано старое имя. Импорт в старое имя
+    // оставил бы приложение без данных, поэтому имя в JSON приводим к текущему.
+    let payload = json
+
+    try {
+      const parsed = JSON.parse(json)
+
+      if (parsed && typeof parsed === 'object' && typeof parsed.database === 'string') {
+        parsed.database = dbName
+        payload = JSON.stringify(parsed)
+      }
+    } catch {
+      // Не наш формат — отдаём плагину как есть, он сам ответит ошибкой.
+    }
+
+    await sqlite.importFromJson(payload)
     logger.log('[SQLITE] База восстановлена из JSON-бэкапа')
   },
 
   /**
    * Удаляет файл БД (кнопка «удалить локальную БД» на странице настроек).
+   *
+   * После удаления соединения нет — `requireConnection()` сообщит `DB_NOT_READY`,
+   * а приложение предложит перезапуск (см. `DeveloperPanel.vue`).
    */
   async deleteDatabase() {
     if (connection) {
@@ -199,7 +384,7 @@ export default {
       return
     }
 
-    await CapacitorSQLite.deleteDatabase({ database: DB_NAME })
+    await CapacitorSQLite.deleteDatabase({ database: dbName })
   },
 
   // Заглушки интерфейса: очередь операций живёт в таблице `operations`

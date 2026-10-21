@@ -6,10 +6,18 @@
 // Синхронизация здесь больше **не запускается** (задача 6.1): раньше `await syncService.sync()`
 // блокировал рендер приложения, пока идёт сетевой обмен. Теперь старт синка —
 // в `App.vue` после монтирования (`syncService.startAutoSync()`), фоном.
+//
+// Фаза 21 (живой отчёт 19.10.2026, новый телефон): открытие БД вынесено в
+// `database/init.js`. Раньше ошибка `init()` глоталась (`console.error`), приложение
+// стартовало «нормально», и дальше каждая операция падала «База не открыта»: синк не
+// мог ни отправить очередь, ни скачать данные с сервера, а отчёт об ошибке не уходил.
+// Теперь есть повторы, запись причины в постоянный буфер и автоматическое
+// восстановление файла БД (данные приезжают с сервера при первом же синке).
 import { logger } from 'src/utils/logger'
 import { boot } from 'quasar/wrappers'
 import { runMigrations, checkSchemaVersion } from 'src/database/migrate.js'
 import { setAdapter } from 'src/database/db.js'
+import { initDatabase } from 'src/database/init.js'
 import { autoBackupIfDue } from 'src/services/backupService.js'
 import { isNativePlatform } from 'src/utils/platform'
 
@@ -42,23 +50,30 @@ async function resolveAdapter() {
 export default boot(async () => {
   logger.log('[DB] Boot start') // 1️⃣ запуск boot-файла
 
-  try {
-    const adapter = await resolveAdapter()
-    setAdapter(adapter)
-    await adapter.init()
+  const adapter = await resolveAdapter()
+  setAdapter(adapter)
 
-    const applied = await runMigrations(adapter)
-    logger.log(`[DB] Миграций применено в этом запуске: ${applied}`)
+  const result = await initDatabase(adapter, {
+    migrate: runMigrations,
+    schemaCheck: checkSchemaVersion,
+    log: logger,
+  })
 
-    await checkSchemaVersion(adapter)
+  if (!result.ok) {
+    // Причина уже записана в постоянный буфер (`initDatabase` → `logger.error`).
+    // Приложение продолжаем запускать: без БД часть экранов работает, а фидбек
+    // умеет отправить отчёт и без неё (`utils/feedbackOutbox.js`). Индикатор синка
+    // покажет «база не открыта», а не «синхронизировано».
+    logger.log('[DB] Boot end (без локальной БД)')
+    return
+  }
 
-    // Автобэкап (4.4) — только нативно: у sql.js копия данных уже лежит в
-    // localStorage, а на Android бэкап — это файл, который делает плагин.
-    if (isNativePlatform()) {
-      await autoBackupIfDue()
-    }
-  } catch (err) {
-    console.error('[DB] Ошибка при инициализации:', err)
+  logger.log(`[DB] Миграций применено в этом запуске: ${result.applied}`)
+
+  // Автобэкап (4.4) — только нативно: у sql.js копия данных уже лежит в
+  // localStorage, а на Android бэкап — это файл, который делает плагин.
+  if (isNativePlatform()) {
+    await autoBackupIfDue()
   }
 
   logger.log('[DB] Boot end')
